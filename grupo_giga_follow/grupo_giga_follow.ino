@@ -56,16 +56,20 @@ float mapMPP=2.0f; bool touchWasDown=false;
 // cores viram VARIAVEIS de tema (setadas por applyTheme) -> resto do desenho nao muda
 uint16_t C_BG,C_CARD,C_LINE,C_BLUE,C_AMBER,C_ROUTE,C_ROUTEC,C_TRAV,C_TRAVC,C_RED,C_MUT,C_YEL;
 const uint16_t C_WHITE=0xFFFF;
+uint8_t C_FL;   // flags de estilo do tema
+#define FL_CORNERS 1
+#define FL_GRID    2
+#define FL_CROSS   4
 #define RGB(r,g,b) ((uint16_t)((((r)&0xF8)<<8)|(((g)&0xFC)<<3)|((b)>>3)))
-struct Theme{ uint16_t bg,card,line,you,leader,route,routec,trav,travc,red,mut; const char* name; };
+struct Theme{ uint16_t bg,card,line,you,leader,route,routec,trav,travc,red,mut; uint8_t fl; const char* name; };
 const Theme THEMES[3]={
- { RGB(11,9,6),   RGB(29,24,16), RGB(61,49,25), RGB(40,216,255),  RGB(255,210,62),  RGB(255,149,0),  RGB(90,58,0),  RGB(90,70,34), RGB(50,40,20), RGB(255,59,48), RGB(179,155,111), "RALLY" },
- { RGB(10,13,9),  RGB(21,27,16), RGB(47,61,32), RGB(232,255,207), RGB(255,122,26),  RGB(166,255,77), RGB(40,70,18), RGB(60,74,42), RGB(35,45,26), RGB(255,47,32), RGB(127,144,104),"TATICO" },
- { RGB(10,12,16), RGB(24,30,38), RGB(32,42,52), RGB(0,229,255),   RGB(255,255,255), RGB(0,229,255),  RGB(16,50,60), RGB(38,66,74), RGB(28,46,52), RGB(255,56,96), RGB(102,114,126),"HUD" },
+ { RGB(11,9,6),   RGB(29,24,16), RGB(61,49,25), RGB(40,216,255),  RGB(255,210,62),  RGB(255,149,0),  RGB(90,58,0),  RGB(90,70,34), RGB(50,40,20), RGB(255,59,48), RGB(179,155,111), FL_CORNERS,        "RALLY" },
+ { RGB(10,13,9),  RGB(21,27,16), RGB(47,61,32), RGB(232,255,207), RGB(255,122,26),  RGB(166,255,77), RGB(40,70,18), RGB(60,74,42), RGB(35,45,26), RGB(255,47,32), RGB(127,144,104),FL_GRID|FL_CROSS,  "TATICO" },
+ { RGB(10,12,16), RGB(24,30,38), RGB(32,42,52), RGB(0,229,255),   RGB(255,255,255), RGB(0,229,255),  RGB(16,50,60), RGB(38,66,74), RGB(28,46,52), RGB(255,56,96), RGB(102,114,126),0,                 "HUD" },
 };
 int themeIdx=0;
 void applyTheme(int i){ if(i<0||i>2)i=0; themeIdx=i; const Theme&t=THEMES[i];
-  C_BG=t.bg;C_CARD=t.card;C_LINE=t.line;C_BLUE=t.you;C_AMBER=t.leader;C_ROUTE=t.route;C_ROUTEC=t.routec;C_TRAV=t.trav;C_TRAVC=t.travc;C_RED=t.red;C_MUT=t.mut;C_YEL=0xFE60; }
+  C_BG=t.bg;C_CARD=t.card;C_LINE=t.line;C_BLUE=t.you;C_AMBER=t.leader;C_ROUTE=t.route;C_ROUTEC=t.routec;C_TRAV=t.trav;C_TRAVC=t.travc;C_RED=t.red;C_MUT=t.mut;C_YEL=0xFE60;C_FL=t.fl; }
 void saveTheme(){ uint8_t t=(uint8_t)themeIdx; kv_set("dev_theme",&t,1,0); }
 void loadTheme(){ uint8_t t=0; size_t a=0; if(kv_get("dev_theme",&t,1,&a)==0&&a>0&&t<3) themeIdx=t; }
 const double OFFROUTE_M=30.0;
@@ -171,6 +175,18 @@ void readLoRa(){ int g=0; uint16_t id; uint8_t cmd=0,p[240],plen=0;
   while(g++<8 && lora.ReceivePacketCommand(&id,&cmd,p,&plen,15)) handleRx(cmd,p,plen); }
 
 // ---- desenho ----
+// detalhes de estilo por tema (grid/mira = fundo ; cantos = frente)
+void chromeBg(){
+  if(C_FL&FL_GRID){ for(int x=44;x<SCR_W;x+=46) gfx.drawFastVLine(x,26,SCR_H-26,C_LINE); for(int y=44;y<SCR_H;y+=46) gfx.drawFastHLine(0,y,SCR_W,C_LINE); }
+  if(C_FL&FL_CROSS){ gfx.drawFastHLine(CXp-18,CYp,36,C_ROUTE); gfx.drawFastVLine(CXp,CYp-18,36,C_ROUTE); }
+}
+void chromeFg(){
+  if(!(C_FL&FL_CORNERS)) return; int L=26,m=6; uint16_t c=C_ROUTE;
+  gfx.drawFastHLine(m,m,L,c); gfx.drawFastVLine(m,m,L,c);
+  gfx.drawFastHLine(SCR_W-m-L,m,L,c); gfx.drawFastVLine(SCR_W-m-1,m,L,c);
+  gfx.drawFastHLine(m,SCR_H-m-1,L,c); gfx.drawFastVLine(m,SCR_H-m-L,L,c);
+  gfx.drawFastHLine(SCR_W-m-L,SCR_H-m-1,L,c); gfx.drawFastVLine(SCR_W-m-1,SCR_H-m-L,L,c);
+}
 void triMarker(int cx,int cy,uint16_t col,int s){
   gfx.fillTriangle(cx,cy-s, cx-(int)(0.62f*s),cy+(int)(0.72f*s), cx+(int)(0.62f*s),cy+(int)(0.72f*s), col);
   gfx.fillTriangle(cx,cy-s, cx,cy+(int)(0.32f*s), cx+(int)(0.62f*s),cy+(int)(0.72f*s), col); // corpo cheio
@@ -190,9 +206,9 @@ int nearestRouteIdx(double la,double lo){ int best=-1; double bd=1e18;
   return best; }
 
 void drawMap(){
-  gfx.fillScreen(C_BG);
+  gfx.fillScreen(C_BG); chromeBg();
   double clat=myLat,clon=myLon,chead=myHeading;
-  if(!myFix){ gfx.setTextColor(C_AMBER); gfx.setTextSize(3); gfx.setCursor(30,CYp-20); gfx.print("PROCURANDO GPS..."); triMarker(CXp,CYp,C_BLUE,16); return; }
+  if(!myFix){ gfx.setTextColor(C_AMBER); gfx.setTextSize(3); gfx.setCursor(30,CYp-20); gfx.print("PROCURANDO GPS..."); triMarker(CXp,CYp,C_BLUE,16); chromeFg(); return; }
   int myNear=nearestRouteIdx(clat,clon);
   double myBest=1e9; if(myNear>=0){ int mi=(routeHead-routeN+myNear+ROUTE_MAX)%ROUTE_MAX; myBest=haversine(clat,clon,route[mi].lat,route[mi].lon); }
   int psx=-1,psy=-1; double plat=0,plon=0; bool havePrev=false;
@@ -219,6 +235,7 @@ void drawMap(){
     for(int t=0;t<6;t++) gfx.drawRect(t,t,SCR_W-1-2*t,SCR_H-1-2*t,C_YEL);
     gfx.setTextColor(C_YEL); gfx.setTextSize(3); gfx.setCursor(CXp-110,20); gfx.print("FORA DE ROTA");
   }
+  chromeFg();
   bool off=(worldRxMs==0||millis()-worldRxMs>LEAD_TTL);
   if(off){ card(SCR_W/2-110,8,220,30); gfx.setTextColor(C_RED); gfx.setTextSize(2); gfx.setCursor(SCR_W/2-90,16); gfx.print("LIDER OFFLINE"); }
 }
