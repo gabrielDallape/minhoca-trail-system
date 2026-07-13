@@ -96,7 +96,7 @@ void readGPS(){
 }
 void sendUplink(){
   uint8_t p[13]; int o=0; p[o++]=room&0xFF;p[o++]=(room>>8)&0xFF;p[o++]=(room>>16)&0xFF; p[o++]=curSlot;
-  uint8_t fl=0; if(myFix)fl|=2; if(millis()<myAlertUntil)fl|=4; p[o++]=fl;
+  uint8_t fl=0; if(myFix)fl|=2; if(myAlert)fl|=4; p[o++]=fl;
   putLE32(p+o,(int32_t)(myLat*1e7)); o+=4; putLE32(p+o,(int32_t)(myLon*1e7)); o+=4;
   lora.PrepareFrameCommand(LEADER_ID,CMD_UPLINK,p,o); lora.SendPacket();
 }
@@ -227,8 +227,8 @@ void drawUI(){
     card(10,SCR_H-84,200,74); gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(24,SCR_H-76); gfx.print("LIDER");
     gfx.setTextColor(C_WHITE); gfx.setTextSize(5); gfx.setCursor(20,SCR_H-60);
     if(d>=1000) snprintf(b,sizeof(b),"%.1fkm",d/1000.0); else snprintf(b,sizeof(b),"%dm",(int)d); gfx.print(b); }
-  // FAB alerta
-  bool on=(millis()<myAlertUntil)&&((millis()/300)%2==0);
+  // FAB alerta (toggle: fica aceso ate desligar)
+  bool on=myAlert;
   gfx.fillCircle(abX,abY,abR, on?C_RED:C_CARD); gfx.drawCircle(abX,abY,abR,C_RED);
   uint16_t tc=on?C_WHITE:C_RED; gfx.fillTriangle(abX,abY-16,abX-16,abY+13,abX+16,abY+13,tc);
   gfx.fillRect(abX-2,abY-6,4,11,on?C_RED:C_CARD); gfx.fillRect(abX-2,abY+8,4,4,on?C_RED:C_CARD);
@@ -281,7 +281,7 @@ void handleTouch(){
   if(n>0){ int tx=p[0].y, ty=(SCR_H-1)-p[0].x;   // mapeamento original do GIGA
     if(!touchWasDown){
       if(room==0){ if(uiPage==0) homeTouch(tx,ty); else keypadTouch(tx,ty); }
-      else if((tx-abX)*(tx-abX)+(ty-abY)*(ty-abY) <= (abR+8)*(abR+8)) myAlertUntil=millis()+4000;
+      else if((tx-abX)*(tx-abX)+(ty-abY)*(ty-abY) <= (abR+8)*(abR+8)) myAlert=!myAlert;   // liga/desliga
     }
     touchWasDown=true; } else touchWasDown=false;
 }
@@ -300,7 +300,7 @@ void setup(){
 void loop(){
   handleSerial(); readGPS(); readLoRa(); handleTouch();
   unsigned long now=millis();
-  if(leaderRole||joined){ int msi=leaderRole?0:curSlot; world[msi].active=true; world[msi].fix=myFix; world[msi].alert=(now<myAlertUntil);
+  if(leaderRole||joined){ int msi=leaderRole?0:curSlot; world[msi].active=true; world[msi].fix=myFix; world[msi].alert=myAlert;
     world[msi].lat=myLat; world[msi].lon=myLon; world[msi].lastMs=now; }
   if(room!=0){
     if(leaderRole){ leaderRecordOwnPath(); static uint8_t cyc=0; if(now-lastCycle>=CYCLE_MS){ if(myFix){ sendWorld(); if((cyc++%3)==0) sendRoster(); } lastCycle=now; } }

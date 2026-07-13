@@ -273,7 +273,7 @@ void sendUplink(){
   uint8_t p[13]; int o=0;
   p[o++]=cfg.room&0xFF; p[o++]=(cfg.room>>8)&0xFF; p[o++]=(cfg.room>>16)&0xFF;
   p[o++]=curSlot;
-  uint8_t fl=0; if(myFix)fl|=2; if(millis()<myAlertUntil)fl|=4; p[o++]=fl;
+  uint8_t fl=0; if(myFix)fl|=2; if(myAlert)fl|=4; p[o++]=fl;
   putLE32(p+o,(int32_t)(myLat*1e7)); o+=4; putLE32(p+o,(int32_t)(myLon*1e7)); o+=4;
   lora.PrepareFrameCommand(LEADER_ID,CMD_UPLINK,p,o); lora.SendPacket();
 }
@@ -447,8 +447,8 @@ void drawUI(){
     if(d>=1000) snprintf(b,sizeof(b),"%.1fkm",d/1000.0); else snprintf(b,sizeof(b),"%dm",(int)d);
     tft.print(b);
   }
-  // botao de alerta (FAB) canto inf direito - so o simbolo
-  bool aOn = (millis()<myAlertUntil) && ((millis()/300)%2==0);
+  // botao de alerta (FAB) canto inf direito - so o simbolo ; toggle (fica aceso ate desligar)
+  bool aOn = myAlert;
   int fx=SCR_W-30, fy=SCR_H-30;
   tft.fillCircle(fx,fy,24, aOn?C_RED:C_CARD); tft.drawCircle(fx,fy,24,C_RED);
   uint16_t tc=aOn?C_WHITE:C_RED; tft.fillTriangle(fx,fy-12,fx-12,fy+10,fx+12,fy+10,tc);
@@ -513,7 +513,7 @@ void handleTouch(){
   if(tft.getTouch(&tx,&ty)){
     if(!touchWasDown){
       if(cfg.room==0){ if(uiPage==0) homeTouch(tx,ty); else keypadTouch(tx,ty); }
-      else { int fx=SCR_W-30, fy=SCR_H-30; if((tx-fx)*(tx-fx)+(ty-fy)*(ty-fy) <= 30*30) myAlertUntil=millis()+4000; }
+      else { int fx=SCR_W-30, fy=SCR_H-30; if((tx-fx)*(tx-fx)+(ty-fy)*(ty-fy) <= 30*30) myAlert=!myAlert; }   // liga/desliga
     }
     touchWasDown=true;
   } else touchWasDown=false;
@@ -546,7 +546,7 @@ void loop(){
   // meu no no mundo (so quando ja tenho vaga)
   int ms = isLeader()?0:curSlot;
   if(isLeader()||joined){
-    world[ms].active=true; world[ms].fix=myFix; world[ms].alert=(now<myAlertUntil);
+    world[ms].active=true; world[ms].fix=myFix; world[ms].alert=myAlert;
     world[ms].lat=myLat; world[ms].lon=myLon; world[ms].lastMs=now; world[ms].color=cfg.color;
   }
 
