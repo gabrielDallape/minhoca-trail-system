@@ -14,6 +14,11 @@
 #include "Arduino_GigaDisplay_GFX.h"
 #include "Arduino_GigaDisplayTouch.h"
 #include "LoRaMESH.h"
+#include <Fonts/FreeSans9pt7b.h>
+#include <Fonts/FreeSans12pt7b.h>
+#include <Fonts/FreeSansBold12pt7b.h>
+#include <Fonts/FreeSansBold18pt7b.h>
+#include <Fonts/FreeSansBold24pt7b.h>
 
 GigaDisplay_GFX          gfx;
 Arduino_GigaDisplayTouch touch;
@@ -30,7 +35,7 @@ const unsigned long SLOT_MS=450, CYCLE_MS=(unsigned long)MAXN*SLOT_MS, NODE_TTL=
 uint32_t room=0; uint8_t mySlot=1;
 char codeBuf[6]=""; int codeLen=0;
 bool leaderRole=false; uint16_t routeSeq=0; unsigned long lastCycle=0; double lastAddLat=0,lastAddLon=0; bool haveAdd=false;
-uint8_t uiPage=0, pendingRole=0;
+uint8_t uiPage=0, pendingRole=0; bool searching=false;   // seguidor procurando a sala existir
 
 // mundo
 struct Node{ bool active; double lat,lon; bool fix; bool alert; unsigned long lastMs; uint8_t color; };
@@ -81,9 +86,9 @@ void routeAdd(double la,double lo){ route[routeHead].lat=la; route[routeHead].lo
 void handleSerial(){
   if(!Serial.available()) return; char c=Serial.read();
   if(c=='R'){ uint32_t v=0; for(int i=0;i<5;i++){ while(!Serial.available()){} char d=Serial.read(); if(d>='0'&&d<='9')v=v*10+(d-'0'); } room=v; Serial.print("sala="); Serial.println(room); }
-  else if(c=='F'){ while(!Serial.available()){} int n=Serial.read()-'0'; if(n>=1&&n<MAXN){ curSlot=n; joined=true; leaderRole=false; Serial.print("slot="); Serial.println(curSlot);} }
-  else if(c=='L'){ leaderRole=true; if(room==0)room=48291; curSlot=0; joined=true; ruid[0]=myUid; strncpy(rname[0],myName,15); rname[0][15]=0; rcolor[0]=myColor; haveRoster=true; Serial.println("LIDER"); }
-  else if(c=='X'){ room=0; uiPage=0; leaderRole=false; joined=false; codeLen=0; codeBuf[0]=0; Serial.println("saiu"); }
+  else if(c=='F'){ while(!Serial.available()){} int n=Serial.read()-'0'; if(n>=1&&n<MAXN){ curSlot=n; joined=true; leaderRole=false; searching=false; Serial.print("slot="); Serial.println(curSlot);} }
+  else if(c=='L'){ leaderRole=true; if(room==0)room=48291; curSlot=0; joined=true; searching=false; ruid[0]=myUid; strncpy(rname[0],myName,15); rname[0][15]=0; rcolor[0]=myColor; haveRoster=true; Serial.println("LIDER"); }
+  else if(c=='X'){ room=0; uiPage=0; leaderRole=false; joined=false; searching=false; codeLen=0; codeBuf[0]=0; Serial.println("saiu"); }
 }
 
 void readGPS(){
@@ -146,7 +151,7 @@ void handleRx(uint8_t cmd,uint8_t*p,uint8_t plen){
     return;
   }
   if(cmd==CMD_WORLD && plen>=4+8+72+3 && roomOf(p)==room){
-    worldRxMs=millis(); int o=4;
+    worldRxMs=millis(); searching=false; int o=4;   // achou a sala (ouviu o lider)
     for(int k=0;k<MAXN;k++) world[k].color=p[o++];
     for(int k=0;k<MAXN;k++){ uint8_t fl=p[o]; world[k].active=fl&1; world[k].fix=fl&2; world[k].alert=fl&4;
       world[k].lat=getLE32(p+o+1)/1e7; world[k].lon=getLE32(p+o+5)/1e7; if(world[k].active) world[k].lastMs=millis(); o+=9; }
@@ -170,6 +175,10 @@ void roadSeg(int x0,int y0,int x1,int y1,uint16_t cas,uint16_t fil,int wc,int wf
   for(int d=-(wf/2);d<=wf/2;d++){ gfx.drawLine(x0+d,y0,x1+d,y1,fil); gfx.drawLine(x0,y0+d,x1,y1+d,fil); }
 }
 void card(int x,int y,int w,int h){ gfx.fillRoundRect(x,y,w,h,7,C_CARD); gfx.drawRoundRect(x,y,w,h,7,C_LINE); }
+// texto com fonte de verdade (y = base da linha). Depois volta pra fonte padrao.
+void txt(const GFXfont*f,int x,int y,uint16_t col,const char*s){ gfx.setFont(f); gfx.setTextSize(1); gfx.setTextColor(col); gfx.setCursor(x,y); gfx.print(s); gfx.setFont(NULL); }
+int txtW(const GFXfont*f,const char*s){ int16_t x1,y1; uint16_t w,h; gfx.setFont(f); gfx.setTextSize(1); gfx.getTextBounds(s,0,0,&x1,&y1,&w,&h); gfx.setFont(NULL); return w; }
+void txtC(const GFXfont*f,int cx,int y,uint16_t col,const char*s){ txt(f,cx-txtW(f,s)/2,y,col,s); }
 int nearestRouteIdx(double la,double lo){ int best=-1; double bd=1e18;
   for(int k=0;k<routeN;k++){ int idx=(routeHead-routeN+k+ROUTE_MAX)%ROUTE_MAX; double d=haversine(la,lo,route[idx].lat,route[idx].lon); if(d<bd){bd=d;best=k;} }
   return best; }
@@ -234,17 +243,20 @@ void drawUI(){
   gfx.fillRect(abX-2,abY-6,4,11,on?C_RED:C_CARD); gfx.fillRect(abX-2,abY+8,4,4,on?C_RED:C_CARD);
 }
 // ---- tela inicial: escolher o papel DESTA saida ----
-void homeRects(int&bx,int&bw,int&bh,int&by1,int&by2){ bw=SCR_W-80; bx=40; bh=(int)(SCR_H*0.26); by1=(int)(SCR_H*0.30); by2=by1+bh+20; }
+void homeRects(int&bx,int&bw,int&bh,int&by1,int&by2){ bw=SCR_W-80; bx=40; bh=132; by1=168; by2=by1+bh+22; }
 void drawHome(){
   gfx.fillScreen(C_BG);
-  gfx.setTextColor(C_WHITE); gfx.setTextSize(4); gfx.setCursor(40,(int)(SCR_H*0.10)); gfx.print("Trilha");
-  gfx.setTextColor(C_MUT); gfx.setTextSize(2); gfx.setCursor(40,(int)(SCR_H*0.10)+42); gfx.print("escolha o papel para esta saida");
+  txt(&FreeSansBold24pt7b,40,78,C_WHITE,"TRILHA");
+  txt(&FreeSans12pt7b,42,112,C_MUT,"Escolha o papel para esta saida");
   int bx,bw,bh,by1,by2; homeRects(bx,bw,bh,by1,by2);
-  gfx.fillRoundRect(bx,by1,bw,bh,12,C_ROUTE); gfx.setTextColor(C_BG); gfx.setTextSize(4); gfx.setCursor(bx+bw/2-120,by1+bh/2-14); gfx.print("CRIAR SALA");
-  gfx.setTextColor(C_BG); gfx.setTextSize(2); gfx.setCursor(bx+bw/2-72,by1+bh-32); gfx.print("(voce = lider)");
-  gfx.drawRoundRect(bx,by2,bw,bh,12,C_BLUE); gfx.drawRoundRect(bx+1,by2+1,bw-2,bh-2,12,C_BLUE);
-  gfx.setTextColor(C_BLUE); gfx.setTextSize(4); gfx.setCursor(bx+bw/2-140,by2+bh/2-14); gfx.print("ENTRAR NA SALA");
-  gfx.setTextColor(C_MUT); gfx.setTextSize(2); gfx.setCursor(bx+bw/2-90,by2+bh-32); gfx.print("(voce = seguidor)");
+  // CRIAR (preenchido)
+  gfx.fillRoundRect(bx,by1,bw,bh,16,C_ROUTE);
+  txt(&FreeSansBold24pt7b,bx+40,by1+66,C_BG,"CRIAR SALA");
+  txt(&FreeSans12pt7b,bx+42,by1+98,C_BG,"voce vira o lider");
+  // ENTRAR (contorno)
+  gfx.drawRoundRect(bx,by2,bw,bh,16,C_BLUE); gfx.drawRoundRect(bx+1,by2+1,bw-2,bh-2,16,C_BLUE); gfx.drawRoundRect(bx+2,by2+2,bw-4,bh-4,16,C_BLUE);
+  txt(&FreeSansBold24pt7b,bx+40,by2+66,C_BLUE,"ENTRAR NA SALA");
+  txt(&FreeSans12pt7b,bx+42,by2+98,C_MUT,"voce vira seguidor");
 }
 void homeTouch(int tx,int ty){ int bx,bw,bh,by1,by2; homeRects(bx,bw,bh,by1,by2);
   if(tx>=bx&&tx<=bx+bw){ if(ty>=by1&&ty<=by1+bh){ pendingRole=1; uiPage=1; codeLen=0; codeBuf[0]=0; }
@@ -256,31 +268,44 @@ void kpRect(int i,int&x,int&y,int&w,int&h){
   int kw=kpW/3, kh=(SCR_H-kpTop-10)/4, r=i/3,c=i%3; x=kpX+c*kw+4; y=kpTop+r*kh+4; w=kw-8; h=kh-8;
 }
 void drawKeypad(){
-  gfx.fillScreen(C_BG); gfx.setTextColor(C_MUT); gfx.setTextSize(3); gfx.setCursor(20,14); gfx.print("Codigo da sala");
-  int bw=SCR_W/12, bx=(SCR_W-(bw*5+4*8))/2, by=(int)(SCR_H*0.14);
-  for(int i=0;i<5;i++){ int x=bx+i*(bw+8); gfx.drawRoundRect(x,by,bw,bw,6,i<codeLen?C_ROUTE:C_LINE);
-    if(i<codeLen){ gfx.setTextColor(C_WHITE); gfx.setTextSize(4); gfx.setCursor(x+bw/2-12,by+bw/2-14); gfx.print(codeBuf[i]); } }
-  for(int i=0;i<12;i++){ int x,y,w,h; kpRect(i,x,y,w,h); card(x,y,w,h);
-    uint16_t c=(i==9)?C_RED:(i==11?0x2648:C_WHITE); gfx.setTextColor(c); gfx.setTextSize(4);
-    gfx.setCursor(x+w/2-12,y+h/2-14); gfx.print(KPLAB[i]); }
+  gfx.fillScreen(C_BG);
+  txt(&FreeSans12pt7b,24,34,C_MUT, pendingRole==1?"Criar sala - digite o codigo":"Entrar - digite o codigo da sala");
+  int bw=66, gap=14, bx=(SCR_W-(bw*5+gap*4))/2, by=52;
+  for(int i=0;i<5;i++){ int x=bx+i*(bw+gap); gfx.drawRoundRect(x,by,bw,bw,10,i<codeLen?C_ROUTE:C_LINE);
+    if(i<codeLen){ char c[2]={codeBuf[i],0}; txtC(&FreeSansBold24pt7b,x+bw/2,by+bw/2+13,C_WHITE,c); } }
+  for(int i=0;i<12;i++){ int x,y,w,h; kpRect(i,x,y,w,h); gfx.fillRoundRect(x,y,w,h,10,C_CARD); gfx.drawRoundRect(x,y,w,h,10,C_LINE);
+    uint16_t c=(i==9)?C_RED:(i==11?C_ROUTE:C_WHITE); txtC(&FreeSansBold18pt7b,x+w/2,y+h/2+8,c,KPLAB[i]); }
 }
 void keypadTouch(int tx,int ty){
   for(int i=0;i<12;i++){ int x,y,w,h; kpRect(i,x,y,w,h);
     if(tx>=x&&tx<=x+w&&ty>=y&&ty<=y+h){
       if(i==9){ if(codeLen>0) codeBuf[--codeLen]=0; else uiPage=0; }
       else if(i==11){ if(codeLen==5){ room=atol(codeBuf); if(room==0)room=1; leaderRole=(pendingRole==1);
-        if(leaderRole){ curSlot=0; joined=true; ruid[0]=myUid; strncpy(rname[0],myName,15); rname[0][15]=0; rcolor[0]=myColor; haveRoster=true; }
-        else { joined=false; curSlot=0; } } }
+        if(leaderRole){ curSlot=0; joined=true; ruid[0]=myUid; strncpy(rname[0],myName,15); rname[0][15]=0; rcolor[0]=myColor; haveRoster=true; searching=false; }
+        else { joined=false; curSlot=0; searching=true; worldRxMs=0; } } }
       else if(codeLen<5){ codeBuf[codeLen++]=KPLAB[i][0]; codeBuf[codeLen]=0; }
       return;
     }
   }
+}
+// tela de busca (seguidor procurando a sala)
+void searchRects(int&x,int&y,int&w,int&h){ w=220; h=60; x=(SCR_W-w)/2; y=SCR_H-h-40; }
+void drawSearching(){
+  gfx.fillScreen(C_BG);
+  char rm[10]; snprintf(rm,sizeof(rm),"%lu",(unsigned long)room);
+  txtC(&FreeSans12pt7b, CXp, 130, C_MUT, "Procurando sala");
+  txtC(&FreeSansBold24pt7b, CXp, 195, C_WHITE, rm);
+  int nd=(millis()/450)%4; char aw[40]="aguardando o lider"; int L=strlen(aw); for(int i=0;i<nd&&L+i<38;i++)aw[L+i]='.'; aw[L+nd]=0;
+  txtC(&FreeSans12pt7b, CXp, 245, C_MUT, aw);
+  int x,y,w,h; searchRects(x,y,w,h); gfx.drawRoundRect(x,y,w,h,14,C_LINE); gfx.drawRoundRect(x+1,y+1,w-2,h-2,14,C_LINE);
+  txtC(&FreeSansBold18pt7b, CXp, y+h/2+8, C_MUT, "VOLTAR");
 }
 void handleTouch(){
   GDTpoint_t p[5]; uint8_t n=touch.getTouchPoints(p);
   if(n>0){ int tx=p[0].y, ty=(SCR_H-1)-p[0].x;   // mapeamento original do GIGA
     if(!touchWasDown){
       if(room==0){ if(uiPage==0) homeTouch(tx,ty); else keypadTouch(tx,ty); }
+      else if(searching){ int x,y,w,h; searchRects(x,y,w,h); if(tx>=x&&tx<=x+w&&ty>=y&&ty<=y+h){ room=0; searching=false; uiPage=0; joined=false; } }
       else if((tx-abX)*(tx-abX)+(ty-abY)*(ty-abY) <= (abR+8)*(abR+8)) myAlert=!myAlert;   // liga/desliga
     }
     touchWasDown=true; } else touchWasDown=false;
@@ -307,7 +332,7 @@ void loop(){
     else if(!joined){ static unsigned long lj=0; if(now-lj>1500){ sendJoin(); lj=now; } }
     else if(pendingUplink && now>=slotDue){ sendUplink(); pendingUplink=false; }
   }
-  if(now-lastDraw>250){ gfx.startBuffering(); if(room==0){ if(uiPage==0) drawHome(); else drawKeypad(); } else { drawMap(); drawUI(); } gfx.endBuffering(); lastDraw=now; }
+  if(now-lastDraw>250){ gfx.startBuffering(); if(room==0){ if(uiPage==0) drawHome(); else drawKeypad(); } else if(searching) drawSearching(); else { drawMap(); drawUI(); } gfx.endBuffering(); lastDraw=now; }
   if(now-lastDbg>2000){ int c=0; for(int k=0;k<MAXN;k++) if(world[k].active&&now-world[k].lastMs<NODE_TTL)c++;
     Serial.print("GIGA seg fix="); Serial.print(myFix?"S":"N"); Serial.print(" world="); Serial.print(worldRxMs?"ok":"--"); Serial.print(" nos="); Serial.println(c); lastDbg=now; }
 }

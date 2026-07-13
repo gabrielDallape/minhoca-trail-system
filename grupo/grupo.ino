@@ -61,6 +61,7 @@ Cfg cfg = { 0, 0, 1, 0, "Carro" };       // room 0 = nao configurado -> mostra t
 bool isLeader(){ return cfg.role==1; }
 char codeBuf[6]=""; int codeLen=0;       // teclado do codigo da sala
 uint8_t uiPage=0, pendingRole=0;         // room==0: 0=inicio(criar/entrar) 1=teclado; pendingRole p/ o teclado
+bool searching=false;                    // seguidor procurando a sala existir
 
 // ---------------- estado do mundo ----------------
 struct Node { bool active; double lat,lon; bool fix; bool alert; unsigned long lastMs; uint8_t color; };
@@ -143,7 +144,7 @@ void handleSerialCfg(){
   else if(c=='C'){ while(!Serial.available()){} int n=Serial.read()-'0'; if(n>=0&&n<8){ cfg.color=n; saveCfg(); printCfg(); } }
   else if(c=='R'){ uint32_t v=0; for(int i=0;i<5;i++){ while(!Serial.available()){} char d=Serial.read(); if(d>='0'&&d<='9') v=v*10+(d-'0'); } cfg.room=v; saveCfg(); printCfg(); }
   else if(c=='P'){ printCfg(); }
-  else if(c=='X'){ cfg.room=0; codeLen=0; codeBuf[0]=0; uiPage=0; joined=false; saveCfg(); printCfg(); }   // sair da sala
+  else if(c=='X'){ cfg.room=0; codeLen=0; codeBuf[0]=0; uiPage=0; joined=false; searching=false; saveCfg(); printCfg(); }   // sair da sala
 }
 
 // ---------------- config por WiFi (pagina no celular) ----------------
@@ -216,7 +217,7 @@ void handleSave(){
   printCfg();
   server.sendHeader("Location","/"); server.send(303);
 }
-void handleLeave(){ cfg.room=0; codeLen=0; codeBuf[0]=0; uiPage=0; joined=false; saveCfg(); server.sendHeader("Location","/"); server.send(303); }
+void handleLeave(){ cfg.room=0; codeLen=0; codeBuf[0]=0; uiPage=0; joined=false; searching=false; saveCfg(); server.sendHeader("Location","/"); server.send(303); }
 void startWiFi(){
   WiFi.mode(WIFI_AP);
   char ssid[28]; snprintf(ssid,sizeof(ssid),"Trilha-%s",cfg.name);
@@ -303,7 +304,7 @@ void handleRx(uint8_t cmd,uint8_t*p,uint8_t plen){
       return;
     }
     if(cmd==CMD_WORLD && plen>=4+8+72+3 && roomOf(p)==cfg.room){
-      worldRxMs=millis();
+      worldRxMs=millis(); searching=false;   // achou a sala
       int o=4;
       for(int k=0;k<MAXN;k++) world[k].color=p[o++];
       for(int k=0;k<MAXN;k++){
@@ -499,8 +500,8 @@ void keypadTouch(int tx,int ty){
       if(i==9){ if(codeLen>0) codeBuf[--codeLen]=0; else uiPage=0; }        // apaga; vazio = volta pro inicio
       else if(i==11){ if(codeLen==5){
         cfg.room=atol(codeBuf); if(cfg.room==0)cfg.room=1; cfg.role=pendingRole;
-        if(isLeader()){ cfg.slot=0; ruid[0]=myUid; strncpy(rname[0],cfg.name,15); rname[0][15]=0; rcolor[0]=cfg.color; haveRoster=true; joined=true; curSlot=0; }
-        else { joined=false; curSlot=0; }
+        if(isLeader()){ cfg.slot=0; ruid[0]=myUid; strncpy(rname[0],cfg.name,15); rname[0][15]=0; rcolor[0]=cfg.color; haveRoster=true; joined=true; curSlot=0; searching=false; }
+        else { joined=false; curSlot=0; searching=true; worldRxMs=0; }
         saveCfg();
       } }
       else if(codeLen<5){ codeBuf[codeLen++]=KPLAB[i][0]; codeBuf[codeLen]=0; }
@@ -508,11 +509,22 @@ void keypadTouch(int tx,int ty){
     }
   }
 }
+void drawSearching(){
+  tft.fillScreen(C_BG);
+  char rm[10]; snprintf(rm,sizeof(rm),"%lu",(unsigned long)cfg.room);
+  tft.setTextColor(C_MUT,C_BG); tft.setTextSize(2); tft.setCursor(SCR_W/2-84,(int)(SCR_H*0.24)); tft.print("Procurando sala");
+  tft.setTextColor(C_WHITE,C_BG); tft.setTextSize(4); tft.setCursor(SCR_W/2-48,(int)(SCR_H*0.24)+28); tft.print(rm);
+  int nd=(millis()/450)%4; tft.setTextColor(C_MUT,C_BG); tft.setTextSize(1); tft.setCursor(SCR_W/2-70,(int)(SCR_H*0.24)+78);
+  tft.print("aguardando o lider"); for(int i=0;i<nd;i++) tft.print("."); tft.print("   ");
+  int w=140,h=44,x=(SCR_W-w)/2,y=SCR_H-h-14; tft.drawRoundRect(x,y,w,h,10,C_LINE);
+  tft.setTextColor(C_MUT,C_BG); tft.setTextSize(2); tft.setCursor(x+w/2-36,y+h/2-8); tft.print("VOLTAR");
+}
 void handleTouch(){
   int32_t tx,ty;
   if(tft.getTouch(&tx,&ty)){
     if(!touchWasDown){
       if(cfg.room==0){ if(uiPage==0) homeTouch(tx,ty); else keypadTouch(tx,ty); }
+      else if(searching){ int w=140,h=44,x=(SCR_W-w)/2,y=SCR_H-h-14; if(tx>=x&&tx<=x+w&&ty>=y&&ty<=y+h){ cfg.room=0; searching=false; uiPage=0; joined=false; saveCfg(); } }
       else { int fx=SCR_W-30, fy=SCR_H-30; if((tx-fx)*(tx-fx)+(ty-fy)*(ty-fy) <= 30*30) myAlert=!myAlert; }   // liga/desliga
     }
     touchWasDown=true;
@@ -562,7 +574,7 @@ void loop(){
     }
   }
 
-  if(now-lastDraw>250){ if(cfg.room==0){ if(uiPage==0) drawHome(); else drawKeypad(); } else { drawMap(); drawUI(); } lastDraw=now; }
+  if(now-lastDraw>250){ if(cfg.room==0){ if(uiPage==0) drawHome(); else drawKeypad(); } else if(searching) drawSearching(); else { drawMap(); drawUI(); } lastDraw=now; }
   if(now-lastDbg>2000){
     Serial.print(isLeader()?"LIDER":"SEG"); Serial.print(" fix="); Serial.print(myFix?"S":"N");
     Serial.print(" sat="); Serial.print(mySats); int n=0; for(int k=0;k<MAXN;k++) if(world[k].active&&now-world[k].lastMs<NODE_TTL)n++;
