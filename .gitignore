@@ -1,0 +1,14 @@
+# Saidas de build do Arduino
+build/
+build_odo/
+**/build/
+*.bin
+*.elf
+*.hex
+*.map
+*.d.o
+
+# Sistema
+Thumbs.db
+.DS_Store
+desktop.ini
