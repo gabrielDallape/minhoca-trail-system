@@ -226,11 +226,12 @@ void drawUI(){
   gfx.setTextColor(C_WHITE); gfx.setTextSize(2); gfx.setCursor(46,20); snprintf(b,sizeof(b),"Sala %lu",(unsigned long)room); gfx.print(b);
   gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(46,44); gfx.print(leaderRole?"voce e o LIDER":(joined?"seguidor":"entrando..."));
   // roster
-  int rw=170, rx=SCR_W-rw-8, ry=10, rh=24;
+  int rw=176, rx=SCR_W-rw-4, ry=10, rh=28;
   for(int k=0;k<MAXN;k++){ if(!world[k].active||millis()-world[k].lastMs>NODE_TTL) continue; card(rx,ry,rw,rh);
     bool me=(joined&&k==(int)curSlot), ld=(k==0); uint16_t col=me?C_BLUE:(ld?C_AMBER:colorOf(world[k].color));
-    if(me||ld) gfx.fillTriangle(rx+13,ry+4,rx+6,ry+19,rx+20,ry+19,col); else gfx.fillCircle(rx+13,ry+12,5,col);
-    gfx.setTextColor(world[k].alert?C_RED:C_WHITE); gfx.setTextSize(1); gfx.setCursor(rx+28,ry+8);
+    int icx=rx+18, icy=ry+rh/2;
+    if(me||ld) gfx.fillTriangle(icx,icy-9,icx-8,icy+8,icx+8,icy+8,col); else gfx.fillCircle(icx,icy,7,col);
+    gfx.setTextColor(world[k].alert?C_RED:C_WHITE); gfx.setTextSize(1); gfx.setCursor(rx+34,ry+rh/2-4);
     gfx.print(haveRoster?rname[k]:(ld?"Lider":"Carro")); ry+=rh+4; if(ry>SCR_H-90) break; }
   // distancia ao lider
   if(leaderRole){ int c=0; for(int k=1;k<MAXN;k++) if(world[k].active&&millis()-world[k].lastMs<NODE_TTL)c++;
