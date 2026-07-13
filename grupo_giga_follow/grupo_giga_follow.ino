@@ -247,8 +247,8 @@ void drawUI(){
   gfx.fillRect(abX-2,abY-6,4,11,on?C_RED:C_CARD); gfx.fillRect(abX-2,abY+8,4,4,on?C_RED:C_CARD);
 }
 // ---- editar o nome do aparelho (engrenagem) ----
-void gearRect(int&x,int&y,int&w,int&h){ w=250; h=50; x=SCR_W-w-20; y=18; }
-void gearIcon(int cx,int cy,int r,uint16_t col){ for(int a=0;a<360;a+=45){ float rad=a*3.14159f/180.0f; gfx.fillCircle(cx+(int)(cos(rad)*r),cy+(int)(sin(rad)*r),2,col);} gfx.fillCircle(cx,cy,r,col); gfx.fillCircle(cx,cy,r/2,C_CARD); }
+void gearRect(int&x,int&y,int&w,int&h){ w=320; h=60; x=SCR_W-w; y=4; }
+void gearIcon(int cx,int cy,int r,uint16_t col){ for(int a=0;a<360;a+=45){ float rad=a*3.14159f/180.0f; gfx.fillCircle(cx+(int)(cos(rad)*r),cy+(int)(sin(rad)*r),3,col);} gfx.fillCircle(cx,cy,r,col); gfx.fillCircle(cx,cy,r/2,C_BG); }
 void kbRect(int i,int&x,int&y,int&w,int&h){ int cols=7,kx=16,ky=140,kw=(SCR_W-32)/cols,kh=(SCR_H-ky-16)/4,r=i/cols,c=i%cols; x=kx+c*kw+4;y=ky+r*kh+4;w=kw-8;h=kh-8; }
 void drawNameEdit(){
   gfx.fillScreen(C_BG);
@@ -274,18 +274,14 @@ void drawHome(){
   gfx.fillScreen(C_BG);
   txt(&FreeSansBold24pt7b,40,78,C_WHITE,"TRILHA");
   txt(&FreeSans12pt7b,42,112,C_MUT,"Escolha o papel para esta saida");
-  // botao de nome (engrenagem) no canto sup direito
-  int gx,gy,gw,gh; gearRect(gx,gy,gw,gh); gfx.fillRoundRect(gx,gy,gw,gh,12,C_CARD); gfx.drawRoundRect(gx,gy,gw,gh,12,C_LINE);
-  gearIcon(gx+24,gy+gh/2,10,C_MUT); txt(&FreeSans12pt7b,gx+44,gy+gh/2+6,C_WHITE,myName);
+  // nome do aparelho (esquerda) + engrenagem maior (canto sup direito)
+  int gcx=SCR_W-40, gcy=42; gearIcon(gcx,gcy,17,C_MUT);
+  int nw=txtW(&FreeSansBold12pt7b,myName); txt(&FreeSansBold12pt7b,gcx-32-nw,gcy+6,C_WHITE,myName);
   int bx,bw,bh,by1,by2; homeRects(bx,bw,bh,by1,by2);
-  // CRIAR (preenchido)
   gfx.fillRoundRect(bx,by1,bw,bh,16,C_ROUTE);
-  txt(&FreeSansBold24pt7b,bx+40,by1+66,C_BG,"CRIAR SALA");
-  txt(&FreeSans12pt7b,bx+42,by1+98,C_BG,"voce vira o lider");
-  // ENTRAR (contorno)
+  txt(&FreeSansBold24pt7b,bx+40,by1+bh/2+12,C_BG,"CRIAR SALA");
   gfx.drawRoundRect(bx,by2,bw,bh,16,C_BLUE); gfx.drawRoundRect(bx+1,by2+1,bw-2,bh-2,16,C_BLUE); gfx.drawRoundRect(bx+2,by2+2,bw-4,bh-4,16,C_BLUE);
-  txt(&FreeSansBold24pt7b,bx+40,by2+66,C_BLUE,"ENTRAR NA SALA");
-  txt(&FreeSans12pt7b,bx+42,by2+98,C_MUT,"voce vira seguidor");
+  txt(&FreeSansBold24pt7b,bx+40,by2+bh/2+12,C_BLUE,"ENTRAR NA SALA");
 }
 void homeTouch(int tx,int ty){
   int gx,gy,gw,gh; gearRect(gx,gy,gw,gh);
