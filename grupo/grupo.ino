@@ -29,11 +29,14 @@
 #include "LoRaMESH.h"
 #include <TinyGPSPlus.h>
 #include <Preferences.h>
+#include <WiFi.h>
+#include <WebServer.h>
 
 static LGFX  tft;
 LoRaMESH     lora(&Serial1);
 TinyGPSPlus  gps;
 Preferences  prefs;
+WebServer    server(80);
 
 // ---------------- protocolo ----------------
 const uint16_t BCAST      = 2047;
@@ -51,8 +54,8 @@ const unsigned long NODE_TTL = 12000;   // no some da tela se ficar mudo tanto t
 const unsigned long LEAD_TTL = 8000;    // lider offline
 
 // ---------------- config ----------------
-struct Cfg { uint32_t room; uint8_t role; uint8_t slot; uint8_t color; };
-Cfg cfg = { 48291, 1, 0, 0 };            // default: LIDER, slot 0, sala 48291
+struct Cfg { uint32_t room; uint8_t role; uint8_t slot; uint8_t color; char name[16]; };
+Cfg cfg = { 48291, 1, 0, 0, "Lider" };   // default: LIDER, slot 0, sala 48291
 bool isLeader(){ return cfg.role==1; }
 
 // ---------------- estado do mundo ----------------
@@ -107,10 +110,12 @@ void worldToScreen(double lat,double lon,double clat,double clon,double head,int
 // ---------------- config / NVS ----------------
 void saveCfg(){ prefs.begin("grupo",false); prefs.putBytes("cfg",&cfg,sizeof(cfg)); prefs.end(); }
 void loadCfg(){ prefs.begin("grupo",true); prefs.getBytes("cfg",&cfg,sizeof(cfg)); prefs.end();
-  if(cfg.room==0||cfg.room>99999){ cfg.room=48291; cfg.role=1; cfg.slot=0; cfg.color=0; } }
+  if(cfg.room==0||cfg.room>99999){ cfg.room=48291; cfg.role=1; cfg.slot=0; cfg.color=0; strcpy(cfg.name,"Lider"); }
+  cfg.name[15]=0; if(cfg.name[0]==0) strcpy(cfg.name,"Carro"); }
 void printCfg(){ Serial.print("[cfg] sala="); Serial.print(cfg.room);
   Serial.print(" papel="); Serial.print(isLeader()?"LIDER":"SEGUIDOR");
-  Serial.print(" slot="); Serial.print(cfg.slot); Serial.print(" cor="); Serial.println(cfg.color); }
+  Serial.print(" slot="); Serial.print(cfg.slot); Serial.print(" cor="); Serial.print(cfg.color);
+  Serial.print(" nome="); Serial.println(cfg.name); }
 void handleSerialCfg(){
   if(!Serial.available()) return;
   char c=Serial.read();
@@ -119,6 +124,56 @@ void handleSerialCfg(){
   else if(c=='C'){ while(!Serial.available()){} int n=Serial.read()-'0'; if(n>=0&&n<8){ cfg.color=n; saveCfg(); printCfg(); } }
   else if(c=='R'){ uint32_t v=0; for(int i=0;i<5;i++){ while(!Serial.available()){} char d=Serial.read(); if(d>='0'&&d<='9') v=v*10+(d-'0'); } cfg.room=v; saveCfg(); printCfg(); }
   else if(c=='P'){ printCfg(); }
+}
+
+// ---------------- config por WiFi (pagina no celular) ----------------
+static const char* COLOR_HEX[8] = {"#388cff","#2a9d8f","#9694d6","#e7a842","#e36e88","#2ec868","#ff9646","#22d3ee"};
+String pageHtml(){
+  int conn=0; for(int k=0;k<MAXN;k++) if(world[k].active && millis()-world[k].lastMs<NODE_TTL) conn++;
+  String s="<!doctype html><html><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Trilha</title>";
+  s+="<style>body{font-family:system-ui;background:#0d131b;color:#e6edf5;margin:0;padding:22px}h1{font-size:22px;margin:0 0 2px}"
+     ".m{color:#8a97a8;font-size:13px;margin:0 0 18px}label{display:block;font-size:12px;color:#8a97a8;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 6px}"
+     "input,select{width:100%;padding:11px;font-size:16px;background:#111a24;border:1px solid #2a3a4a;border-radius:9px;color:#fff;box-sizing:border-box}"
+     ".sw{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}.sw label{display:inline-block;width:34px;height:34px;border-radius:50%;margin:0;cursor:pointer;border:3px solid transparent}"
+     ".sw input{display:none}.sw input:checked+span{outline:3px solid #fff;outline-offset:2px}.sw span{display:block;width:100%;height:100%;border-radius:50%}"
+     ".r{display:flex;gap:10px}.r label{flex:1;text-align:center;padding:11px;border:1px solid #2a3a4a;border-radius:9px;text-transform:none;font-size:15px;color:#e6edf5}"
+     ".r input{display:none}.r input:checked+span{color:#0d131b;font-weight:700}.r label:has(input:checked){background:#2fb0a0;border-color:#2fb0a0}"
+     "button{margin-top:22px;width:100%;padding:14px;font-size:16px;font-weight:700;background:#2fb0a0;color:#04140f;border:none;border-radius:10px}"
+     ".pill{display:inline-block;background:#111a24;border:1px solid #2a3a4a;border-radius:20px;padding:4px 12px;font-size:12px;color:#34c878}</style></head><body>";
+  s+="<h1>Trilha — configurar</h1><p class=m>Sala e papel deste aparelho.</p>";
+  s+="<p><span class=pill>"+String(conn)+" na sala</span></p>";
+  s+="<form action=/save method=get>";
+  s+="<label>Codigo da sala</label><input name=sala inputmode=numeric maxlength=5 value='"+String(cfg.room)+"'>";
+  s+="<label>Papel</label><div class=r>";
+  s+="<label><input type=radio name=role value=1 "+String(cfg.role==1?"checked":"")+"><span>Lider</span></label>";
+  s+="<label><input type=radio name=role value=0 "+String(cfg.role==0?"checked":"")+"><span>Seguidor</span></label></div>";
+  s+="<label>Vaga (slot) — 1 a 7 se seguidor</label><select name=slot>";
+  for(int i=0;i<MAXN;i++){ s+="<option value="+String(i)+(cfg.slot==i?" selected":"")+">"+String(i)+(i==0?" (lider)":"")+"</option>"; }
+  s+="</select>";
+  s+="<label>Nome</label><input name=nome maxlength=15 value='"+String(cfg.name)+"'>";
+  s+="<label>Cor</label><div class=sw>";
+  for(int i=0;i<8;i++){ s+="<label><input type=radio name=cor value="+String(i)+(cfg.color==i?" checked":"")+"><span style='background:"+String(COLOR_HEX[i])+"'></span></label>"; }
+  s+="</div><button type=submit>Salvar</button></form></body></html>";
+  return s;
+}
+void handleRoot(){ server.send(200,"text/html",pageHtml()); }
+void handleSave(){
+  if(server.hasArg("sala")){ uint32_t v=server.arg("sala").toInt(); if(v>0&&v<=99999) cfg.room=v; }
+  if(server.hasArg("role")) cfg.role=server.arg("role").toInt()?1:0;
+  if(server.hasArg("slot")){ int s=server.arg("slot").toInt(); if(s>=0&&s<MAXN) cfg.slot=s; }
+  if(cfg.role==1) cfg.slot=0;
+  if(server.hasArg("cor")){ int c=server.arg("cor").toInt(); if(c>=0&&c<8) cfg.color=c; }
+  if(server.hasArg("nome")){ String n=server.arg("nome"); n.toCharArray(cfg.name,16); }
+  saveCfg(); printCfg();
+  server.sendHeader("Location","/"); server.send(303);
+}
+void startWiFi(){
+  WiFi.mode(WIFI_AP);
+  char ssid[28]; snprintf(ssid,sizeof(ssid),"Trilha-%s",cfg.name);
+  WiFi.softAP(ssid);
+  server.on("/",handleRoot); server.on("/save",handleSave);
+  server.begin();
+  Serial.print("WiFi AP '"); Serial.print(ssid); Serial.print("'  ->  http://"); Serial.println(WiFi.softAPIP());
 }
 
 // ---------------- rota (buffer) ----------------
@@ -323,12 +378,13 @@ void setup(){
   delay(150);
   lora.localread();
   for(int k=0;k<MAXN;k++){ world[k]=Node(); world[k].color=k; }
+  startWiFi();
   Serial.print("== GRUPO == "); printCfg();
   Serial.print("LoRa localId="); Serial.print(lora.localId); Serial.print(" uid="); Serial.println(lora.localUniqueId);
 }
 
 void loop(){
-  handleSerialCfg();
+  handleSerialCfg(); server.handleClient();
   readGPS(); readLoRa(); handleTouch();
   unsigned long now=millis();
 
