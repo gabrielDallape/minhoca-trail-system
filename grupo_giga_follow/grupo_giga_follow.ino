@@ -22,13 +22,15 @@ LoRaMESH     lora(&Serial2);
 
 const uint16_t BCAST=2047, LEADER_ID=0;
 const uint8_t  CMD_WORLD=0x30, CMD_ROSTER=0x31, CMD_UPLINK=0x32, CMD_JOIN=0x33;
-const int      MAXN=8, ROUTE_MAX=140;
+const int      MAXN=8, ROUTE_MAX=140, HIST_N=12;
 const double   R_EARTH=6371000.0;
-const unsigned long SLOT_MS=450, NODE_TTL=12000, LEAD_TTL=8000;
+const unsigned long SLOT_MS=450, CYCLE_MS=(unsigned long)MAXN*SLOT_MS, NODE_TTL=12000, LEAD_TTL=8000;
 
-// config (bench, por serial). room 0 = nao configurado -> teclado
+// config. room 0 = nao configurado -> tela inicial Criar/Entrar
 uint32_t room=0; uint8_t mySlot=1;
 char codeBuf[6]=""; int codeLen=0;
+bool leaderRole=false; uint16_t routeSeq=0; unsigned long lastCycle=0; double lastAddLat=0,lastAddLon=0; bool haveAdd=false;
+uint8_t uiPage=0, pendingRole=0;
 
 // mundo
 struct Node{ bool active; double lat,lon; bool fix; bool alert; unsigned long lastMs; uint8_t color; };
@@ -79,8 +81,9 @@ void routeAdd(double la,double lo){ route[routeHead].lat=la; route[routeHead].lo
 void handleSerial(){
   if(!Serial.available()) return; char c=Serial.read();
   if(c=='R'){ uint32_t v=0; for(int i=0;i<5;i++){ while(!Serial.available()){} char d=Serial.read(); if(d>='0'&&d<='9')v=v*10+(d-'0'); } room=v; Serial.print("sala="); Serial.println(room); }
-  else if(c=='F'){ while(!Serial.available()){} int n=Serial.read()-'0'; if(n>=1&&n<MAXN){ curSlot=n; joined=true; Serial.print("slot="); Serial.println(curSlot);} }
-  else if(c=='X'){ room=0; codeLen=0; codeBuf[0]=0; Serial.println("saiu da sala"); }
+  else if(c=='F'){ while(!Serial.available()){} int n=Serial.read()-'0'; if(n>=1&&n<MAXN){ curSlot=n; joined=true; leaderRole=false; Serial.print("slot="); Serial.println(curSlot);} }
+  else if(c=='L'){ leaderRole=true; if(room==0)room=48291; curSlot=0; joined=true; ruid[0]=myUid; strncpy(rname[0],myName,15); rname[0][15]=0; rcolor[0]=myColor; haveRoster=true; Serial.println("LIDER"); }
+  else if(c=='X'){ room=0; uiPage=0; leaderRole=false; joined=false; codeLen=0; codeBuf[0]=0; Serial.println("saiu"); }
 }
 
 void readGPS(){
@@ -102,7 +105,40 @@ void sendJoin(){
   putLE32(p+o,(int32_t)myUid); o+=4; p[o++]=myColor; int L=strlen(myName); if(L>15)L=15; p[o++]=(uint8_t)L; memcpy(p+o,myName,L); o+=L;
   lora.PrepareFrameCommand(LEADER_ID,CMD_JOIN,p,o); lora.SendPacket();
 }
+// ---- LIDER: broadcast do mundo + roster ----
+void sendWorld(){
+  uint8_t p[4+8+72+3+HIST_N*8]; int o=0;
+  p[o++]=room&0xFF; p[o++]=(room>>8)&0xFF; p[o++]=(room>>16)&0xFF; p[o++]=(uint8_t)(millis()/CYCLE_MS);
+  for(int k=0;k<MAXN;k++) p[o++]=rcolor[k];
+  for(int k=0;k<MAXN;k++){ uint8_t fl=0; if(world[k].active)fl|=1; if(world[k].fix)fl|=2; if(world[k].alert)fl|=4;
+    p[o++]=fl; putLE32(p+o,(int32_t)(world[k].lat*1e7)); o+=4; putLE32(p+o,(int32_t)(world[k].lon*1e7)); o+=4; }
+  int nh=routeN<HIST_N?routeN:HIST_N; p[o++]=(uint8_t)nh; p[o++]=routeSeq&0xFF; p[o++]=(routeSeq>>8)&0xFF;
+  int idx=(routeHead-nh+ROUTE_MAX)%ROUTE_MAX;
+  for(int i=0;i<nh;i++){ int j=(idx+i)%ROUTE_MAX; putLE32(p+o,(int32_t)(route[j].lat*1e7)); o+=4; putLE32(p+o,(int32_t)(route[j].lon*1e7)); o+=4; }
+  lora.PrepareFrameCommand(BCAST,CMD_WORLD,p,o); lora.SendPacket();
+}
+void sendRoster(){
+  uint8_t p[3+MAXN*21]; int o=0; p[o++]=room&0xFF; p[o++]=(room>>8)&0xFF; p[o++]=(room>>16)&0xFF;
+  for(int k=0;k<MAXN;k++){ putLE32(p+o,(int32_t)ruid[k]); o+=4; p[o++]=rcolor[k]; int L=strlen(rname[k]); if(L>15)L=15; p[o++]=(uint8_t)L; memcpy(p+o,rname[k],L); o+=L; }
+  lora.PrepareFrameCommand(BCAST,CMD_ROSTER,p,o); lora.SendPacket();
+}
+void leaderRecordOwnPath(){
+  if(myFix && (!haveAdd || haversine(lastAddLat,lastAddLon,myLat,myLon)>=5.0)){ routeAdd(myLat,myLon); routeSeq++; lastAddLat=myLat; lastAddLon=myLon; haveAdd=true; }
+}
 void handleRx(uint8_t cmd,uint8_t*p,uint8_t plen){
+  if(leaderRole){   // LIDER: recebe uplink e join
+    if(cmd==CMD_UPLINK && plen>=13 && roomOf(p)==room){ uint8_t sl=p[3]; if(sl>=1&&sl<MAXN){
+      uint8_t fl=p[4]; world[sl].active=true; world[sl].fix=fl&2; world[sl].alert=fl&4;
+      world[sl].lat=getLE32(p+5)/1e7; world[sl].lon=getLE32(p+9)/1e7; world[sl].lastMs=millis(); } }
+    else if(cmd==CMD_JOIN && plen>=9 && roomOf(p)==room){
+      uint32_t uid=(uint32_t)getLE32(p+3); uint8_t col=p[7]; int L=p[8]; if(L>15)L=15;
+      char nm[16]; if(9+L<=plen){ memcpy(nm,p+9,L); nm[L]=0; } else nm[0]=0;
+      int slot=-1; for(int k=1;k<MAXN;k++) if(ruid[k]==uid){ slot=k; break; }
+      if(slot<0) for(int k=1;k<MAXN;k++) if(ruid[k]==0){ slot=k; break; }
+      if(slot>=1){ ruid[slot]=uid; if(col<8)rcolor[slot]=col; if(nm[0]){ strncpy(rname[slot],nm,15); rname[slot][15]=0; } haveRoster=true; sendRoster(); }
+    }
+    return;
+  }
   if(cmd==CMD_ROSTER && plen>=3 && roomOf(p)==room){
     int o=3; for(int k=0;k<MAXN&&o+6<=plen;k++){ ruid[k]=(uint32_t)getLE32(p+o); o+=4; rcolor[k]=p[o++]; int L=p[o++]; if(L>15)L=15; if(o+L>plen)break; memcpy(rname[k],p+o,L); rname[k][L]=0; o+=L; }
     haveRoster=true;
@@ -175,7 +211,7 @@ void drawUI(){
   char b[32];
   card(10,10,200,54); gfx.fillCircle(30,37,6,C_BLUE);
   gfx.setTextColor(C_WHITE); gfx.setTextSize(2); gfx.setCursor(46,20); snprintf(b,sizeof(b),"Sala %lu",(unsigned long)room); gfx.print(b);
-  gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(46,44); gfx.print("seguidor (GIGA)");
+  gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(46,44); gfx.print(leaderRole?"voce e o LIDER":(joined?"seguidor":"entrando..."));
   // roster
   int rw=170, rx=SCR_W-rw-8, ry=10, rh=24;
   for(int k=0;k<MAXN;k++){ if(!world[k].active||millis()-world[k].lastMs>NODE_TTL) continue; card(rx,ry,rw,rh);
@@ -184,7 +220,10 @@ void drawUI(){
     gfx.setTextColor(world[k].alert?C_RED:C_WHITE); gfx.setTextSize(1); gfx.setCursor(rx+28,ry+8);
     gfx.print(haveRoster?rname[k]:(ld?"Lider":"Carro")); ry+=rh+4; if(ry>SCR_H-90) break; }
   // distancia ao lider
-  if(world[0].active && myFix){ double d=haversine(myLat,myLon,world[0].lat,world[0].lon);
+  if(leaderRole){ int c=0; for(int k=1;k<MAXN;k++) if(world[k].active&&millis()-world[k].lastMs<NODE_TTL)c++;
+    card(10,SCR_H-84,200,74); gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(24,SCR_H-76); gfx.print("LIDERANDO");
+    gfx.setTextColor(C_WHITE); gfx.setTextSize(4); gfx.setCursor(20,SCR_H-56); snprintf(b,sizeof(b),"%d segs",c); gfx.print(b); }
+  else if(world[0].active && myFix){ double d=haversine(myLat,myLon,world[0].lat,world[0].lon);
     card(10,SCR_H-84,200,74); gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(24,SCR_H-76); gfx.print("LIDER");
     gfx.setTextColor(C_WHITE); gfx.setTextSize(5); gfx.setCursor(20,SCR_H-60);
     if(d>=1000) snprintf(b,sizeof(b),"%.1fkm",d/1000.0); else snprintf(b,sizeof(b),"%dm",(int)d); gfx.print(b); }
@@ -194,7 +233,23 @@ void drawUI(){
   uint16_t tc=on?C_WHITE:C_RED; gfx.fillTriangle(abX,abY-16,abX-16,abY+13,abX+16,abY+13,tc);
   gfx.fillRect(abX-2,abY-6,4,11,on?C_RED:C_CARD); gfx.fillRect(abX-2,abY+8,4,4,on?C_RED:C_CARD);
 }
-// ---- teclado do codigo da sala (room==0) ----
+// ---- tela inicial: escolher o papel DESTA saida ----
+void homeRects(int&bx,int&bw,int&bh,int&by1,int&by2){ bw=SCR_W-80; bx=40; bh=(int)(SCR_H*0.26); by1=(int)(SCR_H*0.30); by2=by1+bh+20; }
+void drawHome(){
+  gfx.fillScreen(C_BG);
+  gfx.setTextColor(C_WHITE); gfx.setTextSize(4); gfx.setCursor(40,(int)(SCR_H*0.10)); gfx.print("Trilha");
+  gfx.setTextColor(C_MUT); gfx.setTextSize(2); gfx.setCursor(40,(int)(SCR_H*0.10)+42); gfx.print("escolha o papel para esta saida");
+  int bx,bw,bh,by1,by2; homeRects(bx,bw,bh,by1,by2);
+  gfx.fillRoundRect(bx,by1,bw,bh,12,C_ROUTE); gfx.setTextColor(C_BG); gfx.setTextSize(4); gfx.setCursor(bx+bw/2-120,by1+bh/2-14); gfx.print("CRIAR SALA");
+  gfx.setTextColor(C_BG); gfx.setTextSize(2); gfx.setCursor(bx+bw/2-72,by1+bh-32); gfx.print("(voce = lider)");
+  gfx.drawRoundRect(bx,by2,bw,bh,12,C_BLUE); gfx.drawRoundRect(bx+1,by2+1,bw-2,bh-2,12,C_BLUE);
+  gfx.setTextColor(C_BLUE); gfx.setTextSize(4); gfx.setCursor(bx+bw/2-140,by2+bh/2-14); gfx.print("ENTRAR NA SALA");
+  gfx.setTextColor(C_MUT); gfx.setTextSize(2); gfx.setCursor(bx+bw/2-90,by2+bh-32); gfx.print("(voce = seguidor)");
+}
+void homeTouch(int tx,int ty){ int bx,bw,bh,by1,by2; homeRects(bx,bw,bh,by1,by2);
+  if(tx>=bx&&tx<=bx+bw){ if(ty>=by1&&ty<=by1+bh){ pendingRole=1; uiPage=1; codeLen=0; codeBuf[0]=0; }
+    else if(ty>=by2&&ty<=by2+bh){ pendingRole=0; uiPage=1; codeLen=0; codeBuf[0]=0; } } }
+// ---- teclado do codigo da sala ----
 static const char* KPLAB[12]={"1","2","3","4","5","6","7","8","9","<","0","OK"};
 void kpRect(int i,int&x,int&y,int&w,int&h){
   int kpW=(int)(SCR_W*0.6),kpX=(SCR_W-kpW)/2,kpTop=(int)(SCR_H*0.30);
@@ -212,8 +267,10 @@ void drawKeypad(){
 void keypadTouch(int tx,int ty){
   for(int i=0;i<12;i++){ int x,y,w,h; kpRect(i,x,y,w,h);
     if(tx>=x&&tx<=x+w&&ty>=y&&ty<=y+h){
-      if(i==9){ if(codeLen>0) codeBuf[--codeLen]=0; }
-      else if(i==11){ if(codeLen==5){ room=atol(codeBuf); if(room==0)room=1; } }
+      if(i==9){ if(codeLen>0) codeBuf[--codeLen]=0; else uiPage=0; }
+      else if(i==11){ if(codeLen==5){ room=atol(codeBuf); if(room==0)room=1; leaderRole=(pendingRole==1);
+        if(leaderRole){ curSlot=0; joined=true; ruid[0]=myUid; strncpy(rname[0],myName,15); rname[0][15]=0; rcolor[0]=myColor; haveRoster=true; }
+        else { joined=false; curSlot=0; } } }
       else if(codeLen<5){ codeBuf[codeLen++]=KPLAB[i][0]; codeBuf[codeLen]=0; }
       return;
     }
@@ -223,7 +280,7 @@ void handleTouch(){
   GDTpoint_t p[5]; uint8_t n=touch.getTouchPoints(p);
   if(n>0){ int tx=p[0].y, ty=(SCR_H-1)-p[0].x;   // mapeamento original do GIGA
     if(!touchWasDown){
-      if(room==0) keypadTouch(tx,ty);
+      if(room==0){ if(uiPage==0) homeTouch(tx,ty); else keypadTouch(tx,ty); }
       else if((tx-abX)*(tx-abX)+(ty-abY)*(ty-abY) <= (abR+8)*(abR+8)) myAlertUntil=millis()+4000;
     }
     touchWasDown=true; } else touchWasDown=false;
@@ -243,13 +300,14 @@ void setup(){
 void loop(){
   handleSerial(); readGPS(); readLoRa(); handleTouch();
   unsigned long now=millis();
-  if(joined){ world[curSlot].active=true; world[curSlot].fix=myFix; world[curSlot].alert=(now<myAlertUntil);
-    world[curSlot].lat=myLat; world[curSlot].lon=myLon; world[curSlot].lastMs=now; }
+  if(leaderRole||joined){ int msi=leaderRole?0:curSlot; world[msi].active=true; world[msi].fix=myFix; world[msi].alert=(now<myAlertUntil);
+    world[msi].lat=myLat; world[msi].lon=myLon; world[msi].lastMs=now; }
   if(room!=0){
-    if(!joined){ static unsigned long lj=0; if(now-lj>1500){ sendJoin(); lj=now; } }
+    if(leaderRole){ leaderRecordOwnPath(); static uint8_t cyc=0; if(now-lastCycle>=CYCLE_MS){ if(myFix){ sendWorld(); if((cyc++%3)==0) sendRoster(); } lastCycle=now; } }
+    else if(!joined){ static unsigned long lj=0; if(now-lj>1500){ sendJoin(); lj=now; } }
     else if(pendingUplink && now>=slotDue){ sendUplink(); pendingUplink=false; }
   }
-  if(now-lastDraw>250){ gfx.startBuffering(); if(room==0) drawKeypad(); else { drawMap(); drawUI(); } gfx.endBuffering(); lastDraw=now; }
+  if(now-lastDraw>250){ gfx.startBuffering(); if(room==0){ if(uiPage==0) drawHome(); else drawKeypad(); } else { drawMap(); drawUI(); } gfx.endBuffering(); lastDraw=now; }
   if(now-lastDbg>2000){ int c=0; for(int k=0;k<MAXN;k++) if(world[k].active&&now-world[k].lastMs<NODE_TTL)c++;
     Serial.print("GIGA seg fix="); Serial.print(myFix?"S":"N"); Serial.print(" world="); Serial.print(worldRxMs?"ok":"--"); Serial.print(" nos="); Serial.println(c); lastDbg=now; }
 }
