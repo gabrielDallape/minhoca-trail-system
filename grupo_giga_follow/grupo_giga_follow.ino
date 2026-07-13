@@ -26,8 +26,9 @@ const int      MAXN=8, ROUTE_MAX=140;
 const double   R_EARTH=6371000.0;
 const unsigned long SLOT_MS=450, NODE_TTL=12000, LEAD_TTL=8000;
 
-// config (bench, por serial)
-uint32_t room=48291; uint8_t mySlot=1;
+// config (bench, por serial). room 0 = nao configurado -> teclado
+uint32_t room=0; uint8_t mySlot=1;
+char codeBuf[6]=""; int codeLen=0;
 
 // mundo
 struct Node{ bool active; double lat,lon; bool fix; bool alert; unsigned long lastMs; uint8_t color; };
@@ -78,6 +79,7 @@ void handleSerial(){
   if(!Serial.available()) return; char c=Serial.read();
   if(c=='R'){ uint32_t v=0; for(int i=0;i<5;i++){ while(!Serial.available()){} char d=Serial.read(); if(d>='0'&&d<='9')v=v*10+(d-'0'); } room=v; Serial.print("sala="); Serial.println(room); }
   else if(c=='F'){ while(!Serial.available()){} int n=Serial.read()-'0'; if(n>=1&&n<MAXN){ mySlot=n; Serial.print("slot="); Serial.println(mySlot);} }
+  else if(c=='X'){ room=0; codeLen=0; codeBuf[0]=0; Serial.println("saiu da sala"); }
 }
 
 void readGPS(){
@@ -183,10 +185,38 @@ void drawUI(){
   uint16_t tc=on?C_WHITE:C_RED; gfx.fillTriangle(abX,abY-16,abX-16,abY+13,abX+16,abY+13,tc);
   gfx.fillRect(abX-2,abY-6,4,11,on?C_RED:C_CARD); gfx.fillRect(abX-2,abY+8,4,4,on?C_RED:C_CARD);
 }
+// ---- teclado do codigo da sala (room==0) ----
+static const char* KPLAB[12]={"1","2","3","4","5","6","7","8","9","<","0","OK"};
+void kpRect(int i,int&x,int&y,int&w,int&h){
+  int kpW=(int)(SCR_W*0.6),kpX=(SCR_W-kpW)/2,kpTop=(int)(SCR_H*0.30);
+  int kw=kpW/3, kh=(SCR_H-kpTop-10)/4, r=i/3,c=i%3; x=kpX+c*kw+4; y=kpTop+r*kh+4; w=kw-8; h=kh-8;
+}
+void drawKeypad(){
+  gfx.fillScreen(C_BG); gfx.setTextColor(C_MUT); gfx.setTextSize(3); gfx.setCursor(20,14); gfx.print("Codigo da sala");
+  int bw=SCR_W/12, bx=(SCR_W-(bw*5+4*8))/2, by=(int)(SCR_H*0.14);
+  for(int i=0;i<5;i++){ int x=bx+i*(bw+8); gfx.drawRoundRect(x,by,bw,bw,6,i<codeLen?C_ROUTE:C_LINE);
+    if(i<codeLen){ gfx.setTextColor(C_WHITE); gfx.setTextSize(4); gfx.setCursor(x+bw/2-12,by+bw/2-14); gfx.print(codeBuf[i]); } }
+  for(int i=0;i<12;i++){ int x,y,w,h; kpRect(i,x,y,w,h); card(x,y,w,h);
+    uint16_t c=(i==9)?C_RED:(i==11?0x2648:C_WHITE); gfx.setTextColor(c); gfx.setTextSize(4);
+    gfx.setCursor(x+w/2-12,y+h/2-14); gfx.print(KPLAB[i]); }
+}
+void keypadTouch(int tx,int ty){
+  for(int i=0;i<12;i++){ int x,y,w,h; kpRect(i,x,y,w,h);
+    if(tx>=x&&tx<=x+w&&ty>=y&&ty<=y+h){
+      if(i==9){ if(codeLen>0) codeBuf[--codeLen]=0; }
+      else if(i==11){ if(codeLen==5){ room=atol(codeBuf); if(room==0)room=1; } }
+      else if(codeLen<5){ codeBuf[codeLen++]=KPLAB[i][0]; codeBuf[codeLen]=0; }
+      return;
+    }
+  }
+}
 void handleTouch(){
   GDTpoint_t p[5]; uint8_t n=touch.getTouchPoints(p);
   if(n>0){ int tx=p[0].y, ty=(SCR_H-1)-p[0].x;   // mapeamento original do GIGA
-    if(!touchWasDown){ if((tx-abX)*(tx-abX)+(ty-abY)*(ty-abY) <= (abR+8)*(abR+8)) myAlertUntil=millis()+4000; }
+    if(!touchWasDown){
+      if(room==0) keypadTouch(tx,ty);
+      else if((tx-abX)*(tx-abX)+(ty-abY)*(ty-abY) <= (abR+8)*(abR+8)) myAlertUntil=millis()+4000;
+    }
     touchWasDown=true; } else touchWasDown=false;
 }
 
@@ -206,8 +236,8 @@ void loop(){
   unsigned long now=millis();
   world[mySlot].active=true; world[mySlot].fix=myFix; world[mySlot].alert=(now<myAlertUntil);
   world[mySlot].lat=myLat; world[mySlot].lon=myLon; world[mySlot].lastMs=now;
-  if(pendingUplink && now>=slotDue){ sendUplink(); pendingUplink=false; }
-  if(now-lastDraw>250){ gfx.startBuffering(); drawMap(); drawUI(); gfx.endBuffering(); lastDraw=now; }
+  if(room!=0 && pendingUplink && now>=slotDue){ sendUplink(); pendingUplink=false; }
+  if(now-lastDraw>250){ gfx.startBuffering(); if(room==0) drawKeypad(); else { drawMap(); drawUI(); } gfx.endBuffering(); lastDraw=now; }
   if(now-lastDbg>2000){ int c=0; for(int k=0;k<MAXN;k++) if(world[k].active&&now-world[k].lastMs<NODE_TTL)c++;
     Serial.print("GIGA seg fix="); Serial.print(myFix?"S":"N"); Serial.print(" world="); Serial.print(worldRxMs?"ok":"--"); Serial.print(" nos="); Serial.println(c); lastDbg=now; }
 }
