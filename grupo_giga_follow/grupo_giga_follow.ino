@@ -1,0 +1,203 @@
+/*
+ * ============================================================================
+ *  MODO GRUPO - SEGUIDOR no GIGA R1 (reserva / p/ bench-testar com o CYD).
+ *  Mesmo protocolo do grupo/grupo.ino, mas render em GigaDisplay_GFX (paisagem).
+ *  So SEGUIDOR (o lider e sempre o CYD/Waveshare). Config por serial:
+ *    'R' 5dig -> sala (ex.: "R48291")   'F' n -> meu slot (1..7, ex.: "F1")
+ *  LoRa -> Serial2 (18/19) ; GPS -> Serial1 (0/1).
+ *  Recebe CMD_WORLD(0x30) e CMD_ROSTER(0x31) do lider; faz uplink CMD_UPLINK(0x32)
+ *  na sua vez (slot = worldRx + slot*450ms). Mapa: voce=triangulo azul,
+ *  lider=triangulo amarelo, outros=bolinhas; alerta=estrada vermelha.
+ * ============================================================================
+ */
+#include <TinyGPSPlus.h>
+#include "Arduino_GigaDisplay_GFX.h"
+#include "Arduino_GigaDisplayTouch.h"
+#include "LoRaMESH.h"
+
+GigaDisplay_GFX          gfx;
+Arduino_GigaDisplayTouch touch;
+TinyGPSPlus  gps;
+LoRaMESH     lora(&Serial2);
+
+const uint16_t BCAST=2047, LEADER_ID=0;
+const uint8_t  CMD_WORLD=0x30, CMD_ROSTER=0x31, CMD_UPLINK=0x32;
+const int      MAXN=8, ROUTE_MAX=140;
+const double   R_EARTH=6371000.0;
+const unsigned long SLOT_MS=450, NODE_TTL=12000, LEAD_TTL=8000;
+
+// config (bench, por serial)
+uint32_t room=48291; uint8_t mySlot=1;
+
+// mundo
+struct Node{ bool active; double lat,lon; bool fix; bool alert; unsigned long lastMs; uint8_t color; };
+Node world[MAXN];
+struct Geo{ double lat,lon; }; Geo route[ROUTE_MAX]; int routeN=0,routeHead=0; uint16_t lastRouteSeq=0; bool haveRouteSeq=false;
+char rname[MAXN][16]; uint8_t rcolor[MAXN]; bool haveRoster=false;
+
+double myLat=0,myLon=0; bool myFix=false; int mySats=0; float mySpeed=0,myHeading=0;
+unsigned long myLastFix=0, worldRxMs=0, slotDue=0, lastDraw=0, lastDbg=0;
+bool pendingUplink=false, myAlert=false; unsigned long myAlertUntil=0;
+float mapMPP=2.0f; bool touchWasDown=false;
+
+#define C_BG 0x1925
+#define C_CARD 0x10E4
+#define C_LINE 0x2945
+#define C_BLUE 0x3C7F
+#define C_AMBER 0xE548
+#define C_ROUTE 0x2CF1
+#define C_ROUTEC 0x11A6
+#define C_TRAV 0x6B8F
+#define C_TRAVC 0x31A6
+#define C_RED 0xE207
+#define C_WHITE 0xFFFF
+#define C_MUT 0x8CB5
+static const uint16_t PALETTE[8]={0x3C7F,0x2CF1,0x9694,0xEC88,0xE36E,0x2648,0xFD20,0x07FF};
+uint16_t colorOf(uint8_t i){ return PALETTE[i&7]; }
+
+int SCR_W,SCR_H,CXp,CYp, abX,abY,abR;
+
+double haversine(double la1,double lo1,double la2,double lo2){
+  double dLa=radians(la2-la1),dLo=radians(lo2-lo1);
+  double a=sin(dLa/2)*sin(dLa/2)+cos(radians(la1))*cos(radians(la2))*sin(dLo/2)*sin(dLo/2);
+  return R_EARTH*2*atan2(sqrt(a),sqrt(1-a));
+}
+void w2s(double lat,double lon,double clat,double clon,double head,int&sx,int&sy){
+  double east=R_EARTH*cos(radians(clat))*radians(lon-clon), north=R_EARTH*radians(lat-clat);
+  double h=radians(head), up=north*cos(h)+east*sin(h), ri=east*cos(h)-north*sin(h);
+  sx=CXp+(int)(ri/mapMPP); sy=CYp-(int)(up/mapMPP);
+}
+int32_t getLE32(const uint8_t*p){ return (int32_t)((uint32_t)p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24)); }
+void putLE32(uint8_t*p,int32_t v){ p[0]=v&0xFF;p[1]=(v>>8)&0xFF;p[2]=(v>>16)&0xFF;p[3]=(v>>24)&0xFF; }
+uint32_t roomOf(const uint8_t*p){ return (uint32_t)p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16); }
+void routeAdd(double la,double lo){ route[routeHead].lat=la; route[routeHead].lon=lo; routeHead=(routeHead+1)%ROUTE_MAX; if(routeN<ROUTE_MAX)routeN++; }
+
+void handleSerial(){
+  if(!Serial.available()) return; char c=Serial.read();
+  if(c=='R'){ uint32_t v=0; for(int i=0;i<5;i++){ while(!Serial.available()){} char d=Serial.read(); if(d>='0'&&d<='9')v=v*10+(d-'0'); } room=v; Serial.print("sala="); Serial.println(room); }
+  else if(c=='F'){ while(!Serial.available()){} int n=Serial.read()-'0'; if(n>=1&&n<MAXN){ mySlot=n; Serial.print("slot="); Serial.println(mySlot);} }
+}
+
+void readGPS(){
+  while(Serial1.available()) gps.encode(Serial1.read());
+  if(gps.satellites.isValid()) mySats=gps.satellites.value();
+  if(gps.speed.isValid()) mySpeed=gps.speed.kmph();
+  if(gps.course.isValid() && mySpeed>=1.5f) myHeading=gps.course.deg();
+  if(gps.location.isValid() && gps.location.isUpdated()){ myLat=gps.location.lat(); myLon=gps.location.lng(); myLastFix=millis(); }
+  myFix=(myLastFix!=0)&&(millis()-myLastFix<3000);
+}
+void sendUplink(){
+  uint8_t p[13]; int o=0; p[o++]=room&0xFF;p[o++]=(room>>8)&0xFF;p[o++]=(room>>16)&0xFF; p[o++]=mySlot;
+  uint8_t fl=0; if(myFix)fl|=2; if(millis()<myAlertUntil)fl|=4; p[o++]=fl;
+  putLE32(p+o,(int32_t)(myLat*1e7)); o+=4; putLE32(p+o,(int32_t)(myLon*1e7)); o+=4;
+  lora.PrepareFrameCommand(LEADER_ID,CMD_UPLINK,p,o); lora.SendPacket();
+}
+void handleRx(uint8_t cmd,uint8_t*p,uint8_t plen){
+  if(cmd==CMD_ROSTER && plen>=3 && roomOf(p)==room){
+    int o=3; for(int k=0;k<MAXN&&o<plen;k++){ rcolor[k]=p[o++]; int L=p[o++]; if(L>15)L=15; if(o+L>plen)break; memcpy(rname[k],p+o,L); rname[k][L]=0; o+=L; }
+    haveRoster=true; return;
+  }
+  if(cmd==CMD_WORLD && plen>=4+8+72+3 && roomOf(p)==room){
+    worldRxMs=millis(); int o=4;
+    for(int k=0;k<MAXN;k++) world[k].color=p[o++];
+    for(int k=0;k<MAXN;k++){ uint8_t fl=p[o]; world[k].active=fl&1; world[k].fix=fl&2; world[k].alert=fl&4;
+      world[k].lat=getLE32(p+o+1)/1e7; world[k].lon=getLE32(p+o+5)/1e7; if(world[k].active) world[k].lastMs=millis(); o+=9; }
+    int nh=p[o++]; uint16_t seqN=(uint16_t)p[o]|((uint16_t)p[o+1]<<8); o+=2;
+    for(int i=0;i<nh;i++){ double la=getLE32(p+o)/1e7, lo=getLE32(p+o+4)/1e7; o+=8;
+      uint16_t seq=seqN-(nh-1)+i; if(!haveRouteSeq||(int16_t)(seq-lastRouteSeq)>0){ routeAdd(la,lo); lastRouteSeq=seq; haveRouteSeq=true; } }
+    slotDue=worldRxMs+(unsigned long)mySlot*SLOT_MS; pendingUplink=true;
+  }
+}
+void readLoRa(){ int g=0; uint16_t id; uint8_t cmd=0,p[240],plen=0;
+  while(g++<8 && lora.ReceivePacketCommand(&id,&cmd,p,&plen,15)) handleRx(cmd,p,plen); }
+
+// ---- desenho ----
+void triMarker(int cx,int cy,uint16_t col,int s){
+  gfx.fillTriangle(cx,cy-s, cx-(int)(0.62f*s),cy+(int)(0.72f*s), cx+(int)(0.62f*s),cy+(int)(0.72f*s), col);
+  gfx.fillTriangle(cx,cy-s, cx,cy+(int)(0.32f*s), cx+(int)(0.62f*s),cy+(int)(0.72f*s), col); // corpo cheio
+}
+void dotMarker(int cx,int cy,uint16_t col,int r){ gfx.fillCircle(cx,cy,r,col); gfx.drawCircle(cx,cy,r,C_WHITE); }
+void roadSeg(int x0,int y0,int x1,int y1,uint16_t cas,uint16_t fil,int wc,int wf){
+  for(int d=-(wc/2);d<=wc/2;d++){ gfx.drawLine(x0+d,y0,x1+d,y1,cas); gfx.drawLine(x0,y0+d,x1,y1+d,cas); }
+  for(int d=-(wf/2);d<=wf/2;d++){ gfx.drawLine(x0+d,y0,x1+d,y1,fil); gfx.drawLine(x0,y0+d,x1,y1+d,fil); }
+}
+void card(int x,int y,int w,int h){ gfx.fillRoundRect(x,y,w,h,7,C_CARD); gfx.drawRoundRect(x,y,w,h,7,C_LINE); }
+int nearestRouteIdx(double la,double lo){ int best=-1; double bd=1e18;
+  for(int k=0;k<routeN;k++){ int idx=(routeHead-routeN+k+ROUTE_MAX)%ROUTE_MAX; double d=haversine(la,lo,route[idx].lat,route[idx].lon); if(d<bd){bd=d;best=k;} }
+  return best; }
+
+void drawMap(){
+  gfx.fillScreen(C_BG);
+  double clat=myLat,clon=myLon,chead=myHeading;
+  if(!myFix){ gfx.setTextColor(C_AMBER); gfx.setTextSize(3); gfx.setCursor(30,CYp-20); gfx.print("PROCURANDO GPS..."); triMarker(CXp,CYp,C_BLUE,16); return; }
+  int myNear=nearestRouteIdx(clat,clon);
+  int psx=-1,psy=-1; double plat=0,plon=0; bool havePrev=false;
+  for(int k=0;k<routeN;k++){ int idx=(routeHead-routeN+k+ROUTE_MAX)%ROUTE_MAX; int sx,sy; w2s(route[idx].lat,route[idx].lon,clat,clon,chead,sx,sy);
+    bool vis=(sx>=-20&&sx<SCR_W+20&&sy>=-20&&sy<SCR_H+20);
+    if(vis&&psx>=0){ bool gap=havePrev&&haversine(plat,plon,route[idx].lat,route[idx].lon)>40.0;
+      if(!gap){ if(k>myNear) roadSeg(psx,psy,sx,sy,C_ROUTEC,C_ROUTE,10,5); else roadSeg(psx,psy,sx,sy,C_TRAVC,C_TRAV,8,3); } }
+    psx=vis?sx:-1; psy=sy; plat=route[idx].lat; plon=route[idx].lon; havePrev=true;
+  }
+  int aSlot=-1; for(int k=0;k<MAXN;k++) if(world[k].active&&world[k].alert){ aSlot=k; break; }
+  if(aSlot>=0){ int aN=nearestRouteIdx(world[aSlot].lat,world[aSlot].lon);
+    if(aN>=0&&myNear>=0){ int a=min(aN,myNear),b=max(aN,myNear),qx=-1,qy=-1;
+      for(int k=a;k<=b;k++){ int idx=(routeHead-routeN+k+ROUTE_MAX)%ROUTE_MAX; int sx,sy; w2s(route[idx].lat,route[idx].lon,clat,clon,chead,sx,sy);
+        if(qx>=0) roadSeg(qx,qy,sx,sy,0x6800,C_RED,12,6); qx=sx; qy=sy; } } }
+  for(int k=0;k<MAXN;k++){ if(!world[k].active||k==(int)mySlot) continue; if(millis()-world[k].lastMs>NODE_TTL) continue;
+    int sx,sy; w2s(world[k].lat,world[k].lon,clat,clon,chead,sx,sy); if(sx<-30||sx>SCR_W+30||sy<-30||sy>SCR_H+30) continue;
+    bool al=world[k].alert; if(k==0) triMarker(sx,sy,al?C_RED:C_AMBER,15); else dotMarker(sx,sy,al?C_RED:colorOf(world[k].color),9); }
+  triMarker(CXp,CYp,C_BLUE,16);
+  bool off=(worldRxMs==0||millis()-worldRxMs>LEAD_TTL);
+  if(off){ card(SCR_W/2-110,8,220,30); gfx.setTextColor(C_RED); gfx.setTextSize(2); gfx.setCursor(SCR_W/2-90,16); gfx.print("LIDER OFFLINE"); }
+}
+void drawUI(){
+  char b[32];
+  card(10,10,200,54); gfx.fillCircle(30,37,6,C_BLUE);
+  gfx.setTextColor(C_WHITE); gfx.setTextSize(2); gfx.setCursor(46,20); snprintf(b,sizeof(b),"Sala %lu",(unsigned long)room); gfx.print(b);
+  gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(46,44); gfx.print("seguidor (GIGA)");
+  // roster
+  int rw=170, rx=SCR_W-rw-8, ry=10, rh=24;
+  for(int k=0;k<MAXN;k++){ if(!world[k].active||millis()-world[k].lastMs>NODE_TTL) continue; card(rx,ry,rw,rh);
+    bool me=(k==(int)mySlot), ld=(k==0); uint16_t col=me?C_BLUE:(ld?C_AMBER:colorOf(world[k].color));
+    if(me||ld) gfx.fillTriangle(rx+13,ry+4,rx+6,ry+19,rx+20,ry+19,col); else gfx.fillCircle(rx+13,ry+12,5,col);
+    gfx.setTextColor(world[k].alert?C_RED:C_WHITE); gfx.setTextSize(1); gfx.setCursor(rx+28,ry+8);
+    gfx.print(haveRoster?rname[k]:(ld?"Lider":"Carro")); ry+=rh+4; if(ry>SCR_H-90) break; }
+  // distancia ao lider
+  if(world[0].active && myFix){ double d=haversine(myLat,myLon,world[0].lat,world[0].lon);
+    card(10,SCR_H-84,200,74); gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(24,SCR_H-76); gfx.print("LIDER");
+    gfx.setTextColor(C_WHITE); gfx.setTextSize(5); gfx.setCursor(20,SCR_H-60);
+    if(d>=1000) snprintf(b,sizeof(b),"%.1fkm",d/1000.0); else snprintf(b,sizeof(b),"%dm",(int)d); gfx.print(b); }
+  // FAB alerta
+  bool on=(millis()<myAlertUntil)&&((millis()/300)%2==0);
+  gfx.fillCircle(abX,abY,abR, on?C_RED:C_CARD); gfx.drawCircle(abX,abY,abR,C_RED);
+  uint16_t tc=on?C_WHITE:C_RED; gfx.fillTriangle(abX,abY-16,abX-16,abY+13,abX+16,abY+13,tc);
+  gfx.fillRect(abX-2,abY-6,4,11,on?C_RED:C_CARD); gfx.fillRect(abX-2,abY+8,4,4,on?C_RED:C_CARD);
+}
+void handleTouch(){
+  GDTpoint_t p[5]; uint8_t n=touch.getTouchPoints(p);
+  if(n>0){ int tx=p[0].y, ty=(SCR_H-1)-p[0].x;   // mapeamento original do GIGA
+    if(!touchWasDown){ if((tx-abX)*(tx-abX)+(ty-abY)*(ty-abY) <= (abR+8)*(abR+8)) myAlertUntil=millis()+4000; }
+    touchWasDown=true; } else touchWasDown=false;
+}
+
+void setup(){
+  Serial.begin(115200); Serial1.begin(9600); Serial2.begin(9600); delay(150);
+  lora.begin(false);
+  gfx.begin(); gfx.setRotation(1);
+  SCR_W=gfx.width(); SCR_H=gfx.height(); CXp=SCR_W/2; CYp=SCR_H/2;
+  abR=40; abX=SCR_W-abR-14; abY=SCR_H-abR-14;
+  touch.begin();
+  for(int k=0;k<MAXN;k++){ world[k]=Node(); world[k].color=k; snprintf(rname[k],16,k==0?"Lider":"Carro %d",k); rcolor[k]=k; }
+  gfx.startBuffering(); gfx.fillScreen(C_BG); gfx.endBuffering();
+  Serial.print("== GRUPO GIGA (seguidor) == sala="); Serial.print(room); Serial.print(" slot="); Serial.println(mySlot);
+}
+void loop(){
+  handleSerial(); readGPS(); readLoRa(); handleTouch();
+  unsigned long now=millis();
+  world[mySlot].active=true; world[mySlot].fix=myFix; world[mySlot].alert=(now<myAlertUntil);
+  world[mySlot].lat=myLat; world[mySlot].lon=myLon; world[mySlot].lastMs=now;
+  if(pendingUplink && now>=slotDue){ sendUplink(); pendingUplink=false; }
+  if(now-lastDraw>250){ gfx.startBuffering(); drawMap(); drawUI(); gfx.endBuffering(); lastDraw=now; }
+  if(now-lastDbg>2000){ int c=0; for(int k=0;k<MAXN;k++) if(world[k].active&&now-world[k].lastMs<NODE_TTL)c++;
+    Serial.print("GIGA seg fix="); Serial.print(myFix?"S":"N"); Serial.print(" world="); Serial.print(worldRxMs?"ok":"--"); Serial.print(" nos="); Serial.println(c); lastDbg=now; }
+}
