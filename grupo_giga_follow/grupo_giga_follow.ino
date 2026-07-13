@@ -19,6 +19,7 @@
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <Fonts/FreeSansBold18pt7b.h>
 #include <Fonts/FreeSansBold24pt7b.h>
+#include <kvstore_global_api.h>   // memoria persistente do GIGA (mbed)
 
 GigaDisplay_GFX          gfx;
 Arduino_GigaDisplayTouch touch;
@@ -36,6 +37,7 @@ uint32_t room=0; uint8_t mySlot=1;
 char codeBuf[6]=""; int codeLen=0;
 bool leaderRole=false; uint16_t routeSeq=0; unsigned long lastCycle=0; double lastAddLat=0,lastAddLon=0; bool haveAdd=false;
 uint8_t uiPage=0, pendingRole=0; bool searching=false;   // seguidor procurando a sala existir
+bool editName=false; char nameBuf[16]="";                // edicao do nome do aparelho
 
 // mundo
 struct Node{ bool active; double lat,lon; bool fix; bool alert; unsigned long lastMs; uint8_t color; };
@@ -43,6 +45,8 @@ Node world[MAXN];
 struct Geo{ double lat,lon; }; Geo route[ROUTE_MAX]; int routeN=0,routeHead=0; uint16_t lastRouteSeq=0; bool haveRouteSeq=false;
 char rname[MAXN][16]; uint8_t rcolor[MAXN]; uint32_t ruid[MAXN]; bool haveRoster=false;
 uint32_t myUid=0; bool joined=false; uint8_t curSlot=0; uint8_t myColor=1; char myName[16]="Carro";
+void saveName(){ kv_set("dev_name", myName, strlen(myName)+1, 0); }
+void loadName(){ char b[16]; size_t a=0; if(kv_get("dev_name", b, sizeof(b), &a)==0 && a>0){ b[15]=0; strncpy(myName,b,15); myName[15]=0; } }
 
 double myLat=0,myLon=0; bool myFix=false; int mySats=0; float mySpeed=0,myHeading=0;
 unsigned long myLastFix=0, worldRxMs=0, slotDue=0, lastDraw=0, lastDbg=0;
@@ -242,12 +246,37 @@ void drawUI(){
   uint16_t tc=on?C_WHITE:C_RED; gfx.fillTriangle(abX,abY-16,abX-16,abY+13,abX+16,abY+13,tc);
   gfx.fillRect(abX-2,abY-6,4,11,on?C_RED:C_CARD); gfx.fillRect(abX-2,abY+8,4,4,on?C_RED:C_CARD);
 }
+// ---- editar o nome do aparelho (engrenagem) ----
+void gearRect(int&x,int&y,int&w,int&h){ w=250; h=50; x=SCR_W-w-20; y=18; }
+void gearIcon(int cx,int cy,int r,uint16_t col){ for(int a=0;a<360;a+=45){ float rad=a*3.14159f/180.0f; gfx.fillCircle(cx+(int)(cos(rad)*r),cy+(int)(sin(rad)*r),2,col);} gfx.fillCircle(cx,cy,r,col); gfx.fillCircle(cx,cy,r/2,C_CARD); }
+void kbRect(int i,int&x,int&y,int&w,int&h){ int cols=7,kx=16,ky=140,kw=(SCR_W-32)/cols,kh=(SCR_H-ky-16)/4,r=i/cols,c=i%cols; x=kx+c*kw+4;y=ky+r*kh+4;w=kw-8;h=kh-8; }
+void drawNameEdit(){
+  gfx.fillScreen(C_BG);
+  txt(&FreeSans12pt7b,20,34,C_MUT,"Nome deste aparelho");
+  gfx.drawRoundRect(16,48,SCR_W-32,58,12,C_ROUTE); gfx.drawRoundRect(17,49,SCR_W-34,56,12,C_ROUTE);
+  txt(&FreeSansBold24pt7b,34,90,C_WHITE, nameBuf[0]?nameBuf:"...");
+  for(int i=0;i<28;i++){ int x,y,w,h; kbRect(i,x,y,w,h); gfx.fillRoundRect(x,y,w,h,8,C_CARD); gfx.drawRoundRect(x,y,w,h,8,C_LINE);
+    char lb[3]; uint16_t col=C_WHITE; if(i<26){lb[0]='A'+i;lb[1]=0;} else if(i==26){strcpy(lb,"<");col=C_RED;} else {strcpy(lb,"OK");col=C_ROUTE;}
+    txtC(&FreeSansBold18pt7b,x+w/2,y+h/2+7,col,lb); }
+}
+void nameEditTouch(int tx,int ty){
+  for(int i=0;i<28;i++){ int x,y,w,h; kbRect(i,x,y,w,h);
+    if(tx>=x&&tx<=x+w&&ty>=y&&ty<=y+h){ int L=strlen(nameBuf);
+      if(i<26){ if(L<12){ nameBuf[L]='A'+i; nameBuf[L+1]=0; } }
+      else if(i==26){ if(L>0) nameBuf[L-1]=0; }
+      else { if(L>0){ strncpy(myName,nameBuf,15); myName[15]=0; saveName(); } editName=false; }
+      return; }
+  }
+}
 // ---- tela inicial: escolher o papel DESTA saida ----
 void homeRects(int&bx,int&bw,int&bh,int&by1,int&by2){ bw=SCR_W-80; bx=40; bh=132; by1=168; by2=by1+bh+22; }
 void drawHome(){
   gfx.fillScreen(C_BG);
   txt(&FreeSansBold24pt7b,40,78,C_WHITE,"TRILHA");
   txt(&FreeSans12pt7b,42,112,C_MUT,"Escolha o papel para esta saida");
+  // botao de nome (engrenagem) no canto sup direito
+  int gx,gy,gw,gh; gearRect(gx,gy,gw,gh); gfx.fillRoundRect(gx,gy,gw,gh,12,C_CARD); gfx.drawRoundRect(gx,gy,gw,gh,12,C_LINE);
+  gearIcon(gx+24,gy+gh/2,10,C_MUT); txt(&FreeSans12pt7b,gx+44,gy+gh/2+6,C_WHITE,myName);
   int bx,bw,bh,by1,by2; homeRects(bx,bw,bh,by1,by2);
   // CRIAR (preenchido)
   gfx.fillRoundRect(bx,by1,bw,bh,16,C_ROUTE);
@@ -258,7 +287,10 @@ void drawHome(){
   txt(&FreeSansBold24pt7b,bx+40,by2+66,C_BLUE,"ENTRAR NA SALA");
   txt(&FreeSans12pt7b,bx+42,by2+98,C_MUT,"voce vira seguidor");
 }
-void homeTouch(int tx,int ty){ int bx,bw,bh,by1,by2; homeRects(bx,bw,bh,by1,by2);
+void homeTouch(int tx,int ty){
+  int gx,gy,gw,gh; gearRect(gx,gy,gw,gh);
+  if(tx>=gx&&tx<=gx+gw&&ty>=gy&&ty<=gy+gh){ editName=true; strncpy(nameBuf,myName,15); nameBuf[15]=0; if(!strcmp(nameBuf,"Carro"))nameBuf[0]=0; return; }
+  int bx,bw,bh,by1,by2; homeRects(bx,bw,bh,by1,by2);
   if(tx>=bx&&tx<=bx+bw){ if(ty>=by1&&ty<=by1+bh){ pendingRole=1; uiPage=1; codeLen=0; codeBuf[0]=0; }
     else if(ty>=by2&&ty<=by2+bh){ pendingRole=0; uiPage=1; codeLen=0; codeBuf[0]=0; } } }
 // ---- teclado do codigo da sala ----
@@ -304,7 +336,7 @@ void handleTouch(){
   GDTpoint_t p[5]; uint8_t n=touch.getTouchPoints(p);
   if(n>0){ int tx=p[0].y, ty=(SCR_H-1)-p[0].x;   // mapeamento original do GIGA
     if(!touchWasDown){
-      if(room==0){ if(uiPage==0) homeTouch(tx,ty); else keypadTouch(tx,ty); }
+      if(room==0){ if(editName) nameEditTouch(tx,ty); else if(uiPage==0) homeTouch(tx,ty); else keypadTouch(tx,ty); }
       else if(searching){ int x,y,w,h; searchRects(x,y,w,h); if(tx>=x&&tx<=x+w&&ty>=y&&ty<=y+h){ room=0; searching=false; uiPage=0; joined=false; } }
       else if((tx-abX)*(tx-abX)+(ty-abY)*(ty-abY) <= (abR+8)*(abR+8)) myAlert=!myAlert;   // liga/desliga
     }
@@ -314,6 +346,7 @@ void handleTouch(){
 void setup(){
   Serial.begin(115200); Serial1.begin(9600); Serial2.begin(9600); delay(150);
   lora.begin(false); lora.localread(); myUid=lora.localUniqueId;
+  loadName();
   gfx.begin(); gfx.setRotation(1);
   SCR_W=gfx.width(); SCR_H=gfx.height(); CXp=SCR_W/2; CYp=SCR_H/2;
   abR=40; abX=SCR_W-abR-14; abY=SCR_H-abR-14;
@@ -332,7 +365,7 @@ void loop(){
     else if(!joined){ static unsigned long lj=0; if(now-lj>1500){ sendJoin(); lj=now; } }
     else if(pendingUplink && now>=slotDue){ sendUplink(); pendingUplink=false; }
   }
-  if(now-lastDraw>250){ gfx.startBuffering(); if(room==0){ if(uiPage==0) drawHome(); else drawKeypad(); } else if(searching) drawSearching(); else { drawMap(); drawUI(); } gfx.endBuffering(); lastDraw=now; }
+  if(now-lastDraw>250){ gfx.startBuffering(); if(room==0){ if(editName) drawNameEdit(); else if(uiPage==0) drawHome(); else drawKeypad(); } else if(searching) drawSearching(); else { drawMap(); drawUI(); } gfx.endBuffering(); lastDraw=now; }
   if(now-lastDbg>2000){ int c=0; for(int k=0;k<MAXN;k++) if(world[k].active&&now-world[k].lastMs<NODE_TTL)c++;
     Serial.print("GIGA seg fix="); Serial.print(myFix?"S":"N"); Serial.print(" world="); Serial.print(worldRxMs?"ok":"--"); Serial.print(" nos="); Serial.println(c); lastDbg=now; }
 }
