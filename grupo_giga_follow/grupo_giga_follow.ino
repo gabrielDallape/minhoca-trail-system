@@ -52,6 +52,8 @@ float mapMPP=2.0f; bool touchWasDown=false;
 #define C_RED 0xE207
 #define C_WHITE 0xFFFF
 #define C_MUT 0x8CB5
+#define C_YEL 0xFE60
+const double OFFROUTE_M=30.0;
 static const uint16_t PALETTE[8]={0x3C7F,0x2CF1,0x9694,0xEC88,0xE36E,0x2648,0xFD20,0x07FF};
 uint16_t colorOf(uint8_t i){ return PALETTE[i&7]; }
 
@@ -131,6 +133,7 @@ void drawMap(){
   double clat=myLat,clon=myLon,chead=myHeading;
   if(!myFix){ gfx.setTextColor(C_AMBER); gfx.setTextSize(3); gfx.setCursor(30,CYp-20); gfx.print("PROCURANDO GPS..."); triMarker(CXp,CYp,C_BLUE,16); return; }
   int myNear=nearestRouteIdx(clat,clon);
+  double myBest=1e9; if(myNear>=0){ int mi=(routeHead-routeN+myNear+ROUTE_MAX)%ROUTE_MAX; myBest=haversine(clat,clon,route[mi].lat,route[mi].lon); }
   int psx=-1,psy=-1; double plat=0,plon=0; bool havePrev=false;
   for(int k=0;k<routeN;k++){ int idx=(routeHead-routeN+k+ROUTE_MAX)%ROUTE_MAX; int sx,sy; w2s(route[idx].lat,route[idx].lon,clat,clon,chead,sx,sy);
     bool vis=(sx>=-20&&sx<SCR_W+20&&sy>=-20&&sy<SCR_H+20);
@@ -145,8 +148,15 @@ void drawMap(){
         if(qx>=0) roadSeg(qx,qy,sx,sy,0x6800,C_RED,12,6); qx=sx; qy=sy; } } }
   for(int k=0;k<MAXN;k++){ if(!world[k].active||k==(int)mySlot) continue; if(millis()-world[k].lastMs>NODE_TTL) continue;
     int sx,sy; w2s(world[k].lat,world[k].lon,clat,clon,chead,sx,sy); if(sx<-30||sx>SCR_W+30||sy<-30||sy>SCR_H+30) continue;
-    bool al=world[k].alert; if(k==0) triMarker(sx,sy,al?C_RED:C_AMBER,15); else dotMarker(sx,sy,al?C_RED:colorOf(world[k].color),9); }
+    bool al=world[k].alert; uint16_t mc=al?C_RED:(k==0?C_AMBER:colorOf(world[k].color));
+    if(k==0) triMarker(sx,sy,mc,15); else dotMarker(sx,sy,mc,9);
+    gfx.setTextColor(mc); gfx.setTextSize(1); gfx.setCursor(sx+13,sy-5); gfx.print(haveRoster?rname[k]:(k==0?"Lider":"Carro")); }
   triMarker(CXp,CYp,C_BLUE,16);
+  // FORA DE ROTA
+  if(routeN>3 && myBest>OFFROUTE_M && ((millis()/350)%2==0)){
+    for(int t=0;t<6;t++) gfx.drawRect(t,t,SCR_W-1-2*t,SCR_H-1-2*t,C_YEL);
+    gfx.setTextColor(C_YEL); gfx.setTextSize(3); gfx.setCursor(CXp-110,20); gfx.print("FORA DE ROTA");
+  }
   bool off=(worldRxMs==0||millis()-worldRxMs>LEAD_TTL);
   if(off){ card(SCR_W/2-110,8,220,30); gfx.setTextColor(C_RED); gfx.setTextSize(2); gfx.setCursor(SCR_W/2-90,16); gfx.print("LIDER OFFLINE"); }
 }

@@ -94,6 +94,8 @@ bool touchWasDown=false;
 #define C_WHITE 0xFFFF
 #define C_MUT   0x8CB5
 #define C_GREEN 0x2648
+#define C_YEL   0xFE60
+const double OFFROUTE_M = 30.0;
 static const uint16_t PALETTE[8] = {0x3C7F,0x2CF1,0x9694,0xEC88,0xE36E,0x2648,0xFD20,0x07FF};
 uint16_t colorOf(uint8_t i){ return PALETTE[i&7]; }
 
@@ -339,6 +341,7 @@ void drawMap(){
     triMarker(CXp,CYp,0,C_BLUE,14); return;
   }
   int myNear = nearestRouteIdx(clat,clon);
+  double myBest=1e9; if(myNear>=0){ int mi=(routeHead-routeN+myNear+ROUTE_MAX)%ROUTE_MAX; myBest=haversine(clat,clon,route[mi].lat,route[mi].lon); }
   // rota do lider (estrada). depois do meu ponto = a seguir (teal) ; antes = cinza
   int psx=-1,psy=-1; double plat=0,plon=0; bool havePrev=false;
   for(int k=0;k<routeN;k++){ int idx=(routeHead-routeN+k+ROUTE_MAX)%ROUTE_MAX;
@@ -368,11 +371,19 @@ void drawMap(){
     int sx,sy; worldToScreen(world[k].lat,world[k].lon,clat,clon,chead,sx,sy);
     if(sx<-30||sx>SCR_W+30||sy<-30||sy>SCR_H+30) continue;
     bool al=world[k].alert;
-    if(k==0) triMarker(sx,sy,0,al?C_RED:C_AMBER,13);        // lider
-    else dotMarker(sx,sy,al?C_RED:colorOf(world[k].color),8);
+    uint16_t mc = al?C_RED:(k==0?C_AMBER:colorOf(world[k].color));
+    if(k==0) triMarker(sx,sy,0,mc,13);                      // lider
+    else dotMarker(sx,sy,mc,8);
+    tft.setTextColor(mc); tft.setTextSize(1); tft.setCursor(sx+11,sy-4);   // etiqueta de nome
+    tft.print(haveRoster?rname[k]:(k==0?"Lider":"Carro"));
   }
   triMarker(CXp,CYp,0,C_BLUE,14);                            // eu
 
+  // FORA DE ROTA (pisca amarelo) - so seguidor, longe do caminho do lider
+  if(!isLeader() && routeN>3 && myBest>OFFROUTE_M && ((millis()/350)%2==0)){
+    for(int t=0;t<5;t++) tft.drawRect(t,t,SCR_W-1-2*t,SCR_H-1-2*t,C_YEL);
+    tft.setTextColor(C_YEL); tft.setTextSize(2); tft.setCursor(CXp-72,16); tft.print("FORA DE ROTA");
+  }
   if(leadOffline){ card(SCR_W/2-90,8,180,26); tft.setTextColor(C_RED); tft.setTextSize(1); tft.setCursor(SCR_W/2-70,16); tft.print("LIDER OFFLINE"); }
 }
 
