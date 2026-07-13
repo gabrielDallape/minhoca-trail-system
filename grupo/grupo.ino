@@ -60,6 +60,7 @@ struct Cfg { uint32_t room; uint8_t role; uint8_t slot; uint8_t color; char name
 Cfg cfg = { 0, 0, 1, 0, "Carro" };       // room 0 = nao configurado -> mostra teclado
 bool isLeader(){ return cfg.role==1; }
 char codeBuf[6]=""; int codeLen=0;       // teclado do codigo da sala
+uint8_t uiPage=0, pendingRole=0;         // room==0: 0=inicio(criar/entrar) 1=teclado; pendingRole p/ o teclado
 
 // ---------------- estado do mundo ----------------
 struct Node { bool active; double lat,lon; bool fix; bool alert; unsigned long lastMs; uint8_t color; };
@@ -142,7 +143,7 @@ void handleSerialCfg(){
   else if(c=='C'){ while(!Serial.available()){} int n=Serial.read()-'0'; if(n>=0&&n<8){ cfg.color=n; saveCfg(); printCfg(); } }
   else if(c=='R'){ uint32_t v=0; for(int i=0;i<5;i++){ while(!Serial.available()){} char d=Serial.read(); if(d>='0'&&d<='9') v=v*10+(d-'0'); } cfg.room=v; saveCfg(); printCfg(); }
   else if(c=='P'){ printCfg(); }
-  else if(c=='X'){ cfg.room=0; codeLen=0; codeBuf[0]=0; saveCfg(); printCfg(); }   // sair da sala
+  else if(c=='X'){ cfg.room=0; codeLen=0; codeBuf[0]=0; uiPage=0; joined=false; saveCfg(); printCfg(); }   // sair da sala
 }
 
 // ---------------- config por WiFi (pagina no celular) ----------------
@@ -158,9 +159,15 @@ String pageHtml(){
      ".r{display:flex;gap:10px}.r label{flex:1;text-align:center;padding:11px;border:1px solid #2a3a4a;border-radius:9px;text-transform:none;font-size:15px;color:#e6edf5}"
      ".r input{display:none}.r input:checked+span{color:#0d131b;font-weight:700}.r label:has(input:checked){background:#2fb0a0;border-color:#2fb0a0}"
      "button{margin-top:22px;width:100%;padding:14px;font-size:16px;font-weight:700;background:#2fb0a0;color:#04140f;border:none;border-radius:10px}"
-     ".pill{display:inline-block;background:#111a24;border:1px solid #2a3a4a;border-radius:20px;padding:4px 12px;font-size:12px;color:#34c878}</style></head><body>";
-  s+="<h1>Trilha — configurar</h1><p class=m>Sala e papel deste aparelho.</p>";
-  s+="<p><span class=pill>"+String(conn)+" na sala</span></p>";
+     ".pill{display:inline-block;background:#111a24;border:1px solid #2a3a4a;border-radius:20px;padding:4px 12px;font-size:12px;color:#34c878}"
+     ".conn{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid #2a3a4a;border-radius:9px;margin-bottom:6px;font-size:14px}"
+     ".conn i{width:13px;height:13px;border-radius:50%;flex:none}.conn b{margin-left:auto;color:#8a97a8;font-size:12px;font-weight:400}</style></head><body>";
+  s+="<h1>Trilha — sala "+String(cfg.room)+"</h1><p class=m>Configuração e quem está conectado.</p>";
+  s+="<label>Conectados agora ("+String(conn)+")</label>";
+  bool any=false;
+  for(int k=0;k<MAXN;k++){ if(!world[k].active || millis()-world[k].lastMs>NODE_TTL) continue; any=true;
+    s+="<div class=conn><i style='background:"+String(COLOR_HEX[rcolor[k]&7])+"'></i>"+String(rname[k])+"<b>"+String(k==0?"líder":"seguidor")+"</b></div>"; }
+  if(!any) s+="<p class=m>ninguém ainda — ligue os outros carrinhos.</p>";
   s+="<form action=/save method=get>";
   s+="<label>Codigo da sala</label><input name=sala inputmode=numeric maxlength=5 value='"+String(cfg.room)+"'>";
   s+="<label>Papel</label><div class=r>";
@@ -209,7 +216,7 @@ void handleSave(){
   printCfg();
   server.sendHeader("Location","/"); server.send(303);
 }
-void handleLeave(){ cfg.room=0; codeLen=0; codeBuf[0]=0; saveCfg(); server.sendHeader("Location","/"); server.send(303); }
+void handleLeave(){ cfg.room=0; codeLen=0; codeBuf[0]=0; uiPage=0; joined=false; saveCfg(); server.sendHeader("Location","/"); server.send(303); }
 void startWiFi(){
   WiFi.mode(WIFI_AP);
   char ssid[28]; snprintf(ssid,sizeof(ssid),"Trilha-%s",cfg.name);
@@ -448,6 +455,27 @@ void drawUI(){
   tft.fillRect(fx-2,fy-4,4,8, aOn?C_RED:C_CARD); tft.fillRect(fx-2,fy+7,4,3, aOn?C_RED:C_CARD);
 }
 
+// ---- tela inicial: escolher o papel DESTA saida (nao e fixo) ----
+void homeRects(int&bx,int&bw,int&bh,int&by1,int&by2){ bw=SCR_W-40; bx=20; bh=(int)(SCR_H*0.26); by1=(int)(SCR_H*0.32); by2=by1+bh+14; }
+void drawHome(){
+  tft.fillScreen(C_BG);
+  tft.setTextColor(C_WHITE); tft.setTextSize(3); tft.setCursor(20,(int)(SCR_H*0.10)); tft.print("Trilha");
+  tft.setTextColor(C_MUT); tft.setTextSize(1); tft.setCursor(20,(int)(SCR_H*0.10)+28); tft.print("escolha o papel para esta saida");
+  int bx,bw,bh,by1,by2; homeRects(bx,bw,bh,by1,by2);
+  tft.fillRoundRect(bx,by1,bw,bh,10,C_ROUTE); tft.setTextColor(C_BG); tft.setTextSize(3);
+  tft.setCursor(bx+bw/2-84,by1+bh/2-10); tft.print("CRIAR SALA");
+  tft.setTextColor(C_MUT); tft.setTextSize(1); tft.setCursor(bx+bw/2-40,by1+bh-16); tft.print("(voce = lider)");
+  tft.drawRoundRect(bx,by2,bw,bh,10,C_BLUE); tft.drawRoundRect(bx+1,by2+1,bw-2,bh-2,10,C_BLUE);
+  tft.setTextColor(C_BLUE); tft.setTextSize(3); tft.setCursor(bx+bw/2-96,by2+bh/2-10); tft.print("ENTRAR NA SALA");
+  tft.setTextColor(C_MUT); tft.setTextSize(1); tft.setCursor(bx+bw/2-48,by2+bh-16); tft.print("(voce = seguidor)");
+}
+void homeTouch(int tx,int ty){
+  int bx,bw,bh,by1,by2; homeRects(bx,bw,bh,by1,by2);
+  if(tx>=bx&&tx<=bx+bw){
+    if(ty>=by1&&ty<=by1+bh){ pendingRole=1; uiPage=1; codeLen=0; codeBuf[0]=0; }
+    else if(ty>=by2&&ty<=by2+bh){ pendingRole=0; uiPage=1; codeLen=0; codeBuf[0]=0; }
+  }
+}
 // ---- teclado do codigo da sala (mostrado quando room==0) ----
 static const char* KPLAB[12]={"1","2","3","4","5","6","7","8","9","<","0","OK"};
 void kpRect(int i,int&x,int&y,int&w,int&h){
@@ -468,8 +496,13 @@ void drawKeypad(){
 void keypadTouch(int tx,int ty){
   for(int i=0;i<12;i++){ int x,y,w,h; kpRect(i,x,y,w,h);
     if(tx>=x&&tx<=x+w&&ty>=y&&ty<=y+h){
-      if(i==9){ if(codeLen>0) codeBuf[--codeLen]=0; }
-      else if(i==11){ if(codeLen==5){ cfg.room=atol(codeBuf); if(cfg.room==0)cfg.room=1; saveCfg(); } }
+      if(i==9){ if(codeLen>0) codeBuf[--codeLen]=0; else uiPage=0; }        // apaga; vazio = volta pro inicio
+      else if(i==11){ if(codeLen==5){
+        cfg.room=atol(codeBuf); if(cfg.room==0)cfg.room=1; cfg.role=pendingRole;
+        if(isLeader()){ cfg.slot=0; ruid[0]=myUid; strncpy(rname[0],cfg.name,15); rname[0][15]=0; rcolor[0]=cfg.color; haveRoster=true; joined=true; curSlot=0; }
+        else { joined=false; curSlot=0; }
+        saveCfg();
+      } }
       else if(codeLen<5){ codeBuf[codeLen++]=KPLAB[i][0]; codeBuf[codeLen]=0; }
       return;
     }
@@ -479,7 +512,7 @@ void handleTouch(){
   int32_t tx,ty;
   if(tft.getTouch(&tx,&ty)){
     if(!touchWasDown){
-      if(cfg.room==0){ keypadTouch(tx,ty); }
+      if(cfg.room==0){ if(uiPage==0) homeTouch(tx,ty); else keypadTouch(tx,ty); }
       else { int fx=SCR_W-30, fy=SCR_H-30; if((tx-fx)*(tx-fx)+(ty-fy)*(ty-fy) <= 30*30) myAlertUntil=millis()+4000; }
     }
     touchWasDown=true;
@@ -529,7 +562,7 @@ void loop(){
     }
   }
 
-  if(now-lastDraw>250){ if(cfg.room==0) drawKeypad(); else { drawMap(); drawUI(); } lastDraw=now; }
+  if(now-lastDraw>250){ if(cfg.room==0){ if(uiPage==0) drawHome(); else drawKeypad(); } else { drawMap(); drawUI(); } lastDraw=now; }
   if(now-lastDbg>2000){
     Serial.print(isLeader()?"LIDER":"SEG"); Serial.print(" fix="); Serial.print(myFix?"S":"N");
     Serial.print(" sat="); Serial.print(mySats); int n=0; for(int k=0;k<MAXN;k++) if(world[k].active&&now-world[k].lastMs<NODE_TTL)n++;
