@@ -53,19 +53,21 @@ unsigned long myLastFix=0, worldRxMs=0, slotDue=0, lastDraw=0, lastDbg=0;
 bool pendingUplink=false, myAlert=false; unsigned long myAlertUntil=0;
 float mapMPP=2.0f; bool touchWasDown=false;
 
-#define C_BG 0x1925
-#define C_CARD 0x10E4
-#define C_LINE 0x2945
-#define C_BLUE 0x3C7F
-#define C_AMBER 0xE548
-#define C_ROUTE 0x2CF1
-#define C_ROUTEC 0x11A6
-#define C_TRAV 0x6B8F
-#define C_TRAVC 0x31A6
-#define C_RED 0xE207
-#define C_WHITE 0xFFFF
-#define C_MUT 0x8CB5
-#define C_YEL 0xFE60
+// cores viram VARIAVEIS de tema (setadas por applyTheme) -> resto do desenho nao muda
+uint16_t C_BG,C_CARD,C_LINE,C_BLUE,C_AMBER,C_ROUTE,C_ROUTEC,C_TRAV,C_TRAVC,C_RED,C_MUT,C_YEL;
+const uint16_t C_WHITE=0xFFFF;
+#define RGB(r,g,b) ((uint16_t)((((r)&0xF8)<<8)|(((g)&0xFC)<<3)|((b)>>3)))
+struct Theme{ uint16_t bg,card,line,you,leader,route,routec,trav,travc,red,mut; const char* name; };
+const Theme THEMES[3]={
+ { RGB(11,9,6),   RGB(29,24,16), RGB(61,49,25), RGB(40,216,255),  RGB(255,210,62),  RGB(255,149,0),  RGB(90,58,0),  RGB(90,70,34), RGB(50,40,20), RGB(255,59,48), RGB(179,155,111), "RALLY" },
+ { RGB(10,13,9),  RGB(21,27,16), RGB(47,61,32), RGB(232,255,207), RGB(255,122,26),  RGB(166,255,77), RGB(40,70,18), RGB(60,74,42), RGB(35,45,26), RGB(255,47,32), RGB(127,144,104),"TATICO" },
+ { RGB(10,12,16), RGB(24,30,38), RGB(32,42,52), RGB(0,229,255),   RGB(255,255,255), RGB(0,229,255),  RGB(16,50,60), RGB(38,66,74), RGB(28,46,52), RGB(255,56,96), RGB(102,114,126),"HUD" },
+};
+int themeIdx=0;
+void applyTheme(int i){ if(i<0||i>2)i=0; themeIdx=i; const Theme&t=THEMES[i];
+  C_BG=t.bg;C_CARD=t.card;C_LINE=t.line;C_BLUE=t.you;C_AMBER=t.leader;C_ROUTE=t.route;C_ROUTEC=t.routec;C_TRAV=t.trav;C_TRAVC=t.travc;C_RED=t.red;C_MUT=t.mut;C_YEL=0xFE60; }
+void saveTheme(){ uint8_t t=(uint8_t)themeIdx; kv_set("dev_theme",&t,1,0); }
+void loadTheme(){ uint8_t t=0; size_t a=0; if(kv_get("dev_theme",&t,1,&a)==0&&a>0&&t<3) themeIdx=t; }
 const double OFFROUTE_M=30.0;
 static const uint16_t PALETTE[8]={0x3C7F,0x2CF1,0x9694,0xEC88,0xE36E,0x2648,0xFD20,0x07FF};
 uint16_t colorOf(uint8_t i){ return PALETTE[i&7]; }
@@ -261,16 +263,21 @@ void drawUI(){
 void gearRect(int&x,int&y,int&w,int&h){ w=320; h=60; x=SCR_W-w; y=4; }
 void gearIcon(int cx,int cy,int r,uint16_t col){ for(int a=0;a<360;a+=45){ float rad=a*3.14159f/180.0f; gfx.fillCircle(cx+(int)(cos(rad)*r),cy+(int)(sin(rad)*r),3,col);} gfx.fillCircle(cx,cy,r,col); gfx.fillCircle(cx,cy,r/2,C_BG); }
 void kbRect(int i,int&x,int&y,int&w,int&h){ int cols=7,kx=16,ky=140,kw=(SCR_W-32)/cols,kh=(SCR_H-ky-16)/4,r=i/cols,c=i%cols; x=kx+c*kw+4;y=ky+r*kh+4;w=kw-8;h=kh-8; }
+void themeBtnRect(int i,int&x,int&y,int&w,int&h){ int bw=(SCR_W-32)/3; x=16+i*bw+2; y=100; w=bw-4; h=32; }
 void drawNameEdit(){
   gfx.fillScreen(C_BG);
-  txt(&FreeSans12pt7b,20,34,C_MUT,"Nome deste aparelho");
-  gfx.drawRoundRect(16,48,SCR_W-32,58,12,C_ROUTE); gfx.drawRoundRect(17,49,SCR_W-34,56,12,C_ROUTE);
-  txt(&FreeSansBold24pt7b,34,90,C_WHITE, nameBuf[0]?nameBuf:"...");
+  txt(&FreeSans12pt7b,20,30,C_MUT,"Configuracoes do aparelho");
+  gfx.drawRoundRect(16,40,SCR_W-32,50,10,C_ROUTE); gfx.drawRoundRect(17,41,SCR_W-34,48,10,C_ROUTE);
+  txt(&FreeSansBold24pt7b,30,78,C_WHITE, nameBuf[0]?nameBuf:"...");
+  for(int i=0;i<3;i++){ int x,y,w,h; themeBtnRect(i,x,y,w,h); bool sel=(i==themeIdx);
+    gfx.fillRoundRect(x,y,w,h,8, sel?THEMES[i].route:C_CARD); gfx.drawRoundRect(x,y,w,h,8, sel?THEMES[i].route:C_LINE);
+    txtC(&FreeSansBold12pt7b,x+w/2,y+h/2+5, sel?THEMES[i].bg:C_WHITE, THEMES[i].name); }
   for(int i=0;i<28;i++){ int x,y,w,h; kbRect(i,x,y,w,h); gfx.fillRoundRect(x,y,w,h,8,C_CARD); gfx.drawRoundRect(x,y,w,h,8,C_LINE);
     char lb[3]; uint16_t col=C_WHITE; if(i<26){lb[0]='A'+i;lb[1]=0;} else if(i==26){strcpy(lb,"<");col=C_RED;} else {strcpy(lb,"OK");col=C_ROUTE;}
     txtC(&FreeSansBold18pt7b,x+w/2,y+h/2+7,col,lb); }
 }
 void nameEditTouch(int tx,int ty){
+  for(int i=0;i<3;i++){ int x,y,w,h; themeBtnRect(i,x,y,w,h); if(tx>=x&&tx<=x+w&&ty>=y&&ty<=y+h){ applyTheme(i); saveTheme(); return; } }
   for(int i=0;i<28;i++){ int x,y,w,h; kbRect(i,x,y,w,h);
     if(tx>=x&&tx<=x+w&&ty>=y&&ty<=y+h){ int L=strlen(nameBuf);
       if(i<26){ if(L<12){ nameBuf[L]='A'+i; nameBuf[L+1]=0; } }
@@ -353,7 +360,7 @@ void handleTouch(){
 void setup(){
   Serial.begin(115200); Serial1.begin(9600); Serial2.begin(9600); delay(150);
   lora.begin(false); lora.localread(); myUid=lora.localUniqueId;
-  loadName();
+  loadName(); loadTheme(); applyTheme(themeIdx);
   gfx.begin(); gfx.setRotation(1);
   SCR_W=gfx.width(); SCR_H=gfx.height(); CXp=SCR_W/2; CYp=SCR_H/2;
   abR=40; abX=SCR_W-abR-14; abY=SCR_H-abR-14;
