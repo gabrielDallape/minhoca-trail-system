@@ -42,6 +42,7 @@ WebServer    server(80);
 const uint16_t BCAST      = 2047;
 const uint16_t LEADER_ID  = 0;
 const uint8_t  CMD_WORLD  = 0x30;   // lider -> broadcast (estado do mundo)
+const uint8_t  CMD_ROSTER = 0x31;   // lider -> broadcast (nomes + cores de todos)
 const uint8_t  CMD_UPLINK = 0x32;   // seguidor -> lider (minha posicao)
 const int      MAXN       = 8;      // ate 8 carrinhos (slot 0 = lider)
 const int      ROUTE_MAX  = 140;    // pontos da rota do lider (desenho)
@@ -61,6 +62,10 @@ bool isLeader(){ return cfg.role==1; }
 // ---------------- estado do mundo ----------------
 struct Node { bool active; double lat,lon; bool fix; bool alert; unsigned long lastMs; uint8_t color; };
 Node world[MAXN];
+// roster (nome + cor de cada slot). Lider e a autoridade; retransmite por CMD_ROSTER.
+char    rname[MAXN][16];
+uint8_t rcolor[MAXN];
+bool    haveRoster=false;
 struct Geo { double lat,lon; };
 Geo route[ROUTE_MAX]; int routeN=0, routeHead=0; uint16_t routeSeq=0; uint16_t lastRouteSeq=0; bool haveRouteSeq=false;
 double lastAddLat=0,lastAddLon=0; bool haveAdd=false;
@@ -109,6 +114,12 @@ void worldToScreen(double lat,double lon,double clat,double clon,double head,int
 
 // ---------------- config / NVS ----------------
 void saveCfg(){ prefs.begin("grupo",false); prefs.putBytes("cfg",&cfg,sizeof(cfg)); prefs.end(); }
+void saveRoster(){ prefs.begin("grupo",false); prefs.putBytes("rn",rname,sizeof(rname)); prefs.putBytes("rc",rcolor,sizeof(rcolor)); prefs.end(); }
+void initRoster(){
+  prefs.begin("grupo",true); size_t g=prefs.getBytes("rn",rname,sizeof(rname)); prefs.getBytes("rc",rcolor,sizeof(rcolor)); prefs.end();
+  if(g<sizeof(rname)){ for(int k=0;k<MAXN;k++){ snprintf(rname[k],16,k==0?"Lider":"Carro %d",k); rcolor[k]=k; } }
+  for(int k=0;k<MAXN;k++) rname[k][15]=0;
+}
 void loadCfg(){ prefs.begin("grupo",true); prefs.getBytes("cfg",&cfg,sizeof(cfg)); prefs.end();
   if(cfg.room==0||cfg.room>99999){ cfg.room=48291; cfg.role=1; cfg.slot=0; cfg.color=0; strcpy(cfg.name,"Lider"); }
   cfg.name[15]=0; if(cfg.name[0]==0) strcpy(cfg.name,"Carro"); }
@@ -153,7 +164,19 @@ String pageHtml(){
   s+="<label>Nome</label><input name=nome maxlength=15 value='"+String(cfg.name)+"'>";
   s+="<label>Cor</label><div class=sw>";
   for(int i=0;i<8;i++){ s+="<label><input type=radio name=cor value="+String(i)+(cfg.color==i?" checked":"")+"><span style='background:"+String(COLOR_HEX[i])+"'></span></label>"; }
-  s+="</div><button type=submit>Salvar</button></form></body></html>";
+  s+="</div>";
+  if(cfg.role==1){   // so o lider edita o roster de todos
+    s+="<label>Carros da sala (nome e cor)</label>";
+    for(int k=1;k<MAXN;k++){
+      s+="<div style='display:flex;gap:8px;align-items:center;margin-bottom:6px'>";
+      s+="<span style='color:#8a97a8;width:18px'>"+String(k)+"</span>";
+      s+="<input name=n"+String(k)+" maxlength=15 value='"+String(rname[k])+"' style='flex:1'>";
+      s+="<select name=c"+String(k)+" style='width:64px'>";
+      for(int c=0;c<8;c++) s+="<option value="+String(c)+(rcolor[k]==c?" selected":"")+">"+String(c)+"</option>";
+      s+="</select></div>";
+    }
+  }
+  s+="<button type=submit>Salvar</button></form></body></html>";
   return s;
 }
 void handleRoot(){ server.send(200,"text/html",pageHtml()); }
@@ -164,7 +187,17 @@ void handleSave(){
   if(cfg.role==1) cfg.slot=0;
   if(server.hasArg("cor")){ int c=server.arg("cor").toInt(); if(c>=0&&c<8) cfg.color=c; }
   if(server.hasArg("nome")){ String n=server.arg("nome"); n.toCharArray(cfg.name,16); }
-  saveCfg(); printCfg();
+  saveCfg();
+  if(cfg.role==1){   // lider grava o roster de todos
+    strncpy(rname[0],cfg.name,15); rname[0][15]=0; rcolor[0]=cfg.color;
+    for(int k=1;k<MAXN;k++){
+      String kn="n"+String(k), kc="c"+String(k);
+      if(server.hasArg(kn)){ server.arg(kn).toCharArray(rname[k],16); rname[k][15]=0; }
+      if(server.hasArg(kc)){ int c=server.arg(kc).toInt(); if(c>=0&&c<8) rcolor[k]=c; }
+    }
+    saveRoster(); haveRoster=true;
+  }
+  printCfg();
   server.sendHeader("Location","/"); server.send(303);
 }
 void startWiFi(){
@@ -196,7 +229,7 @@ void sendWorld(){
   uint8_t p[4+8+72+3+HIST_N*8]; int o=0;
   p[o++]=cfg.room&0xFF; p[o++]=(cfg.room>>8)&0xFF; p[o++]=(cfg.room>>16)&0xFF;
   p[o++]=(uint8_t)(millis()/CYCLE_MS);
-  for(int k=0;k<MAXN;k++) p[o++]=world[k].color;
+  for(int k=0;k<MAXN;k++) p[o++]=rcolor[k];
   for(int k=0;k<MAXN;k++){
     uint8_t fl=0; if(world[k].active)fl|=1; if(world[k].fix)fl|=2; if(world[k].alert)fl|=4;
     p[o++]=fl; putLE32(p+o,(int32_t)(world[k].lat*1e7)); o+=4; putLE32(p+o,(int32_t)(world[k].lon*1e7)); o+=4;
@@ -206,6 +239,12 @@ void sendWorld(){
   int idx=(routeHead-nh+ROUTE_MAX)%ROUTE_MAX;
   for(int i=0;i<nh;i++){ int j=(idx+i)%ROUTE_MAX; putLE32(p+o,(int32_t)(route[j].lat*1e7)); o+=4; putLE32(p+o,(int32_t)(route[j].lon*1e7)); o+=4; }
   lora.PrepareFrameCommand(BCAST,CMD_WORLD,p,o); lora.SendPacket();
+}
+void sendRoster(){
+  uint8_t p[3+MAXN*17]; int o=0;
+  p[o++]=cfg.room&0xFF; p[o++]=(cfg.room>>8)&0xFF; p[o++]=(cfg.room>>16)&0xFF;
+  for(int k=0;k<MAXN;k++){ p[o++]=rcolor[k]; int L=strlen(rname[k]); if(L>15)L=15; p[o++]=(uint8_t)L; memcpy(p+o,rname[k],L); o+=L; }
+  lora.PrepareFrameCommand(BCAST,CMD_ROSTER,p,o); lora.SendPacket();
 }
 void sendUplink(){
   uint8_t p[13]; int o=0;
@@ -226,6 +265,11 @@ void handleRx(uint8_t cmd,uint8_t*p,uint8_t plen){
       }
     }
   } else {
+    if(cmd==CMD_ROSTER && plen>=3 && roomOf(p)==cfg.room){
+      int o=3;
+      for(int k=0;k<MAXN && o<plen;k++){ rcolor[k]=p[o++]; int L=p[o++]; if(L>15)L=15; if(o+L>plen)break; memcpy(rname[k],p+o,L); rname[k][L]=0; o+=L; }
+      haveRoster=true; return;
+    }
     if(cmd==CMD_WORLD && plen>=4+8+72+3 && roomOf(p)==cfg.room){
       worldRxMs=millis();
       int o=4;
@@ -339,6 +383,19 @@ void drawUI(){
   tft.fillCircle(24,28,5, isLeader()?C_AMBER:C_BLUE);
   tft.setTextColor(C_WHITE); tft.setTextSize(1); tft.setCursor(36,16); snprintf(b,sizeof(b),"Sala %lu",(unsigned long)cfg.room); tft.print(b);
   tft.setTextColor(C_MUT); tft.setCursor(36,30); tft.print(isLeader()?"voce e o LIDER":"seguidor");
+  // lista de carros (roster) no canto direito
+  int rw=100, rx=SCR_W-rw-6, ry=8, rh=17;
+  for(int k=0;k<MAXN;k++){
+    if(!world[k].active || millis()-world[k].lastMs>NODE_TTL) continue;
+    card(rx,ry,rw,rh);
+    bool meRow=(k==(int)cfg.slot), ldRow=(k==0);
+    uint16_t col = meRow?C_BLUE : (ldRow?C_AMBER : colorOf(world[k].color));
+    if(meRow||ldRow) tft.fillTriangle(rx+9,ry+3,rx+4,ry+13,rx+14,ry+13,col);
+    else tft.fillCircle(rx+9,ry+8,4,col);
+    tft.setTextColor(world[k].alert?C_RED:C_WHITE); tft.setTextSize(1); tft.setCursor(rx+20,ry+5);
+    tft.print(haveRoster?rname[k]:(ldRow?"Lider":"Carro"));
+    ry+=rh+3; if(ry>SCR_H-64) break;
+  }
   // distancia ao lider (baixo esq) - seguidor
   if(!isLeader() && world[0].active && myFix){
     double d=haversine(myLat,myLon,world[0].lat,world[0].lon);
@@ -369,15 +426,17 @@ void handleTouch(){
 
 void setup(){
   Serial.begin(115200);
-  loadCfg();
+  loadCfg(); initRoster();
   tft.init(); tft.setRotation(1);
+  { uint16_t calData[8]={549,3553,619,389,3613,3475,3618,378}; tft.setTouchCalibrate(calData); } // CYD (XPT2046); Waveshare cap ajusta depois
   SCR_W=tft.width(); SCR_H=tft.height(); CXp=SCR_W/2; CYp=SCR_H/2;
   tft.fillScreen(C_BG);
   Serial1.begin(9600,SERIAL_8N1,35,22);   // LoRa
   Serial2.begin(9600,SERIAL_8N1,27,-1);   // GPS
   delay(150);
   lora.localread();
-  for(int k=0;k<MAXN;k++){ world[k]=Node(); world[k].color=k; }
+  for(int k=0;k<MAXN;k++){ world[k]=Node(); world[k].color=rcolor[k]; }
+  if(isLeader()){ strncpy(rname[0],cfg.name,15); rname[0][15]=0; rcolor[0]=cfg.color; haveRoster=true; }
   startWiFi();
   Serial.print("== GRUPO == "); printCfg();
   Serial.print("LoRa localId="); Serial.print(lora.localId); Serial.print(" uid="); Serial.println(lora.localUniqueId);
@@ -394,7 +453,8 @@ void loop(){
 
   if(isLeader()){
     leaderRecordOwnPath();
-    if(now-lastCycle>=CYCLE_MS){ if(myFix) sendWorld(); lastCycle=now; }   // quieto ate ter fix
+    static uint8_t cyc=0;
+    if(now-lastCycle>=CYCLE_MS){ if(myFix){ sendWorld(); if((cyc++%3)==0) sendRoster(); } lastCycle=now; }   // quieto ate ter fix
   } else {
     if(pendingUplink && now>=slotDue){ sendUplink(); pendingUplink=false; }
   }
