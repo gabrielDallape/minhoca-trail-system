@@ -44,6 +44,7 @@ const uint16_t LEADER_ID  = 0;
 const uint8_t  CMD_WORLD  = 0x30;   // lider -> broadcast (estado do mundo)
 const uint8_t  CMD_ROSTER = 0x31;   // lider -> broadcast (nomes + cores de todos)
 const uint8_t  CMD_UPLINK = 0x32;   // seguidor -> lider (minha posicao)
+const uint8_t  CMD_JOIN   = 0x33;   // seguidor -> lider (entrar; recebe vaga via roster)
 const int      MAXN       = 8;      // ate 8 carrinhos (slot 0 = lider)
 const int      ROUTE_MAX  = 140;    // pontos da rota do lider (desenho)
 const int      HIST_N     = 12;     // pontos de rota enviados por WORLD (curvas)
@@ -64,9 +65,11 @@ char codeBuf[6]=""; int codeLen=0;       // teclado do codigo da sala
 struct Node { bool active; double lat,lon; bool fix; bool alert; unsigned long lastMs; uint8_t color; };
 Node world[MAXN];
 // roster (nome + cor de cada slot). Lider e a autoridade; retransmite por CMD_ROSTER.
-char    rname[MAXN][16];
-uint8_t rcolor[MAXN];
-bool    haveRoster=false;
+char     rname[MAXN][16];
+uint8_t  rcolor[MAXN];
+uint32_t ruid[MAXN];                 // uid do modulo LoRa por slot (0 = vazio)
+bool     haveRoster=false;
+uint32_t myUid=0; bool joined=false; uint8_t curSlot=0;   // seguidor: vaga atribuida pelo lider
 struct Geo { double lat,lon; };
 Geo route[ROUTE_MAX]; int routeN=0, routeHead=0; uint16_t routeSeq=0; uint16_t lastRouteSeq=0; bool haveRouteSeq=false;
 double lastAddLat=0,lastAddLon=0; bool haveAdd=false;
@@ -117,10 +120,11 @@ void worldToScreen(double lat,double lon,double clat,double clon,double head,int
 
 // ---------------- config / NVS ----------------
 void saveCfg(){ prefs.begin("grupo",false); prefs.putBytes("cfg",&cfg,sizeof(cfg)); prefs.end(); }
-void saveRoster(){ prefs.begin("grupo",false); prefs.putBytes("rn",rname,sizeof(rname)); prefs.putBytes("rc",rcolor,sizeof(rcolor)); prefs.end(); }
+void saveRoster(){ prefs.begin("grupo",false); prefs.putBytes("rn",rname,sizeof(rname)); prefs.putBytes("rc",rcolor,sizeof(rcolor)); prefs.putBytes("ru",ruid,sizeof(ruid)); prefs.end(); }
 void initRoster(){
-  prefs.begin("grupo",true); size_t g=prefs.getBytes("rn",rname,sizeof(rname)); prefs.getBytes("rc",rcolor,sizeof(rcolor)); prefs.end();
+  prefs.begin("grupo",true); size_t g=prefs.getBytes("rn",rname,sizeof(rname)); prefs.getBytes("rc",rcolor,sizeof(rcolor)); size_t gu=prefs.getBytes("ru",ruid,sizeof(ruid)); prefs.end();
   if(g<sizeof(rname)){ for(int k=0;k<MAXN;k++){ snprintf(rname[k],16,k==0?"Lider":"Carro %d",k); rcolor[k]=k; } }
+  if(gu<sizeof(ruid)){ for(int k=0;k<MAXN;k++) ruid[k]=0; }
   for(int k=0;k<MAXN;k++) rname[k][15]=0;
 }
 void loadCfg(){ prefs.begin("grupo",true); prefs.getBytes("cfg",&cfg,sizeof(cfg)); prefs.end();
@@ -247,15 +251,21 @@ void sendWorld(){
   lora.PrepareFrameCommand(BCAST,CMD_WORLD,p,o); lora.SendPacket();
 }
 void sendRoster(){
-  uint8_t p[3+MAXN*17]; int o=0;
+  uint8_t p[3+MAXN*21]; int o=0;
   p[o++]=cfg.room&0xFF; p[o++]=(cfg.room>>8)&0xFF; p[o++]=(cfg.room>>16)&0xFF;
-  for(int k=0;k<MAXN;k++){ p[o++]=rcolor[k]; int L=strlen(rname[k]); if(L>15)L=15; p[o++]=(uint8_t)L; memcpy(p+o,rname[k],L); o+=L; }
+  for(int k=0;k<MAXN;k++){ putLE32(p+o,(int32_t)ruid[k]); o+=4; p[o++]=rcolor[k]; int L=strlen(rname[k]); if(L>15)L=15; p[o++]=(uint8_t)L; memcpy(p+o,rname[k],L); o+=L; }
   lora.PrepareFrameCommand(BCAST,CMD_ROSTER,p,o); lora.SendPacket();
+}
+void sendJoin(){
+  uint8_t p[24]; int o=0;
+  p[o++]=cfg.room&0xFF; p[o++]=(cfg.room>>8)&0xFF; p[o++]=(cfg.room>>16)&0xFF;
+  putLE32(p+o,(int32_t)myUid); o+=4; p[o++]=cfg.color; int L=strlen(cfg.name); if(L>15)L=15; p[o++]=(uint8_t)L; memcpy(p+o,cfg.name,L); o+=L;
+  lora.PrepareFrameCommand(LEADER_ID,CMD_JOIN,p,o); lora.SendPacket();
 }
 void sendUplink(){
   uint8_t p[13]; int o=0;
   p[o++]=cfg.room&0xFF; p[o++]=(cfg.room>>8)&0xFF; p[o++]=(cfg.room>>16)&0xFF;
-  p[o++]=cfg.slot;
+  p[o++]=curSlot;
   uint8_t fl=0; if(myFix)fl|=2; if(millis()<myAlertUntil)fl|=4; p[o++]=fl;
   putLE32(p+o,(int32_t)(myLat*1e7)); o+=4; putLE32(p+o,(int32_t)(myLon*1e7)); o+=4;
   lora.PrepareFrameCommand(LEADER_ID,CMD_UPLINK,p,o); lora.SendPacket();
@@ -270,11 +280,20 @@ void handleRx(uint8_t cmd,uint8_t*p,uint8_t plen){
         world[sl].lat=getLE32(p+5)/1e7; world[sl].lon=getLE32(p+9)/1e7; world[sl].lastMs=millis();
       }
     }
+    else if(cmd==CMD_JOIN && plen>=9 && roomOf(p)==cfg.room){
+      uint32_t uid=(uint32_t)getLE32(p+3); uint8_t col=p[7]; int L=p[8]; if(L>15)L=15;
+      char nm[16]; if(9+L<=plen){ memcpy(nm,p+9,L); nm[L]=0; } else nm[0]=0;
+      int slot=-1; for(int k=1;k<MAXN;k++) if(ruid[k]==uid){ slot=k; break; }        // ja tem vaga
+      if(slot<0) for(int k=1;k<MAXN;k++) if(ruid[k]==0){ slot=k; break; }             // primeira vaga livre
+      if(slot>=1){ ruid[slot]=uid; if(col<8)rcolor[slot]=col; if(nm[0]){ strncpy(rname[slot],nm,15); rname[slot][15]=0; } saveRoster(); haveRoster=true; sendRoster(); }
+    }
   } else {
     if(cmd==CMD_ROSTER && plen>=3 && roomOf(p)==cfg.room){
       int o=3;
-      for(int k=0;k<MAXN && o<plen;k++){ rcolor[k]=p[o++]; int L=p[o++]; if(L>15)L=15; if(o+L>plen)break; memcpy(rname[k],p+o,L); rname[k][L]=0; o+=L; }
-      haveRoster=true; return;
+      for(int k=0;k<MAXN && o+6<=plen;k++){ ruid[k]=(uint32_t)getLE32(p+o); o+=4; rcolor[k]=p[o++]; int L=p[o++]; if(L>15)L=15; if(o+L>plen)break; memcpy(rname[k],p+o,L); rname[k][L]=0; o+=L; }
+      haveRoster=true;
+      if(!joined){ for(int k=1;k<MAXN;k++) if(ruid[k]==myUid){ curSlot=k; joined=true; break; } }
+      return;
     }
     if(cmd==CMD_WORLD && plen>=4+8+72+3 && roomOf(p)==cfg.room){
       worldRxMs=millis();
@@ -293,7 +312,7 @@ void handleRx(uint8_t cmd,uint8_t*p,uint8_t plen){
         if(!haveRouteSeq || (int16_t)(seq-lastRouteSeq)>0){ routeAdd(la,lo); lastRouteSeq=seq; haveRouteSeq=true; }
       }
       // agenda meu uplink na minha vez
-      slotDue=worldRxMs+(unsigned long)cfg.slot*SLOT_MS; pendingUplink=true;
+      slotDue=worldRxMs+(unsigned long)curSlot*SLOT_MS; pendingUplink=true;
     }
   }
 }
@@ -368,9 +387,10 @@ void drawMap(){
         if(qx>=0) roadSeg(qx,qy,sx,sy,0x6800,C_RED,11,5); qx=sx; qy=sy; } }
   }
   // nos: lider = triangulo amarelo ; outros = bolinhas ; eu = triangulo azul (centro)
+  int meSlot = isLeader()?0:(joined?curSlot:255);
   for(int k=0;k<MAXN;k++){
     if(!world[k].active) continue;
-    if((int)cfg.slot==k) continue;                 // eu desenho por ultimo no centro
+    if(k==meSlot) continue;                         // eu desenho por ultimo no centro
     if(millis()-world[k].lastMs>NODE_TTL) continue;
     int sx,sy; worldToScreen(world[k].lat,world[k].lon,clat,clon,chead,sx,sy);
     if(sx<-30||sx>SCR_W+30||sy<-30||sy>SCR_H+30) continue;
@@ -397,13 +417,13 @@ void drawUI(){
   card(8,8,150,40);
   tft.fillCircle(24,28,5, isLeader()?C_AMBER:C_BLUE);
   tft.setTextColor(C_WHITE); tft.setTextSize(1); tft.setCursor(36,16); snprintf(b,sizeof(b),"Sala %lu",(unsigned long)cfg.room); tft.print(b);
-  tft.setTextColor(C_MUT); tft.setCursor(36,30); tft.print(isLeader()?"voce e o LIDER":"seguidor");
+  tft.setTextColor(C_MUT); tft.setCursor(36,30); tft.print(isLeader()?"voce e o LIDER":(joined?"seguidor":"entrando..."));
   // lista de carros (roster) no canto direito
   int rw=100, rx=SCR_W-rw-6, ry=8, rh=17;
   for(int k=0;k<MAXN;k++){
     if(!world[k].active || millis()-world[k].lastMs>NODE_TTL) continue;
     card(rx,ry,rw,rh);
-    bool meRow=(k==(int)cfg.slot), ldRow=(k==0);
+    bool meRow=(!isLeader()&&joined&&k==(int)curSlot)||(isLeader()&&k==0), ldRow=(k==0);
     uint16_t col = meRow?C_BLUE : (ldRow?C_AMBER : colorOf(world[k].color));
     if(meRow||ldRow) tft.fillTriangle(rx+9,ry+3,rx+4,ry+13,rx+14,ry+13,col);
     else tft.fillCircle(rx+9,ry+8,4,col);
@@ -477,8 +497,9 @@ void setup(){
   Serial2.begin(9600,SERIAL_8N1,27,-1);   // GPS
   delay(150);
   lora.localread();
+  myUid=lora.localUniqueId;
   for(int k=0;k<MAXN;k++){ world[k]=Node(); world[k].color=rcolor[k]; }
-  if(isLeader()){ strncpy(rname[0],cfg.name,15); rname[0][15]=0; rcolor[0]=cfg.color; haveRoster=true; }
+  if(isLeader()){ ruid[0]=myUid; strncpy(rname[0],cfg.name,15); rname[0][15]=0; rcolor[0]=cfg.color; haveRoster=true; joined=true; curSlot=0; }
   startWiFi();
   Serial.print("== GRUPO == "); printCfg();
   Serial.print("LoRa localId="); Serial.print(lora.localId); Serial.print(" uid="); Serial.println(lora.localUniqueId);
@@ -489,15 +510,20 @@ void loop(){
   readGPS(); readLoRa(); handleTouch();
   unsigned long now=millis();
 
-  // meu no no mundo
-  world[cfg.slot].active=true; world[cfg.slot].fix=myFix; world[cfg.slot].alert=(now<myAlertUntil);
-  world[cfg.slot].lat=myLat; world[cfg.slot].lon=myLon; world[cfg.slot].lastMs=now; world[cfg.slot].color=cfg.color;
+  // meu no no mundo (so quando ja tenho vaga)
+  int ms = isLeader()?0:curSlot;
+  if(isLeader()||joined){
+    world[ms].active=true; world[ms].fix=myFix; world[ms].alert=(now<myAlertUntil);
+    world[ms].lat=myLat; world[ms].lon=myLon; world[ms].lastMs=now; world[ms].color=cfg.color;
+  }
 
   if(cfg.room!=0){
     if(isLeader()){
       leaderRecordOwnPath();
       static uint8_t cyc=0;
       if(now-lastCycle>=CYCLE_MS){ if(myFix){ sendWorld(); if((cyc++%3)==0) sendRoster(); } lastCycle=now; }   // quieto ate ter fix
+    } else if(!joined){
+      static unsigned long lj=0; if(now-lj>1500){ sendJoin(); lj=now; }                 // entrar na sala
     } else {
       if(pendingUplink && now>=slotDue){ sendUplink(); pendingUplink=false; }
     }

@@ -21,7 +21,7 @@ TinyGPSPlus  gps;
 LoRaMESH     lora(&Serial2);
 
 const uint16_t BCAST=2047, LEADER_ID=0;
-const uint8_t  CMD_WORLD=0x30, CMD_ROSTER=0x31, CMD_UPLINK=0x32;
+const uint8_t  CMD_WORLD=0x30, CMD_ROSTER=0x31, CMD_UPLINK=0x32, CMD_JOIN=0x33;
 const int      MAXN=8, ROUTE_MAX=140;
 const double   R_EARTH=6371000.0;
 const unsigned long SLOT_MS=450, NODE_TTL=12000, LEAD_TTL=8000;
@@ -34,7 +34,8 @@ char codeBuf[6]=""; int codeLen=0;
 struct Node{ bool active; double lat,lon; bool fix; bool alert; unsigned long lastMs; uint8_t color; };
 Node world[MAXN];
 struct Geo{ double lat,lon; }; Geo route[ROUTE_MAX]; int routeN=0,routeHead=0; uint16_t lastRouteSeq=0; bool haveRouteSeq=false;
-char rname[MAXN][16]; uint8_t rcolor[MAXN]; bool haveRoster=false;
+char rname[MAXN][16]; uint8_t rcolor[MAXN]; uint32_t ruid[MAXN]; bool haveRoster=false;
+uint32_t myUid=0; bool joined=false; uint8_t curSlot=0; uint8_t myColor=1; char myName[16]="Carro";
 
 double myLat=0,myLon=0; bool myFix=false; int mySats=0; float mySpeed=0,myHeading=0;
 unsigned long myLastFix=0, worldRxMs=0, slotDue=0, lastDraw=0, lastDbg=0;
@@ -78,7 +79,7 @@ void routeAdd(double la,double lo){ route[routeHead].lat=la; route[routeHead].lo
 void handleSerial(){
   if(!Serial.available()) return; char c=Serial.read();
   if(c=='R'){ uint32_t v=0; for(int i=0;i<5;i++){ while(!Serial.available()){} char d=Serial.read(); if(d>='0'&&d<='9')v=v*10+(d-'0'); } room=v; Serial.print("sala="); Serial.println(room); }
-  else if(c=='F'){ while(!Serial.available()){} int n=Serial.read()-'0'; if(n>=1&&n<MAXN){ mySlot=n; Serial.print("slot="); Serial.println(mySlot);} }
+  else if(c=='F'){ while(!Serial.available()){} int n=Serial.read()-'0'; if(n>=1&&n<MAXN){ curSlot=n; joined=true; Serial.print("slot="); Serial.println(curSlot);} }
   else if(c=='X'){ room=0; codeLen=0; codeBuf[0]=0; Serial.println("saiu da sala"); }
 }
 
@@ -91,15 +92,22 @@ void readGPS(){
   myFix=(myLastFix!=0)&&(millis()-myLastFix<3000);
 }
 void sendUplink(){
-  uint8_t p[13]; int o=0; p[o++]=room&0xFF;p[o++]=(room>>8)&0xFF;p[o++]=(room>>16)&0xFF; p[o++]=mySlot;
+  uint8_t p[13]; int o=0; p[o++]=room&0xFF;p[o++]=(room>>8)&0xFF;p[o++]=(room>>16)&0xFF; p[o++]=curSlot;
   uint8_t fl=0; if(myFix)fl|=2; if(millis()<myAlertUntil)fl|=4; p[o++]=fl;
   putLE32(p+o,(int32_t)(myLat*1e7)); o+=4; putLE32(p+o,(int32_t)(myLon*1e7)); o+=4;
   lora.PrepareFrameCommand(LEADER_ID,CMD_UPLINK,p,o); lora.SendPacket();
 }
+void sendJoin(){
+  uint8_t p[24]; int o=0; p[o++]=room&0xFF;p[o++]=(room>>8)&0xFF;p[o++]=(room>>16)&0xFF;
+  putLE32(p+o,(int32_t)myUid); o+=4; p[o++]=myColor; int L=strlen(myName); if(L>15)L=15; p[o++]=(uint8_t)L; memcpy(p+o,myName,L); o+=L;
+  lora.PrepareFrameCommand(LEADER_ID,CMD_JOIN,p,o); lora.SendPacket();
+}
 void handleRx(uint8_t cmd,uint8_t*p,uint8_t plen){
   if(cmd==CMD_ROSTER && plen>=3 && roomOf(p)==room){
-    int o=3; for(int k=0;k<MAXN&&o<plen;k++){ rcolor[k]=p[o++]; int L=p[o++]; if(L>15)L=15; if(o+L>plen)break; memcpy(rname[k],p+o,L); rname[k][L]=0; o+=L; }
-    haveRoster=true; return;
+    int o=3; for(int k=0;k<MAXN&&o+6<=plen;k++){ ruid[k]=(uint32_t)getLE32(p+o); o+=4; rcolor[k]=p[o++]; int L=p[o++]; if(L>15)L=15; if(o+L>plen)break; memcpy(rname[k],p+o,L); rname[k][L]=0; o+=L; }
+    haveRoster=true;
+    if(!joined){ for(int k=1;k<MAXN;k++) if(ruid[k]==myUid){ curSlot=k; joined=true; break; } }
+    return;
   }
   if(cmd==CMD_WORLD && plen>=4+8+72+3 && roomOf(p)==room){
     worldRxMs=millis(); int o=4;
@@ -109,7 +117,7 @@ void handleRx(uint8_t cmd,uint8_t*p,uint8_t plen){
     int nh=p[o++]; uint16_t seqN=(uint16_t)p[o]|((uint16_t)p[o+1]<<8); o+=2;
     for(int i=0;i<nh;i++){ double la=getLE32(p+o)/1e7, lo=getLE32(p+o+4)/1e7; o+=8;
       uint16_t seq=seqN-(nh-1)+i; if(!haveRouteSeq||(int16_t)(seq-lastRouteSeq)>0){ routeAdd(la,lo); lastRouteSeq=seq; haveRouteSeq=true; } }
-    slotDue=worldRxMs+(unsigned long)mySlot*SLOT_MS; pendingUplink=true;
+    slotDue=worldRxMs+(unsigned long)curSlot*SLOT_MS; pendingUplink=true;
   }
 }
 void readLoRa(){ int g=0; uint16_t id; uint8_t cmd=0,p[240],plen=0;
@@ -148,7 +156,8 @@ void drawMap(){
     if(aN>=0&&myNear>=0){ int a=min(aN,myNear),b=max(aN,myNear),qx=-1,qy=-1;
       for(int k=a;k<=b;k++){ int idx=(routeHead-routeN+k+ROUTE_MAX)%ROUTE_MAX; int sx,sy; w2s(route[idx].lat,route[idx].lon,clat,clon,chead,sx,sy);
         if(qx>=0) roadSeg(qx,qy,sx,sy,0x6800,C_RED,12,6); qx=sx; qy=sy; } } }
-  for(int k=0;k<MAXN;k++){ if(!world[k].active||k==(int)mySlot) continue; if(millis()-world[k].lastMs>NODE_TTL) continue;
+  int meSlot=joined?curSlot:255;
+  for(int k=0;k<MAXN;k++){ if(!world[k].active||k==meSlot) continue; if(millis()-world[k].lastMs>NODE_TTL) continue;
     int sx,sy; w2s(world[k].lat,world[k].lon,clat,clon,chead,sx,sy); if(sx<-30||sx>SCR_W+30||sy<-30||sy>SCR_H+30) continue;
     bool al=world[k].alert; uint16_t mc=al?C_RED:(k==0?C_AMBER:colorOf(world[k].color));
     if(k==0) triMarker(sx,sy,mc,15); else dotMarker(sx,sy,mc,9);
@@ -170,7 +179,7 @@ void drawUI(){
   // roster
   int rw=170, rx=SCR_W-rw-8, ry=10, rh=24;
   for(int k=0;k<MAXN;k++){ if(!world[k].active||millis()-world[k].lastMs>NODE_TTL) continue; card(rx,ry,rw,rh);
-    bool me=(k==(int)mySlot), ld=(k==0); uint16_t col=me?C_BLUE:(ld?C_AMBER:colorOf(world[k].color));
+    bool me=(joined&&k==(int)curSlot), ld=(k==0); uint16_t col=me?C_BLUE:(ld?C_AMBER:colorOf(world[k].color));
     if(me||ld) gfx.fillTriangle(rx+13,ry+4,rx+6,ry+19,rx+20,ry+19,col); else gfx.fillCircle(rx+13,ry+12,5,col);
     gfx.setTextColor(world[k].alert?C_RED:C_WHITE); gfx.setTextSize(1); gfx.setCursor(rx+28,ry+8);
     gfx.print(haveRoster?rname[k]:(ld?"Lider":"Carro")); ry+=rh+4; if(ry>SCR_H-90) break; }
@@ -222,21 +231,24 @@ void handleTouch(){
 
 void setup(){
   Serial.begin(115200); Serial1.begin(9600); Serial2.begin(9600); delay(150);
-  lora.begin(false);
+  lora.begin(false); lora.localread(); myUid=lora.localUniqueId;
   gfx.begin(); gfx.setRotation(1);
   SCR_W=gfx.width(); SCR_H=gfx.height(); CXp=SCR_W/2; CYp=SCR_H/2;
   abR=40; abX=SCR_W-abR-14; abY=SCR_H-abR-14;
   touch.begin();
-  for(int k=0;k<MAXN;k++){ world[k]=Node(); world[k].color=k; snprintf(rname[k],16,k==0?"Lider":"Carro %d",k); rcolor[k]=k; }
+  for(int k=0;k<MAXN;k++){ world[k]=Node(); world[k].color=k; snprintf(rname[k],16,k==0?"Lider":"Carro %d",k); rcolor[k]=k; ruid[k]=0; }
   gfx.startBuffering(); gfx.fillScreen(C_BG); gfx.endBuffering();
   Serial.print("== GRUPO GIGA (seguidor) == sala="); Serial.print(room); Serial.print(" slot="); Serial.println(mySlot);
 }
 void loop(){
   handleSerial(); readGPS(); readLoRa(); handleTouch();
   unsigned long now=millis();
-  world[mySlot].active=true; world[mySlot].fix=myFix; world[mySlot].alert=(now<myAlertUntil);
-  world[mySlot].lat=myLat; world[mySlot].lon=myLon; world[mySlot].lastMs=now;
-  if(room!=0 && pendingUplink && now>=slotDue){ sendUplink(); pendingUplink=false; }
+  if(joined){ world[curSlot].active=true; world[curSlot].fix=myFix; world[curSlot].alert=(now<myAlertUntil);
+    world[curSlot].lat=myLat; world[curSlot].lon=myLon; world[curSlot].lastMs=now; }
+  if(room!=0){
+    if(!joined){ static unsigned long lj=0; if(now-lj>1500){ sendJoin(); lj=now; } }
+    else if(pendingUplink && now>=slotDue){ sendUplink(); pendingUplink=false; }
+  }
   if(now-lastDraw>250){ gfx.startBuffering(); if(room==0) drawKeypad(); else { drawMap(); drawUI(); } gfx.endBuffering(); lastDraw=now; }
   if(now-lastDbg>2000){ int c=0; for(int k=0;k<MAXN;k++) if(world[k].active&&now-world[k].lastMs<NODE_TTL)c++;
     Serial.print("GIGA seg fix="); Serial.print(myFix?"S":"N"); Serial.print(" world="); Serial.print(worldRxMs?"ok":"--"); Serial.print(" nos="); Serial.println(c); lastDbg=now; }
