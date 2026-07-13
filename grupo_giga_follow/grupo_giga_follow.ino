@@ -226,21 +226,31 @@ void drawUI(){
   gfx.setTextColor(C_WHITE); gfx.setTextSize(2); gfx.setCursor(46,20); snprintf(b,sizeof(b),"Sala %lu",(unsigned long)room); gfx.print(b);
   gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(46,44); gfx.print(leaderRole?"voce e o LIDER":(joined?"seguidor":"entrando..."));
   // roster
-  int rw=176, rx=SCR_W-rw-4, ry=10, rh=28;
+  int rw=190, rx=SCR_W-rw-4, ry=10, rh=30;
   for(int k=0;k<MAXN;k++){ if(!world[k].active||millis()-world[k].lastMs>NODE_TTL) continue; card(rx,ry,rw,rh);
     bool me=(joined&&k==(int)curSlot), ld=(k==0); uint16_t col=me?C_BLUE:(ld?C_AMBER:colorOf(world[k].color));
-    int icx=rx+18, icy=ry+rh/2;
-    if(me||ld) gfx.fillTriangle(icx,icy-9,icx-8,icy+8,icx+8,icy+8,col); else gfx.fillCircle(icx,icy,7,col);
-    gfx.setTextColor(world[k].alert?C_RED:C_WHITE); gfx.setTextSize(1); gfx.setCursor(rx+34,ry+rh/2-4);
-    gfx.print(haveRoster?rname[k]:(ld?"Lider":"Carro")); ry+=rh+4; if(ry>SCR_H-90) break; }
+    int icx=rx+20, icy=ry+rh/2;
+    if(me||ld) gfx.fillTriangle(icx,icy-11,icx-10,icy+9,icx+10,icy+9,col); else gfx.fillCircle(icx,icy,9,col);
+    gfx.setTextColor(world[k].alert?C_RED:C_WHITE); gfx.setTextSize(1); gfx.setCursor(rx+40,ry+rh/2-4);
+    gfx.print(haveRoster?rname[k]:(ld?"Lider":"Carro"));
+    if(!me && myFix && world[k].fix){ double d=haversine(myLat,myLon,world[k].lat,world[k].lon); char ds[10]; if(d>=1000)snprintf(ds,sizeof(ds),"%.1fk",d/1000.0); else snprintf(ds,sizeof(ds),"%dm",(int)d);
+      gfx.setTextColor(C_MUT); gfx.setCursor(rx+rw-8-(int)strlen(ds)*6,ry+rh/2-4); gfx.print(ds); }
+    ry+=rh+4; if(ry>SCR_H-96) break; }
   // distancia ao lider
+  int cardY=SCR_H-92, cardH=82;
   if(leaderRole){ int c=0; for(int k=1;k<MAXN;k++) if(world[k].active&&millis()-world[k].lastMs<NODE_TTL)c++;
-    card(10,SCR_H-84,200,74); gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(24,SCR_H-76); gfx.print("LIDERANDO");
-    gfx.setTextColor(C_WHITE); gfx.setTextSize(4); gfx.setCursor(20,SCR_H-56); snprintf(b,sizeof(b),"%d segs",c); gfx.print(b); }
+    card(10,cardY,214,cardH);
+    gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(24,cardY+12); gfx.print("VELOCIDADE");
+    gfx.setTextColor(C_WHITE); gfx.setTextSize(6); gfx.setCursor(20,cardY+26); snprintf(b,sizeof(b),"%d",(int)(mySpeed+0.5)); gfx.print(b);
+    gfx.setTextColor(C_MUT); gfx.setTextSize(2); gfx.setCursor(24+(int)strlen(b)*36+8,cardY+44); gfx.print("km/h");
+    gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(24,cardY+cardH-14); snprintf(b,sizeof(b),"%d seguidores",c); gfx.print(b); }
   else if(world[0].active && myFix){ double d=haversine(myLat,myLon,world[0].lat,world[0].lon);
-    card(10,SCR_H-84,200,74); gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(24,SCR_H-76); gfx.print("LIDER");
-    gfx.setTextColor(C_WHITE); gfx.setTextSize(5); gfx.setCursor(20,SCR_H-60);
-    if(d>=1000) snprintf(b,sizeof(b),"%.1fkm",d/1000.0); else snprintf(b,sizeof(b),"%dm",(int)d); gfx.print(b); }
+    card(10,cardY,214,cardH);
+    gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(24,cardY+12); gfx.print("DIST AO LIDER");
+    gfx.setTextColor(C_WHITE); gfx.setTextSize(6); gfx.setCursor(20,cardY+26);
+    if(d>=1000) snprintf(b,sizeof(b),"%.1fk",d/1000.0); else snprintf(b,sizeof(b),"%d",(int)d); gfx.print(b);
+    gfx.setTextColor(C_MUT); gfx.setTextSize(2); gfx.setCursor(24+(int)strlen(b)*36+8,cardY+44); gfx.print(d>=1000?"km":"m");
+    gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(24,cardY+cardH-14); snprintf(b,sizeof(b),"voce: %d km/h",(int)(mySpeed+0.5)); gfx.print(b); }
   // FAB alerta (toggle: fica aceso ate desligar)
   bool on=myAlert;
   gfx.fillCircle(abX,abY,abR, on?C_RED:C_CARD); gfx.drawCircle(abX,abY,abR,C_RED);
