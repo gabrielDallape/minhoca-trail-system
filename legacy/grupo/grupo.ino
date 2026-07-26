@@ -11,7 +11,7 @@
 #include "LoRaMESH.h"
 #include <TinyGPSPlus.h>
 #include <Preferences.h>
-#include "../trilha_core.h"
+#include "../../firmware/trilha_core.h"   // núcleo movido p/ firmware/ na reorganização
 TRILHA_CORE_DEFINE
 
 static LGFX  tft;

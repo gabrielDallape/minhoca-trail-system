@@ -1,8 +1,25 @@
 # Outdoor Trail Follow Me 🧭
 
+![platform](https://img.shields.io/badge/platform-ESP32--S3-informational)
+![display](https://img.shields.io/badge/display-Waveshare%207B%201024×600-informational)
+![radio](https://img.shields.io/badge/radio-LoRaMESH%20915MHz-informational)
+![build](https://img.shields.io/badge/arduino--cli-compila-success)
+![license](https://img.shields.io/badge/license-MIT-blue)
+
 Sistema **"siga o líder"** por rádio **LoRa** para trilhas off-road: dois aparelhos idênticos, um **LÍDER** e um **SEGUIDOR**, conversam ponto-a-ponto. O líder anda e transmite o **trajeto** que fez (não só a posição); o seguidor plota um **mapa estilo Waze** (você no centro, o caminho do líder à frente, o rastro já percorrido, distância), pra seguir o líder mesmo sem vê-lo.
 
 Nasceu como a Parte 2 de um projeto de odômetro.
+
+```
+   LÍDER (Waveshare 7B)                          SEGUIDOR (Waveshare 7B)
+  ┌────────────────────┐                        ┌────────────────────┐
+  │ GPS ─► grava rota   │   0x12 pos+trajeto    │  recebe ─► mapa Waze │
+  │ route[] (~6 km)     │ ─────────────────────►│  roxo: a percorrer   │
+  │                     │                        │  azul: percorrido    │
+  │ recebe pos+ACK      │◄───────────────────── │  ► envia pos + ACK   │
+  │ catch-up p/ o vão   │   0x11 pos+alerta+ACK  │                      │
+  └────────────────────┘        LoRa P2P         └────────────────────┘
+```
 
 ## Arquitetura atual (2 telas Waveshare)
 
@@ -53,22 +70,23 @@ Rádio travado no mesmo canal em ambas via `config_bps(BW500, SF7, CR4_5)` no se
 
 ## Estrutura do repositório
 
-### Firmware em uso
-- **`grupo_ws/`** — firmware das **duas telas Waveshare** (líder e seguidor no mesmo binário). É o que roda hoje.
-- **`trilha_core.h`** — núcleo compartilhado: protocolo, temas, estado, `route[]`/breadcrumb, helpers de geo. Usado pelo `grupo_ws` e pelas versões antigas.
-
-### Ferramentas de diagnóstico (Waveshare)
-- `ws_diag/`, `ws_hello/`, `ws_quiet/`, `ws_lcd_oficial/` — testes de tela/painel/touch.
-- `ws_touch_diag/` — diagnóstico do GT911 (varre I2C, confirma endereço, lê Product ID).
-- `ws_lora_scan/` — descobre em quais pinos o header UART2 (LoRa) está ligado.
-- `ws_lora_cfg/` — lê a configuração completa do módulo LoRa (não-destrutivo).
-- `ws_lora_align/` — alinha o rádio da Waveshare ao canal do par.
-- `ws_lora_commission/` — comissiona um módulo LoRa novo na rede.
-- `giga_lora_cfg/` — lê a configuração do módulo LoRa do GIGA.
-
-### Fases anteriores (referência histórica)
-- `grupo_giga_follow/` — versão do Modo Grupo no Arduino GIGA (descontinuada; o LoRa do GIGA falhou).
-- Demais pastas e planos (`PLANO_MODO_GRUPO.md`, `PLANO_SEGUIDOR_CYD.md`) — etapas do desenvolvimento.
+```
+firmware/            Firmware EM USO
+  trilha_core.h        núcleo compartilhado (protocolo, temas, estado, route[]/breadcrumb, geo)
+  grupo_ws/            firmware das 2 telas Waveshare (líder e seguidor no mesmo binário)
+tools/               Ferramentas de bring-up/diagnóstico da Waveshare
+  ws_diag/ ws_hello/ ws_quiet/ ws_lcd_oficial/   tela/painel/touch
+  ws_touch_diag/                                 GT911 (varre I2C, Product ID)
+  ws_lora_scan/                                  acha os pinos do LoRa (UART2)
+  ws_lora_cfg/                                   lê config do LoRaMESH (não-destrutivo)
+  ws_lora_align/ ws_lora_commission/             alinha/comissiona o rádio
+  giga_lora_cfg/                                 lê config do LoRa do GIGA
+legacy/              Fases anteriores (referência histórica)
+  odometro/            projeto original (Parte 1)
+  cyd_* giga_* lora_* gps_* test_* ra8875_*   experimentos e etapas
+  grupo/ grupo_giga_follow/ grupo_radio/       Modo Grupo no CYD/GIGA (descontinuado)
+docs/                Planos de desenvolvimento
+```
 
 ## Fluxo de trabalho (gravar × usar)
 
@@ -90,8 +108,8 @@ Regras aprendidas em campo:
 Arduino CLI. Core: `esp32:esp32`.
 
 ```
-arduino-cli compile --fqbn "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=huge_app,CDCOnBoot=cdc" grupo_ws
-arduino-cli upload  -p <PORTA_303A> --fqbn "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=huge_app,CDCOnBoot=cdc" grupo_ws
+arduino-cli compile --fqbn "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=huge_app,CDCOnBoot=cdc" firmware/grupo_ws
+arduino-cli upload  -p <PORTA_303A> --fqbn "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=huge_app,CDCOnBoot=cdc" firmware/grupo_ws
 ```
 
 Bibliotecas: LovyanGFX, TinyGPSPlus, LoRaMESH.
