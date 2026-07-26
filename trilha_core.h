@@ -25,13 +25,13 @@ static const uint8_t  CMD_ROSTER = 0x31;   // lider -> broadcast (nomes+cores+ui
 static const uint8_t  CMD_UPLINK = 0x32;   // seguidor -> lider (posicao)
 static const uint8_t  CMD_JOIN   = 0x33;   // seguidor -> lider (entrar)
 static const int      MAXN       = 8;
-static const int      ROUTE_MAX  = 140;
+static const int      ROUTE_MAX  = 1200;  // ~6km de trilha guardada (era 140/~700m) - traçado nao some mais
 static const int      HIST_N     = 12;
 static const double   R_EARTH    = 6371000.0;
 static const float    STEP_M     = 5.0f;
 static const unsigned long SLOT_MS  = 450;
 static const unsigned long CYCLE_MS = (unsigned long)MAXN*SLOT_MS;
-static const unsigned long NODE_TTL = 12000;
+static const unsigned long NODE_TTL = 15000;
 static const unsigned long LEAD_TTL = 8000;
 static const double   OFFROUTE_M = 30.0;
 
@@ -69,7 +69,9 @@ static const uint16_t C_WHITE=0xFFFF;
 inline int themeIdxRef(){ static int t=0; return t; }   // (nao usar direto; ver g_theme)
 extern int g_theme;
 inline void applyTheme(int i){ if(i<0||i>2)i=0; g_theme=i; const Theme&t=THEMES[i];
-  C_BG=t.bg;C_CARD=t.card;C_LINE=t.line;C_BLUE=t.you;C_AMBER=t.leader;C_ROUTE=t.route;C_ROUTEC=t.routec;C_TRAV=t.trav;C_TRAVC=t.travc;C_RED=t.red;C_MUT=t.mut;C_YEL=0xFE60;C_FL=t.fl; }
+  C_BG=t.bg;C_CARD=t.card;C_LINE=t.line;C_BLUE=t.you;C_AMBER=t.leader;C_ROUTE=t.route;C_ROUTEC=t.routec;C_TRAV=t.trav;C_TRAVC=t.travc;C_RED=t.red;C_MUT=t.mut;C_YEL=0xFE60;C_FL=t.fl;
+  // FORCA rota=ROXO (falta andar) e rastro=AZUL CLARO (ja andei), em qualquer tema (pedido do usuario)
+  C_ROUTE=RGB16(180,100,255); C_ROUTEC=RGB16(80,40,120); C_TRAV=RGB16(80,210,255); C_TRAVC=RGB16(30,90,120); }
 
 // ---------------- estado do grupo ----------------
 struct Node{ bool active; double lat,lon; bool fix; bool alert; unsigned long lastMs; uint8_t color; };
@@ -117,7 +119,10 @@ inline int32_t getLE32(const uint8_t*p){ return (int32_t)((uint32_t)p[0]|((uint3
 inline uint32_t roomOf(const uint8_t*p){ return (uint32_t)p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16); }
 inline void routeAdd(double la,double lo){ route[routeHead].lat=la; route[routeHead].lon=lo; routeHead=(routeHead+1)%ROUTE_MAX; if(routeN<ROUTE_MAX)routeN++; }
 inline int nearestRouteIdx(double la,double lo){ int best=-1; double bd=1e18;
-  for(int k=0;k<routeN;k++){ int idx=(routeHead-routeN+k+ROUTE_MAX)%ROUTE_MAX; double d=haversine(la,lo,route[idx].lat,route[idx].lon); if(d<bd){bd=d;best=k;} } return best; }
+  // metrica barata (sem trig): distancia^2 planar com correcao de longitude por cos(lat). so p/ COMPARAR (achar o menor).
+  double cl=cos(la*0.017453292519943295); double cl2=cl*cl;
+  for(int k=0;k<routeN;k++){ int idx=(routeHead-routeN+k+ROUTE_MAX)%ROUTE_MAX;
+    double dla=route[idx].lat-la, dlo=(route[idx].lon-lo); double d=dla*dla+dlo*dlo*cl2; if(d<bd){bd=d;best=k;} } return best; }
 inline void leaderRecordOwnPath(){
   if(myFix && (!haveAdd || haversine(lastAddLat,lastAddLon,myLat,myLon)>=STEP_M)){ routeAdd(myLat,myLon); routeSeq++; lastAddLat=myLat; lastAddLon=myLon; haveAdd=true; } }
 
