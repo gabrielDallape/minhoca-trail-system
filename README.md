@@ -1,47 +1,101 @@
 # Outdoor Trail Follow Me 🧭
 
-Sistema **"siga o líder"** por rádio **LoRa**: um aparelho **líder** anda e transmite a própria posição GPS; um aparelho **seguidor** recebe e plota um **mapa estilo Waze** (você no centro, o caminho do líder, distância), pra você seguir o líder mesmo sem vê-lo.
+Sistema **"siga o líder"** por rádio **LoRa** para trilhas off-road: dois aparelhos idênticos, um **LÍDER** e um **SEGUIDOR**, conversam ponto-a-ponto. O líder anda e transmite o **trajeto** que fez (não só a posição); o seguidor plota um **mapa estilo Waze** (você no centro, o caminho do líder à frente, o rastro já percorrido, distância), pra seguir o líder mesmo sem vê-lo.
 
-Nasceu como a Parte 2 de um projeto de odômetro (`odometro.ino`).
+Nasceu como a Parte 2 de um projeto de odômetro.
 
-## Como funciona
+## Arquitetura atual (2 telas Waveshare)
 
-- **LÍDER** (móvel): lê o próprio GPS e **envia** a posição por LoRa. Fica quieto no rádio até travar o GPS (evita auto-interferência) e depois manda a cada 2s. Cada pacote leva um **histórico rolante** dos últimos pontos (buffer) pra o seguidor remontar as curvas mesmo perdendo alguns pacotes.
-- **SEGUIDOR** (base/carro de trás): **recebe** e desenha o mapa — EU no centro (heading-up), **rastro já percorrido em ciano**, **caminho à frente até o líder em roxo** (estilo Waze), distância, satélites, e zoom +/− por toque. Só recebe → sem colisão de rádio.
+O projeto passou por várias fases de hardware (CYD líder + GIGA seguidor). A versão **atual e em uso** são **duas telas Waveshare ESP32-S3-Touch-LCD-7B** idênticas rodando o **mesmo firmware** (`grupo_ws/`). O papel é escolhido na tela inicial por toque:
 
-Comunicação **unidirecional** (líder → seguidor).
+- **CRIAR SALA** → vira **LÍDER** (grava o próprio trajeto e o envia).
+- **ENTRAR** → vira **SEGUIDOR** (recebe o trajeto e navega em cima dele).
 
-## Hardware
+### Hardware por tela
 
-| Papel | Placa | GPS | Rádio |
-|---|---|---|---|
-| **Líder** | ESP32 CYD (ESP32-2432S028R) | u-blox NEO-7M + antena externa | Radioenge LoRaMESH (915 MHz) |
-| **Seguidor** | Arduino GIGA R1 + Display Shield | u-blox NEO-7M + antena externa | Radioenge LoRaMESH (915 MHz) |
+| Componente | Detalhe |
+|---|---|
+| Placa | Waveshare ESP32-S3-Touch-LCD-7B (RGB 1024×600, PSRAM 8MB) |
+| Touch | GT911 (I2C 0x5D via Wire nos GPIO 8/9) |
+| Expansor IO | CH32V003 (I2C 0x24) — controla painel, backlight, reset do touch |
+| GPS | u-blox (NMEA 9600) no **GPIO6** (Serial2 RX) |
+| Rádio | Radioenge LoRaMESH 915 MHz (Serial1, **GPIO 44/43**) |
+| Gráfico | LovyanGFX + LGFX_Sprite (double-buffer na PSRAM) |
 
-Detalhes de pinagem nos comentários de cada sketch.
+> ⚠️ **Isolar o LoRa do GPS na montagem.** Um contato acidental entre os pinos dos dois módulos causa curto e esquentamento. Use fita/espaçador entre eles.
 
-## Sketches principais
+## Funcionalidades
 
-- **`cyd_lead/`** — firmware do **LÍDER** (CYD): lê GPS, envia posição + histórico (cmd 0x12).
-- **`giga_follow/`** — firmware do **SEGUIDOR** (GIGA): recebe e plota o mapa Waze, com zoom.
+- **Mapa heading-up** com você no centro, anéis de distância (radar) e norte.
+- **Cores do caminho** (fixas, independem do tema): **roxo** = caminho a percorrer até o líder; **azul** = rastro já percorrido.
+- **Trajeto real** (breadcrumb): o líder envia o histórico de pontos do caminho, não uma linha reta — o seguidor remonta as curvas.
+- **Alerta**: qualquer um aperta o botão → o **trecho do caminho entre os dois carros fica vermelho** + **borda vermelha piscando** na tela.
+- **Perda de sinal**: **borda laranja piscando** nos dois — texto **"REDUZA"** no líder (pra diminuir a velocidade) e **"SINAL PERDIDO"** no seguidor.
+- **Catch-up**: ao reconectar, o líder reenvia o trecho perdido em blocos rápidos até o seguidor alcançar — **preenche o vão de verdade**, sem linha reta pontilhada.
+- **Fora do trajeto**: se o seguidor se afasta do caminho, **borda amarela piscando** + **"FORA DO TRAJETO"**.
+- **Buffer de ~6 km** de trajeto na memória (PSRAM), o traçado não some conforme anda.
+- **Zoom** +/− por toque, seletor de **tema** (Rally/Tático/HUD), nome da tela editável.
 
-### Ferramentas de diagnóstico
-- `gps_bench/`, `gps_bench_giga/` — cronômetro de fix (TTFF) + contagem de satélites.
-- `gps_scan/` — descobre em qual pino GPIO o TXD do GPS está ligado.
-- `lora_id/`, `lora_scan/`, `lora_ping/` — testes do link LoRa.
+**Prioridade das bordas** (se coincidirem): vermelho (alerta) → laranja (perda) → amarelo (fora do trajeto).
 
-### Histórico / experimentos
-Demais pastas (`cyd_dual`, `giga_dual`, `lora_*`, `ra8875_*`, `test_*`, etc.) são etapas e experimentos do desenvolvimento — mantidos como referência.
+## Protocolo LoRa (ponto-a-ponto)
 
-## Protocolo LoRa (cmd 0x12 — posição + histórico)
+Par fixo: líder = id 0, seguidor = id 1. Escravo transmite com o próprio id; mestre endereça ao destino.
 
-Payload: `[flags(bit0=fix)] [sats] [N] [seqNewest uint16 LE]` + `N × (lat int32 LE ×1e7, lon int32 LE ×1e7)`.
-O seguidor deduplica por número de sequência e remonta o caminho sem buracos.
+- **`0x11` — seguidor → líder**: `[flags(bit0=fix, bit1=alert, bit2=temTrajeto)] [lat i32 LE ×1e7] [lon i32 LE ×1e7] [lastSeq u16 LE]`.
+  O `lastSeq` é o **ACK** — até que ponto do trajeto o seguidor já tem — usado para o catch-up.
+- **`0x12` — líder → seguidor**: `[flags(bit0=fix, bit1=alert, bit3=catchup)] [lat] [lon] [N] [seqBase u16 LE]` + `N × (lat i32, lon i32)`.
+  Envia posição + um bloco do trajeto começando em `seqBase`. Fluxo normal manda os últimos pontos; em catch-up (seguidor muito atrás) reenvia a partir de `ACK+1` em blocos, acelerando para ~3 Hz até alcançar.
 
-## Status
+O seguidor só aceita pontos **contíguos** (evita buracos), ou um salto quando a flag de catch-up indica perda maior que o buffer.
 
-Sistema líder→seguidor funcionando end-to-end (GPS + LoRa + mapa + buffer). Pendências: teste de rua e melhorias de UI (ver `PLANO_SEGUIDOR_CYD.md`).
+Rádio travado no mesmo canal em ambas via `config_bps(BW500, SF7, CR4_5)` no setup.
+
+## Estrutura do repositório
+
+### Firmware em uso
+- **`grupo_ws/`** — firmware das **duas telas Waveshare** (líder e seguidor no mesmo binário). É o que roda hoje.
+- **`trilha_core.h`** — núcleo compartilhado: protocolo, temas, estado, `route[]`/breadcrumb, helpers de geo. Usado pelo `grupo_ws` e pelas versões antigas.
+
+### Ferramentas de diagnóstico (Waveshare)
+- `ws_diag/`, `ws_hello/`, `ws_quiet/`, `ws_lcd_oficial/` — testes de tela/painel/touch.
+- `ws_touch_diag/` — diagnóstico do GT911 (varre I2C, confirma endereço, lê Product ID).
+- `ws_lora_scan/` — descobre em quais pinos o header UART2 (LoRa) está ligado.
+- `ws_lora_cfg/` — lê a configuração completa do módulo LoRa (não-destrutivo).
+- `ws_lora_align/` — alinha o rádio da Waveshare ao canal do par.
+- `ws_lora_commission/` — comissiona um módulo LoRa novo na rede.
+- `giga_lora_cfg/` — lê a configuração do módulo LoRa do GIGA.
+
+### Fases anteriores (referência histórica)
+- `grupo_giga_follow/` — versão do Modo Grupo no Arduino GIGA (descontinuada; o LoRa do GIGA falhou).
+- Demais pastas e planos (`PLANO_MODO_GRUPO.md`, `PLANO_SEGUIDOR_CYD.md`) — etapas do desenvolvimento.
+
+## Fluxo de trabalho (gravar × usar)
+
+A Waveshare tem **duas entradas USB-C**:
+- **Porta USB nativa** (VID 303A) — usada para **gravar** o firmware e ler o serial/debug.
+- **Porta UART1** (chip CH343, VID 1A86) — usada para **usar** em campo (só energia).
+
+Regras aprendidas em campo:
+- **Gravar** sempre pela porta USB nativa. As portas COM reenumeram muito — localize por VID 303A.
+- **Usar** pela UART1 **com o switch em UART2** (a posição UART1 rouba os pinos 44/43 do LoRa).
+- Abrir o serial na porta USB nativa **reseta a tela** — normal; por isso o uso em campo é pela UART1.
+
+### GPS
+- LED do GPS: **piscando 1×/s** = travou nos satélites (fix); **fixo/aceso** = ainda procurando.
+- GPS **só pega a céu aberto** — atrás de vidro/telhado dá `sats=0` mesmo com o módulo perfeito. Cold start pode levar minutos.
 
 ## Build
 
-Arduino CLI. Cores: `esp32:esp32` (CYD) e `arduino:mbed_giga` (GIGA). Bibliotecas: LovyanGFX, Arduino_GigaDisplay_GFX, Arduino_GigaDisplayTouch, TinyGPSPlus, LoRaMESH.
+Arduino CLI. Core: `esp32:esp32`.
+
+```
+arduino-cli compile --fqbn "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=huge_app,CDCOnBoot=cdc" grupo_ws
+arduino-cli upload  -p <PORTA_303A> --fqbn "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=huge_app,CDCOnBoot=cdc" grupo_ws
+```
+
+Bibliotecas: LovyanGFX, TinyGPSPlus, LoRaMESH.
+
+## Status
+
+Duas telas Waveshare gravadas e validadas na bancada: touch, LoRa (pareamento + troca de pacotes) e GPS (fix a céu aberto) OK nas duas. **Pendente:** teste de campo com as duas em movimento (validar bordas, alerta pintando o caminho e catch-up preenchendo a perda de sinal).

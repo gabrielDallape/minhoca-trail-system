@@ -28,9 +28,15 @@ LoRaMESH     lora(&Serial2);
 
 const uint16_t BCAST=2047, LEADER_ID=0;
 const uint8_t  CMD_WORLD=0x30, CMD_ROSTER=0x31, CMD_UPLINK=0x32, CMD_JOIN=0x33;
+#define BANCADA 0   // 0 = GPS REAL (teste de rua). 1 = bancada (posicao fake).
+#define P2P 1        // modo PONTO-A-PONTO (1:1), sem broadcast/flooding
+#define P2P_CMD 0x11    // seguidor->lider: so posicao
+#define P2P_TRAIL 0x12  // lider->seguidor: posicao + TRAJETO (breadcrumb do caminho do lider)
+#define PEER_ID 1    // GIGA (id0) fala DIRETO com a Waveshare (modulo antigo 13683 = id1)
+unsigned long lastP2PTx=0;
 const int      MAXN=8, ROUTE_MAX=140, HIST_N=12;
 const double   R_EARTH=6371000.0;
-const unsigned long SLOT_MS=450, CYCLE_MS=(unsigned long)MAXN*SLOT_MS, NODE_TTL=12000, LEAD_TTL=8000;
+const unsigned long SLOT_MS=450, CYCLE_MS=(unsigned long)MAXN*SLOT_MS, NODE_TTL=15000, LEAD_TTL=8000;
 
 // config. room 0 = nao configurado -> tela inicial Criar/Entrar
 uint32_t room=0; uint8_t mySlot=1;
@@ -77,6 +83,7 @@ static const uint16_t PALETTE[8]={0x3C7F,0x2CF1,0x9694,0xEC88,0xE36E,0x2648,0xFD
 uint16_t colorOf(uint8_t i){ return PALETTE[i&7]; }
 
 int SCR_W,SCR_H,CXp,CYp, abX,abY,abR;
+int zpX,zpY,zmX,zmY,zSz;   // botoes de zoom + / -
 
 double haversine(double la1,double lo1,double la2,double lo2){
   double dLa=radians(la2-la1),dLo=radians(lo2-lo1);
@@ -120,6 +127,19 @@ void sendJoin(){
   putLE32(p+o,(int32_t)myUid); o+=4; p[o++]=myColor; int L=strlen(myName); if(L>15)L=15; p[o++]=(uint8_t)L; memcpy(p+o,myName,L); o+=L;
   lora.PrepareFrameCommand(LEADER_ID,CMD_JOIN,p,o); lora.SendPacket();
 }
+// P2P: manda MINHA posicao+alerta DIRETO pro peer (unicast)
+void sendP2P(){ uint8_t p[10]; uint8_t fl=0; if(myFix)fl|=1; if(myAlert)fl|=2; p[0]=fl;
+  putLE32(p+1,(int32_t)(myLat*1e7)); putLE32(p+5,(int32_t)(myLon*1e7));
+  lora.PrepareFrameCommand(PEER_ID,P2P_CMD,p,9); lora.SendPacket(); }
+// P2P LIDER: manda posicao + TRAJETO (ultimos pontos do caminho) unicast pro seguidor
+#define TRAIL_N 24   // ultimos N pontos do trajeto por pacote (~120m de cobertura contra perda de sinal). 13+24*8=205B < 232
+void sendTrail(){ uint8_t p[13+TRAIL_N*8]; int o=0;
+  uint8_t fl=0; if(myFix)fl|=1; if(myAlert)fl|=2; p[o++]=fl;
+  putLE32(p+o,(int32_t)(myLat*1e7)); o+=4; putLE32(p+o,(int32_t)(myLon*1e7)); o+=4;   // posicao atual do lider
+  int nh=routeN<TRAIL_N?routeN:TRAIL_N; p[o++]=(uint8_t)nh; p[o++]=routeSeq&0xFF; p[o++]=(routeSeq>>8)&0xFF;
+  int idx=(routeHead-nh+ROUTE_MAX)%ROUTE_MAX;
+  for(int i=0;i<nh;i++){ int j=(idx+i)%ROUTE_MAX; putLE32(p+o,(int32_t)(route[j].lat*1e7)); o+=4; putLE32(p+o,(int32_t)(route[j].lon*1e7)); o+=4; }
+  lora.PrepareFrameCommand(PEER_ID,P2P_TRAIL,p,o); lora.SendPacket(); }
 // ---- LIDER: broadcast do mundo + roster ----
 void sendWorld(){
   uint8_t p[4+8+72+3+HIST_N*8]; int o=0;
@@ -172,7 +192,13 @@ void handleRx(uint8_t cmd,uint8_t*p,uint8_t plen){
   }
 }
 void readLoRa(){ int g=0; uint16_t id; uint8_t cmd=0,p[240],plen=0;
-  while(g++<8 && lora.ReceivePacketCommand(&id,&cmd,p,&plen,15)) handleRx(cmd,p,plen); }
+  while(g++<8 && lora.ReceivePacketCommand(&id,&cmd,p,&plen,15)){
+#if P2P
+    if(cmd==P2P_CMD && plen>=9){ if(!joined) continue;   // tela inicial: ignora o radio (nao conectado)
+      uint8_t fl=p[0]; world[1].active=true; world[1].fix=fl&1; world[1].alert=fl&2;
+      world[1].lat=getLE32(p+1)/1e7; world[1].lon=getLE32(p+5)/1e7; world[1].lastMs=millis(); worldRxMs=millis(); continue; }
+#endif
+    handleRx(cmd,p,plen); } }
 
 // ---- desenho ----
 // detalhes de estilo por tema (grid/mira = fundo ; cantos = frente)
@@ -196,6 +222,12 @@ void roadSeg(int x0,int y0,int x1,int y1,uint16_t cas,uint16_t fil,int wc,int wf
   for(int d=-(wc/2);d<=wc/2;d++){ gfx.drawLine(x0+d,y0,x1+d,y1,cas); gfx.drawLine(x0,y0+d,x1,y1+d,cas); }
   for(int d=-(wf/2);d<=wf/2;d++){ gfx.drawLine(x0+d,y0,x1+d,y1,fil); gfx.drawLine(x0,y0+d,x1,y1+d,fil); }
 }
+#define C_GHOST 0x7C53   // ponte tracejada onde o sinal caiu (nao deixa vao)
+void drawDashed(int x0,int y0,int x1,int y1,uint16_t c){
+  float dx=x1-x0,dy=y1-y0,len=sqrtf(dx*dx+dy*dy); if(len<1)return; dx/=len;dy/=len;
+  for(float s=0;s<len;s+=16){ float e=fminf(s+8.0f,len);
+    gfx.drawLine((int)(x0+dx*s),(int)(y0+dy*s),(int)(x0+dx*e),(int)(y0+dy*e),c);
+    gfx.drawLine((int)(x0+dx*s),(int)(y0+dy*s)+1,(int)(x0+dx*e),(int)(y0+dy*e)+1,c); } }
 void card(int x,int y,int w,int h){ gfx.fillRoundRect(x,y,w,h,7,C_CARD); gfx.drawRoundRect(x,y,w,h,7,C_LINE); }
 // texto com fonte de verdade (y = base da linha). Depois volta pra fonte padrao.
 void txt(const GFXfont*f,int x,int y,uint16_t col,const char*s){ gfx.setFont(f); gfx.setTextSize(1); gfx.setTextColor(col); gfx.setCursor(x,y); gfx.print(s); gfx.setFont(NULL); }
@@ -215,15 +247,20 @@ void drawMap(){
   for(int k=0;k<routeN;k++){ int idx=(routeHead-routeN+k+ROUTE_MAX)%ROUTE_MAX; int sx,sy; w2s(route[idx].lat,route[idx].lon,clat,clon,chead,sx,sy);
     bool vis=(sx>=-20&&sx<SCR_W+20&&sy>=-20&&sy<SCR_H+20);
     if(vis&&psx>=0){ bool gap=havePrev&&haversine(plat,plon,route[idx].lat,route[idx].lon)>40.0;
-      if(!gap){ if(k>myNear) roadSeg(psx,psy,sx,sy,C_ROUTEC,C_ROUTE,10,5); else roadSeg(psx,psy,sx,sy,C_TRAVC,C_TRAV,8,3); } }
+      if(!gap){ if(k>myNear) roadSeg(psx,psy,sx,sy,C_ROUTEC,C_ROUTE,10,5); else roadSeg(psx,psy,sx,sy,C_TRAVC,C_TRAV,8,3); }
+      else drawDashed(psx,psy,sx,sy,C_GHOST); }   // vao (perda de sinal) -> ponte tracejada, nunca some
     psx=vis?sx:-1; psy=sy; plat=route[idx].lat; plon=route[idx].lon; havePrev=true;
   }
-  int aSlot=-1; for(int k=0;k<MAXN;k++) if(world[k].active&&world[k].alert){ aSlot=k; break; }
-  if(aSlot>=0){ int aN=nearestRouteIdx(world[aSlot].lat,world[aSlot].lon);
+  // ALERTA: o caminho ENTRE o lider e o seguidor (o caminho de volta ate ele) fica VERMELHO se
+  // QUALQUER um apertou (eu OU o seguidor). Assim o lider "vira seguidor" -> ve o trajeto ate ele.
+  int peer=-1; for(int k=1;k<MAXN;k++) if(world[k].active&&millis()-world[k].lastMs<NODE_TTL){ peer=k; break; }
+  bool alertOn = myAlert || (peer>=0 && world[peer].alert);
+  if(alertOn && peer>=0){ int aN=nearestRouteIdx(world[peer].lat,world[peer].lon);
     if(aN>=0&&myNear>=0){ int a=min(aN,myNear),b=max(aN,myNear),qx=-1,qy=-1;
       for(int k=a;k<=b;k++){ int idx=(routeHead-routeN+k+ROUTE_MAX)%ROUTE_MAX; int sx,sy; w2s(route[idx].lat,route[idx].lon,clat,clon,chead,sx,sy);
         if(qx>=0) roadSeg(qx,qy,sx,sy,0x6800,C_RED,12,6); qx=sx; qy=sy; } } }
   int meSlot=joined?curSlot:255;
+  // (o TRAJETO do lider e o proprio route[] desenhado acima; aqui so os marcadores)
   for(int k=0;k<MAXN;k++){ if(!world[k].active||k==meSlot) continue; if(millis()-world[k].lastMs>NODE_TTL) continue;
     int sx,sy; w2s(world[k].lat,world[k].lon,clat,clon,chead,sx,sy); if(sx<-30||sx>SCR_W+30||sy<-30||sy>SCR_H+30) continue;
     bool al=world[k].alert; uint16_t mc=al?C_RED:(k==0?C_AMBER:colorOf(world[k].color));
@@ -257,12 +294,16 @@ void drawUI(){
     ry+=rh+4; if(ry>SCR_H-96) break; }
   // distancia ao lider
   int cardY=SCR_H-92, cardH=82;
-  if(leaderRole){ int c=0; for(int k=1;k<MAXN;k++) if(world[k].active&&millis()-world[k].lastMs<NODE_TTL)c++;
+  if(leaderRole){
+    // distancia ate o SEGUIDOR mais proximo (o carro de tras)
+    double dmin=-1; for(int k=1;k<MAXN;k++) if(world[k].active&&world[k].fix&&millis()-world[k].lastMs<NODE_TTL){ double d=haversine(myLat,myLon,world[k].lat,world[k].lon); if(dmin<0||d<dmin)dmin=d; }
     card(10,cardY,214,cardH);
-    gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(24,cardY+12); gfx.print("VELOCIDADE");
-    gfx.setTextColor(C_WHITE); gfx.setTextSize(6); gfx.setCursor(20,cardY+26); snprintf(b,sizeof(b),"%d",(int)(mySpeed+0.5)); gfx.print(b);
-    gfx.setTextColor(C_MUT); gfx.setTextSize(2); gfx.setCursor(24+(int)strlen(b)*36+8,cardY+44); gfx.print("km/h");
-    gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(24,cardY+cardH-14); snprintf(b,sizeof(b),"%d seguidores",c); gfx.print(b); }
+    gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(24,cardY+12); gfx.print("SEGUIDOR ATRAS");
+    gfx.setTextColor(C_WHITE); gfx.setTextSize(6); gfx.setCursor(20,cardY+26);
+    if(dmin<0){ gfx.print("--"); }
+    else { if(dmin>=1000)snprintf(b,sizeof(b),"%.1fk",dmin/1000.0); else snprintf(b,sizeof(b),"%d",(int)dmin); gfx.print(b);
+      gfx.setTextColor(C_MUT); gfx.setTextSize(2); gfx.setCursor(24+(int)strlen(b)*36+8,cardY+44); gfx.print(dmin>=1000?"km":"m"); }
+    gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(24,cardY+cardH-14); snprintf(b,sizeof(b),"voce: %d km/h",(int)(mySpeed+0.5)); gfx.print(b); }
   else if(world[0].active && myFix){ double d=haversine(myLat,myLon,world[0].lat,world[0].lon);
     card(10,cardY,214,cardH);
     gfx.setTextColor(C_MUT); gfx.setTextSize(1); gfx.setCursor(24,cardY+12); gfx.print("DIST AO LIDER");
@@ -275,6 +316,12 @@ void drawUI(){
   gfx.fillCircle(abX,abY,abR, on?C_RED:C_CARD); gfx.drawCircle(abX,abY,abR,C_RED);
   uint16_t tc=on?C_WHITE:C_RED; gfx.fillTriangle(abX,abY-16,abX-16,abY+13,abX+16,abY+13,tc);
   gfx.fillRect(abX-2,abY-6,4,11,on?C_RED:C_CARD); gfx.fillRect(abX-2,abY+8,4,4,on?C_RED:C_CARD);
+  // botoes de ZOOM (+ / -) empilhados acima do FAB alerta
+  zSz=54; zpX=SCR_W-zSz-14; zpY=abY-abR-14-zSz; zmX=zpX; zmY=zpY-8-zSz;   // zmY = "+" (em cima), zpY = "-" (embaixo)
+  gfx.fillRoundRect(zmX,zmY,zSz,zSz,10,C_CARD); gfx.drawRoundRect(zmX,zmY,zSz,zSz,10,C_LINE);
+  gfx.fillRect(zmX+14,zmY+zSz/2-3,zSz-28,6,C_WHITE); gfx.fillRect(zmX+zSz/2-3,zmY+14,6,zSz-28,C_WHITE);  // "+"
+  gfx.fillRoundRect(zpX,zpY,zSz,zSz,10,C_CARD); gfx.drawRoundRect(zpX,zpY,zSz,zSz,10,C_LINE);
+  gfx.fillRect(zpX+14,zpY+zSz/2-3,zSz-28,6,C_WHITE);  // "-"
 }
 // ---- editar o nome do aparelho (engrenagem) ----
 void gearRect(int&x,int&y,int&w,int&h){ w=320; h=60; x=SCR_W-w; y=4; }
@@ -318,12 +365,24 @@ void drawHome(){
   gfx.drawRoundRect(bx,by2,bw,bh,16,C_BLUE); gfx.drawRoundRect(bx+1,by2+1,bw-2,bh-2,16,C_BLUE); gfx.drawRoundRect(bx+2,by2+2,bw-4,bh-4,16,C_BLUE);
   txt(&FreeSansBold24pt7b,bx+40,by2+bh/2+12,C_BLUE,"ENTRAR NA SALA");
 }
+#if P2P
+// pareamento 1:1 do GIGA (lider fixo do par GIGA<->WS)
+void gigaP2pPair(){ leaderRole=true; room=1; joined=true; curSlot=0; uiPage=0; searching=false;
+  ruid[0]=myUid; strncpy(rname[0],myName,15); rname[0][15]=0; rcolor[0]=myColor;
+  strncpy(rname[1],"Waveshare",15); rname[1][15]=0; haveRoster=true; }
+#endif
 void homeTouch(int tx,int ty){
   int gx,gy,gw,gh; gearRect(gx,gy,gw,gh);
   if(tx>=gx&&tx<=gx+gw&&ty>=gy&&ty<=gy+gh){ editName=true; strncpy(nameBuf,myName,15); nameBuf[15]=0; if(!strcmp(nameBuf,"Carro"))nameBuf[0]=0; return; }
   int bx,bw,bh,by1,by2; homeRects(bx,bw,bh,by1,by2);
-  if(tx>=bx&&tx<=bx+bw){ if(ty>=by1&&ty<=by1+bh){ pendingRole=1; uiPage=1; codeLen=0; codeBuf[0]=0; }
-    else if(ty>=by2&&ty<=by2+bh){ pendingRole=0; uiPage=1; codeLen=0; codeBuf[0]=0; } } }
+  if(tx>=bx&&tx<=bx+bw){ bool b1=(ty>=by1&&ty<=by1+bh),b2=(ty>=by2&&ty<=by2+bh);
+#if P2P
+    if(b1||b2) gigaP2pPair();   // 1:1: qualquer botao conecta (GIGA=lider fixo)
+#else
+    if(b1){ pendingRole=1; uiPage=1; codeLen=0; codeBuf[0]=0; }
+    else if(b2){ pendingRole=0; uiPage=1; codeLen=0; codeBuf[0]=0; }
+#endif
+  } }
 // ---- teclado do codigo da sala ----
 static const char* KPLAB[12]={"1","2","3","4","5","6","7","8","9","<","0","OK"};
 void kpRect(int i,int&x,int&y,int&w,int&h){
@@ -369,6 +428,8 @@ void handleTouch(){
     if(!touchWasDown){
       if(room==0){ if(editName) nameEditTouch(tx,ty); else if(uiPage==0) homeTouch(tx,ty); else keypadTouch(tx,ty); }
       else if(searching){ int x,y,w,h; searchRects(x,y,w,h); if(tx>=x&&tx<=x+w&&ty>=y&&ty<=y+h){ room=0; searching=false; uiPage=0; joined=false; } }
+      else if(tx>=zmX&&tx<=zmX+zSz&&ty>=zmY&&ty<=zmY+zSz){ mapMPP*=0.7f; if(mapMPP<0.5f)mapMPP=0.5f; }   // + : aproxima
+      else if(tx>=zpX&&tx<=zpX+zSz&&ty>=zpY&&ty<=zpY+zSz){ mapMPP*=1.4f; if(mapMPP>40.0f)mapMPP=40.0f; }   // - : afasta
       else if((tx-abX)*(tx-abX)+(ty-abY)*(ty-abY) <= (abR+8)*(abR+8)) myAlert=!myAlert;   // liga/desliga
     }
     touchWasDown=true; } else touchWasDown=false;
@@ -377,26 +438,46 @@ void handleTouch(){
 void setup(){
   Serial.begin(115200); Serial1.begin(9600); Serial2.begin(9600); delay(150);
   lora.begin(false); lora.localread(); myUid=lora.localUniqueId;
+  lora.config_bps(BW500, SF_LoRa_7, CR4_5);   // TRAVA o canal RF (2/7/1). Os DOIS lados usam os MESMOS valores -> nunca desalinha.
   loadName(); loadTheme(); applyTheme(themeIdx);
   gfx.begin(); gfx.setRotation(1);
   SCR_W=gfx.width(); SCR_H=gfx.height(); CXp=SCR_W/2; CYp=SCR_H/2;
   abR=40; abX=SCR_W-abR-14; abY=SCR_H-abR-14;
   touch.begin();
   for(int k=0;k<MAXN;k++){ world[k]=Node(); world[k].color=k; snprintf(rname[k],16,k==0?"Lider":"Carro %d",k); rcolor[k]=k; ruid[k]=0; }
+#if P2P
+  room=0; uiPage=0; leaderRole=false; joined=false; searching=false; myAlert=false;   // 1:1: comeca na TELA INICIAL; conecta ao apertar um botao
+  strncpy(rname[1],"Waveshare",15); rname[1][15]=0;
+#endif
   gfx.startBuffering(); gfx.fillScreen(C_BG); gfx.endBuffering();
   Serial.print("== GRUPO GIGA (seguidor) == sala="); Serial.print(room); Serial.print(" slot="); Serial.println(mySlot);
 }
 void loop(){
   handleSerial(); readGPS(); readLoRa(); handleTouch();
+#if BANCADA
+  // GIGA (lider) fake ANDA: gera trajeto visivel na bancada (WS parada ve o rastro do lider crescer)
+  { static double bLat=-23.5499, bLon=-46.6300; static unsigned long bt=0;
+    if(millis()-bt>400){ bt=millis(); bLat+=0.00002; bLon+=0.000013*sin(millis()/4000.0); }
+    myLat=bLat; myLon=bLon; myHeading=0; myFix=true; mySats=9; }
+#endif
   unsigned long now=millis();
   if(leaderRole||joined){ int msi=leaderRole?0:curSlot; world[msi].active=true; world[msi].fix=myFix; world[msi].alert=myAlert;
     world[msi].lat=myLat; world[msi].lon=myLon; world[msi].lastMs=now; }
+#if P2P
+  // LIDER: grava o proprio caminho e manda posicao + TRAJETO pro seguidor (unicast, sem flooding).
+  // so transmite quando CONECTADO (joined). Na tela inicial o radio fica QUIETO -> reset = comeca limpo.
+  if(joined) leaderRecordOwnPath();
+  static unsigned long lp=0; if(joined && now-lp>1000){ sendTrail(); lp=now; } else if(!joined) worldRxMs=0;
+#else
   if(room!=0){
     if(leaderRole){ leaderRecordOwnPath(); static uint8_t cyc=0; if(now-lastCycle>=CYCLE_MS){ if(myFix){ sendWorld(); if((cyc++%3)==0) sendRoster(); } lastCycle=now; } }
     else if(!joined){ static unsigned long lj=0; if(now-lj>1500){ sendJoin(); lj=now; } }
     else if(pendingUplink && now>=slotDue){ sendUplink(); pendingUplink=false; }
   }
+#endif
   if(now-lastDraw>250){ gfx.startBuffering(); if(room==0){ if(editName) drawNameEdit(); else if(uiPage==0) drawHome(); else drawKeypad(); } else if(searching) drawSearching(); else { drawMap(); drawUI(); } gfx.endBuffering(); lastDraw=now; }
   if(now-lastDbg>2000){ int c=0; for(int k=0;k<MAXN;k++) if(world[k].active&&now-world[k].lastMs<NODE_TTL)c++;
-    Serial.print("GIGA seg fix="); Serial.print(myFix?"S":"N"); Serial.print(" world="); Serial.print(worldRxMs?"ok":"--"); Serial.print(" nos="); Serial.println(c); lastDbg=now; }
+    Serial.print("GIGA | LoRa uid="); Serial.print(myUid); Serial.print(myUid>0?"(OK)":"(SEM RESPOSTA!)");
+    Serial.print(" | GPS fix="); Serial.print(myFix?"S":"N"); Serial.print(" sat="); Serial.print(mySats);
+    Serial.print(" | world="); Serial.print(worldRxMs?"ok":"--"); Serial.print(" nos="); Serial.println(c); lastDbg=now; }
 }
