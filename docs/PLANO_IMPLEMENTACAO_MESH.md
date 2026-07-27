@@ -199,14 +199,53 @@ Cabe folgado no SF7/BW125 (máx 242 B). Cada nó preenche `world[slot]` ao receb
 
 ---
 
-## 9. Fases de implementação (construir + testar nesta ordem)
+## 9. Mapa offline (tiles OSM)
+
+O mapa de fundo é a **Fase 5** — entra depois que LoRa + TDMA + GPS funcionam. Tem dois lados: **preparação** (em casa) e **renderização** (firmware).
+
+### 9.1 Preparação dos tiles (em casa, 1× por região)
+
+Mapa = grade de "azulejos" (tiles) 256×256 no padrão slippy-map OSM (`{zoom}/{x}/{y}`). Pré-baixados e gravados no SD → lidos offline na trilha.
+
+1. **Baixar** os tiles da região com o **MOBAC** (Mobile Atlas Creator — GUI: arrasta a bounding box sobre a trilha, marca os zooms). Fonte: **Thunderforest "Outdoors"** (tier grátis, estilo bom p/ trilha). **NÃO** usar `tile.openstreetmap.org` (a política deles proíbe bulk download — bloqueiam). Saída no formato **"OSMAND tile storage"** (gera `zoom/x/y.png`).
+2. **Converter** PNG → `.bin` RGB565 com o script oficial do map_tiles: `lvgl_map_tile_converter.py` (`pip install Pillow`).
+3. **Copiar** pro SD em `{tipo}/{zoom}/{x}/{y}.bin`.
+
+- **Zoom útil off-road: z13–z16** (vale até ruela). Cada tile ~**128 KB fixo** (RGB565 não comprime).
+- **Tamanho:** 20×20 km em z13–16 ≈ **~200 MB** → num SD de 64 GB cabem **dezenas de trilhas**.
+- **Pro cliente final:** **você pré-carrega o SD** com as trilhas que ele pediu (zero passo técnico pra ele). Futuro: um app "escolhe a região e baixa tudo" (juntar um downloader por bbox + o conversor num executável).
+- **Legal:** distribuir tiles exige fonte que permita (Thunderforest/MapTiler com key própria, ou renderizar de um extract Geofabrik). Não distribuir tiles raspados do OSM.
+
+### 9.2 Renderização no firmware (map_tiles, LVGL 9)
+
+Usar o componente **map_tiles** (github 0015, MIT, ESP-IDF, LVGL 9.3+) — **roda no P4**.
+
+- **Modelo:** grid de `lv_image` (os tiles) dentro de um container **rolável**. **"Centrar em você = rolar o container"** (você fica no meio, o mundo rola). Ao cruzar a borda de um tile, recarrega o grid do SD.
+- **Carros/rastro por cima:** marcadores são **objetos LVGL separados** por cima dos tiles — mover um marcador **não redesenha o fundo** (partial refresh). Rastro e anéis vão numa camada de `lv_canvas`/`lv_line` acima dos tiles.
+- **Cache/RAM:** grid **3×3 basta** (720×1280); manter em **PSRAM** (`use_spiram=true`); **não reler o SD a cada frame** — só ao cruzar borda de tile. (O map_tiles segura o grid todo em RAM, sem eviction — cuidado com grid grande.)
+- **API principal:** `map_tiles_init`, `load_tile`, `gps_to_tile_xy`, `set_center_from_gps`, `get_marker_offset`, `set_zoom`.
+
+### 9.3 Reaproveitar (economiza muito)
+
+O exemplo **`02.ESP32-S3_Map_LoRa_GPS`** (do repo map_tiles_projects) é **quase o esqueleto do produto**: já faz **mapa + GPS + LoRa + marcadores + setas de direção** quando o carro sai da tela. É ESP-IDF/LVGL9, feito p/ S3 → **portar pro P4 = trocar o BSP** (tela DSI + SD SDIO); a lógica de mapa é a mesma. **IceNav-v3** (GPL, só referência) mostra raster+vetorial e rotate-with-compass.
+
+### 9.4 Decisões importantes do mapa
+
+- **North-up, NÃO heading-up.** Girar o mapa inteiro conforme a direção é **pesado/inviável** (o acelerador do P4 só rotaciona 90°, não ângulo livre; girar dezenas de tiles por software mata o FPS). **Solução:** mapa fixo (norte pra cima) + girar **só o ícone do seu carro** (barato). ⚠️ Muda em relação ao CYD/GIGA anterior (que era heading-up).
+- **Falta escrever** (o exemplo não tem): **rastro/trilha** e **anéis de distância** → adicionar numa camada canvas/line, reusando `worldToScreen`/`haversine` que já temos.
+
+**Fontes do mapa:** github.com/0015/map_tiles (componente + conversor) · github.com/0015/map_tiles_projects/02.ESP32-S3_Map_LoRa_GPS (esqueleto) · mobac.sourceforge.io (download por bbox) · thunderforest.com (tiles Outdoors) · operations.osmfoundation.org/policies/tiles (política OSM) · github.com/jgauchia/IceNav-v3 (referência GPL).
+
+---
+
+## 10. Fases de implementação (construir + testar nesta ordem)
 
 - **Fase 0 — Bring-up ESP-IDF:** projeto com BSP Waveshare, "hello LVGL" no painel + toque, montar SD. *Teste: barra de cor + toque.*
 - **Fase 1 — LoRa cru (2 nós):** RadioLib SX1262, ping-pong TX/RX, confirmar pinos/BUSY. *Teste: RSSI/contador entre 2 placas.*
 - **Fase 2 — TDMA free-running (2→3 nós):** slots sem GPS, coords fake, remonta `world[]`. *Teste: zero colisão, roster montado.*
 - **Fase 3 — Disciplina por PPS:** ISR PPS → semáforo → epoch → `vTaskDelayUntil`. *Teste: slots alinhados ao PPS.*
 - **Fase 4 — GPS real (M8):** parse NMEA no `gps_task`, lat/lon reais no beacon. *Teste: posições/fix no serial.*
-- **Fase 5 — Mapa LVGL:** portar `drawMap`/roster/distância (reusar haversine, worldToScreen, temas). *Teste: 2 carros andando, seta+distância.*
+- **Fase 5 — Mapa LVGL (ver §9):** partir do exemplo `02.ESP32-S3_Map_LoRa_GPS` (map_tiles), portar BSP p/ P4, tiles offline do SD, north-up + ícone rotacionado, acrescentar rastro + anéis (reusar haversine/worldToScreen). *Teste: 2 carros andando sobre o mapa, seta+distância.*
 - **Fase 6 — Alerta:** botão LVGL → flag no pacote → caminho vermelho + borda piscando. *Teste: apertar num, acende no outro.*
 - **Fase 7 — Escala/tuning:** 8→50 nós, ajustar SF/slot/guard, TTL de dropout. *Teste: ciclo estável, sem starvation.*
 
@@ -214,7 +253,7 @@ Fases 0 e 1 podem ser paralelas (2 placas).
 
 ---
 
-## 10. Riscos honestos
+## 11. Riscos honestos
 
 - **Arduino-P4 imaturo** → ESP-IDF (curva de aprendizado se o time só sabe Arduino).
 - **WiFi via C6 instável** → aceitável (WiFi é opcional/OTA, não crítico).
@@ -225,7 +264,7 @@ Fases 0 e 1 podem ser paralelas (2 placas).
 
 ---
 
-## 11. Fontes principais
+## 12. Fontes principais
 
 **Rádio (RadioLib + E22):**
 - RadioLib Discussion #487 — E22-900M30S: TCXO 1.8V, setRfSwitchPins, setCurrentLimit(140) → 29,4 dBm
