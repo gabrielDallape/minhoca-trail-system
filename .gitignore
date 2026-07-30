@@ -8,6 +8,13 @@ build_odo/
 *.map
 *.d.o
 
+# Python (tools/tiles)
+__pycache__/
+*.pyc
+
+# Imagens de mapa geradas (grandes; regerar com tools/tiles/tiles.py)
+*.img
+
 # Sistema
 Thumbs.db
 .DS_Store
