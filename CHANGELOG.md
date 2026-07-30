@@ -31,6 +31,12 @@ alterado** — continua sendo o firmware que roda nas duas telas com LoRaMESH.
   índice + CRC32 por tile) e `firmware/tile_pack.h` (leitor por setor, sem
   filesystem — nada de FAT para a queda de energia corromper). Formato documentado
   em `tools/tiles/README.md`.
+- **`firmware/sd_bench/`** — mede na tela o que não tem resposta em documentação:
+  se dá para inicializar o cartão com o **CS no expansor I2C** (EXIO4, não num
+  GPIO), quanto custa de verdade ler um tile e um grid 3×3 por SPI, e **quanto o
+  painel RGB sofre** durante a leitura (compara o tempo de `pushImage` com e sem
+  cartão em uso — número, não impressão). Esses três valores decidem a
+  arquitetura de render do mapa.
 - **Testes que não exigem hardware**: `firmware/tdma_selftest/` e
   `firmware/tile_selftest/` rodam em qualquer ESP32 (sem rádio, GPS ou cartão);
   `tools/tiles/verify_reader.py` confere a conformidade entre o gravador em Python
