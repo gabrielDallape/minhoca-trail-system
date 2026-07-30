@@ -71,10 +71,22 @@ Rádio travado no mesmo canal em ambas via `config_bps(BW500, SF7, CR4_5)` no se
 ## Estrutura do repositório
 
 ```
-firmware/            Firmware EM USO
+firmware/            EM USO (produção)
   trilha_core.h        núcleo compartilhado (protocolo, temas, estado, route[]/breadcrumb, geo)
   grupo_ws/            firmware das 2 telas Waveshare (líder e seguidor no mesmo binário)
-tools/               Ferramentas de bring-up/diagnóstico da Waveshare
+
+                     FASE 4 (em construção, ver docs/RETOMAR.md)
+  tdma_core.h          frames/slots do TDMA; fonte de tempo atrás de interface (beacon -> PPS)
+  tile_pack.h          leitor de tiles do cartão por SETOR, sem filesystem (+ CRC32 por tile)
+  e22_ping/            ping-pong SX1262 e MEDIÇÃO do tempo real de TX (dimensiona o slot)
+  tdma_test/           TDMA de 3 nós com coordenadas falsas (conta colisão e desalinhamento)
+  sd_bench/            mede CS pelo expansor I2C, custo de leitura e contenção do painel RGB
+  tdma_selftest/       auto-teste da matemática do TDMA — roda em qualquer ESP32, sem periférico
+  tile_selftest/       auto-teste do leitor de tiles — idem, sem cartão
+
+tools/               Ferramentas
+  build.ps1            compila/grava sem depender do PATH (arduino-cli vive na Arduino IDE)
+  tiles/               pipeline do mapa offline: baixa, converte p/ RGB565, empacota, verifica
   ws_diag/ ws_hello/ ws_quiet/ ws_lcd_oficial/   tela/painel/touch
   ws_touch_diag/                                 GT911 (varre I2C, Product ID)
   ws_lora_scan/                                  acha os pinos do LoRa (UART2)
@@ -85,7 +97,7 @@ legacy/              Fases anteriores (referência histórica)
   odometro/            projeto original (Parte 1)
   cyd_* giga_* lora_* gps_* test_* ra8875_*   experimentos e etapas
   grupo/ grupo_giga_follow/ grupo_radio/       Modo Grupo no CYD/GIGA (descontinuado)
-docs/                Planos de desenvolvimento
+docs/                Planos, ambiente de build e ponto de retomada
 ```
 
 ## Fluxo de trabalho (gravar × usar)
@@ -105,15 +117,32 @@ Regras aprendidas em campo:
 
 ## Build
 
-Arduino CLI. Core: `esp32:esp32`.
+Arduino CLI (core `esp32:esp32`). O `arduino-cli` vive dentro da instalação da
+Arduino IDE e **não está no PATH** — use o script, que já carrega o caminho e o FQBN:
 
-```
-arduino-cli compile --fqbn "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=huge_app,CDCOnBoot=cdc" firmware/grupo_ws
-arduino-cli upload  -p <PORTA_303A> --fqbn "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=huge_app,CDCOnBoot=cdc" firmware/grupo_ws
+```powershell
+.\tools\build.ps1 firmware\grupo_ws                        # compila (placa padrão: ws7b)
+.\tools\build.ps1 firmware\tdma_test -Board devkit         # ESP32-S3-DevKitC
+.\tools\build.ps1 firmware\grupo_ws -Upload -Port COM7     # grava
+.\tools\build.ps1 x -ListPorts                             # acha a porta (VID 303A = USB nativa)
 ```
 
-Bibliotecas: LovyanGFX, TinyGPSPlus, LoRaMESH.
+Bibliotecas: LovyanGFX, TinyGPSPlus, LoRaMESH, RadioLib. Versões exatas e tamanhos
+de binário em [`docs/AMBIENTE_BUILD.md`](docs/AMBIENTE_BUILD.md).
 
 ## Status
 
-Duas telas Waveshare gravadas e validadas na bancada: touch, LoRa (pareamento + troca de pacotes) e GPS (fix a céu aberto) OK nas duas. **Pendente:** teste de campo com as duas em movimento (validar bordas, alerta pintando o caminho e catch-up preenchendo a perda de sinal).
+**Produção (Fase 3):** duas telas Waveshare gravadas e validadas na bancada —
+touch, LoRa (pareamento + troca de pacotes) e GPS (fix a céu aberto) OK nas duas.
+*Pendente:* teste de campo com as duas em movimento (validar bordas, alerta
+pintando o caminho e catch-up preenchendo a perda de sinal).
+
+**Fase 4 (em construção):** rede de 25–50 nós com TDMA disciplinado por GPS e mapa
+raster offline, rumo ao ESP32-P4 em ESP-IDF. A camada de TDMA e o leitor de tiles
+estão escritos e validados por auto-teste; os sketches de rádio aguardam os
+E22-900M30S. **Ponto de entrada: [`docs/RETOMAR.md`](docs/RETOMAR.md)** — pinagem,
+o que medir em cada fase, lista de compras e lacunas em aberto.
+
+> O rádio LoRaMESH **não pode fazer TDMA** (firmware de rede fechado atrás de UART,
+> sem sinal de TxDone). Daí a migração para SX1262/RadioLib na Fase 4. O firmware de
+> produção continua com o LoRaMESH e **não deve ser alterado** junto com a pilha nova.

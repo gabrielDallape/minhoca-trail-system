@@ -207,20 +207,59 @@ ponha a placa sobre buchas de borracha.
 | `sd_bench` | compila; **nunca executado** (precisa de tela + cartão) |
 | `grupo_ws` | intocado, compila em 449 KB |
 
-## Lacunas conhecidas (decisões que ficaram abertas de propósito)
+## Próximas tarefas, em ordem de valor
 
-- **Roster no TDMA**: nomes e cores dos carros em baixa frequência ainda não
-  existem na pilha nova. Hoje o `tdma_core.h` só carrega posição/flags. O
-  `trilha_core.h` tem `packRoster`/`CMD_ROSTER` para reaproveitar.
-- **Integração TDMA + display**: falta o sketch que junta `tdma_core.h` com
-  `world[]`/`haversine`/`worldToScreen` do `trilha_core.h` e desenha. Dá para
-  escrever e compilar sem rádio.
+### 1. Rodar o `sd_bench` numa tela — desbloqueia o mapa
+
+Não precisa de nada novo além de um microSD. **A arquitetura de render do mapa
+está bloqueada em três números** e não deve ser decidida por estimativa: se o
+painel degradar 3× durante a leitura, a arquitetura é uma; se degradar 10 %, é
+outra. Traga a saída do serial.
+
+Se as duas estratégias de CS falharem, o caminho seguinte é a API do ESP-IDF
+(`sdspi_host_init` + `sdspi_device_config_t` com `gpio_cs = GPIO_NUM_NC`), o que
+também resolveria a leitura multi-setor (`sdmmc_read_sectors`) que o `SD.readRAW`
+não faz — hoje o bench lê 256 setores em 256 chamadas, e parte do custo medido é
+esse overhead.
+
+### 2. Integrar `tdma_core.h` com o display — roda sem rádio
+
+Falta o sketch que junta a pilha nova com a lógica de produto que já existe:
+`world[]`, `haversine`, `worldToScreen`, `routeAdd`, temas, alerta e bordas
+piscando do `trilha_core.h`. Com posições falsas (`#define BANCADA 1`, padrão do
+projeto) isso **roda nas telas atuais**, sem E22. Quando o rádio chegar, troca-se
+só a fonte dos dados.
+
+Ponto de atenção: `trilha_core.h` usa um `TRILHA_CORE_DEFINE` que instancia
+`route[1200]` em DRAM interna (~19 KB) — o `README.md:53` diz "PSRAM", mas não é.
+Vale conferir o orçamento de RAM ao juntar com WiFi/TLS no futuro.
+
+### 3. Roster na pilha nova
+
+O pacote de 16 bytes só leva posição e flags — num grupo de 5 carros todos
+apareceriam como "Carro". O `trilha_core.h` já tem `packRoster`/`CMD_ROSTER` para
+reaproveitar; a decisão é **em qual slot e com que frequência** isso trafega,
+porque gastar um slot de posição com nome é desperdício. Uma saída é um slot
+reservado que rotaciona entre os nós, ou piggyback em frames alternados.
+
+### 4. Orçamento de link (alcance) — o risco nº 1
+
+Analítico, dá para fazer sem hardware: alcance esperado com 1 W (~29,6 dBm
+medidos na saída do E22) + antena de 5 dBi em SF7/BW125, e quanto se ganha subindo
+o SF — ao custo de capacidade (menos nós por frame, porque o air-time cresce).
+`PLANO_IMPLEMENTACAO_MESH.md:261` já marca alcance real na mata como o risco nº 1,
+e isso pode mostrar que SF7 é otimista para trilha, mudando o dimensionamento do
+TDMA **antes** de fiar qualquer coisa. Atenção ao limite de 1 W da ANATEL.
+
+### Depois disso (dependem de decisão ou hardware)
+
 - **Camada de render do mapa**: grid de tiles, câmera north-up, ícone do carro
-  girando, rastro e anéis de distância por cima. **Esperando os números do
-  `sd_bench`** — é a decisão que não deve ser tomada por estimativa.
-- **`multi-hop`**: a v1 assume todos os nós no alcance uns dos outros. Alcance
-  real na mata é o risco nº 1 e só o campo prova.
-- **OTA/WiFi**: investigado e adiado. Requer trocar a tabela de partições
-  (`huge_app` tem um slot só) e uma última gravação por cabo. O binário atual usa
-  14 % de 3 MB, então qualquer esquema de dois slots cabe com folga de 4× — não
-  precisa de `partitions.csv` customizado.
+  girando (não o mapa — rotação de ângulo livre mata o FPS), rastro e anéis por
+  cima. Espera a tarefa 1.
+- **Multi-hop**: a v1 assume todos os nós no alcance uns dos outros. Só o campo
+  prova se precisa de repetidor.
+- **OTA/WiFi**: investigado e adiado deliberadamente. Requer trocar a tabela de
+  partições (`huge_app` tem um slot só) e uma última gravação **por cabo**. O
+  binário usa 14 % de 3 MB, então qualquer esquema de dois slots cabe com folga de
+  4× — não precisa de `partitions.csv` customizado. O plano de mesh já trata WiFi
+  como opcional e não-crítico.
