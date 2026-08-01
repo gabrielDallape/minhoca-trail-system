@@ -19,3 +19,7 @@ __pycache__/
 Thumbs.db
 .DS_Store
 desktop.ini
+
+# Vercel (deploy da bancada web)
+.vercel/
+web/**/node_modules/

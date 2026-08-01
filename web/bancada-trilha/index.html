@@ -1,0 +1,2014 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bancada TRILHA - simulador das telas embarcadas</title>
+</head>
+<body>
+<!-- ARTIFACT:BEGIN -->
+<style>
+  /* ---------------------------------------------------------------
+     BANCADA TRILHA - cromo da pagina.
+     Regra: o cromo e QUIETO. As telas simuladas sao a unica coisa
+     colorida da pagina; qualquer acento aqui competiria com o painel
+     RGB e falsearia a leitura das cores do firmware.
+     --------------------------------------------------------------- */
+  :root{
+    --ground:#0E1113;  --surface:#161A1D;  --surface2:#1C2226;
+    --line:#262D31;    --line-soft:#1F262A;
+    --ink:#E6EAEC;     --ink-dim:#9AA5AB;  --ink-faint:#7C868C;
+    --amber:#FFC53D;   --amber-ink:#0E1113;
+    --ok:#3FB950;      --warn:#FF9500;     --crit:#FF3B30;
+    --bezel:#08090A;   --bezel-line:#2A3034;
+    --display:"Bahnschrift","Bahnschrift SemiCondensed","DIN Alternate","Roboto Condensed","Arial Narrow",system-ui,sans-serif;
+    --body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:"Cascadia Mono","Cascadia Code",Consolas,"SF Mono",ui-monospace,monospace;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --ground:#EDEFF1; --surface:#FFFFFF; --surface2:#F5F7F8;
+      --line:#D3D9DD;   --line-soft:#E4E9EB;
+      --ink:#1A1F22;    --ink-dim:#5A656B; --ink-faint:#6E7A81;
+      --amber:#8A5A00;  --amber-ink:#FFFFFF;
+      --ok:#1A7F37;     --warn:#B45309;    --crit:#C0261D;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0E1113; --surface:#161A1D; --surface2:#1C2226;
+    --line:#262D31;   --line-soft:#1F262A;
+    --ink:#E6EAEC;    --ink-dim:#9AA5AB; --ink-faint:#7C868C;
+    --amber:#FFC53D;  --amber-ink:#0E1113;
+    --ok:#3FB950;     --warn:#FF9500;    --crit:#FF3B30;
+  }
+  :root[data-theme="light"]{
+    --ground:#EDEFF1; --surface:#FFFFFF; --surface2:#F5F7F8;
+    --line:#D3D9DD;   --line-soft:#E4E9EB;
+    --ink:#1A1F22;    --ink-dim:#5A656B; --ink-faint:#6E7A81;
+    --amber:#8A5A00;  --amber-ink:#FFFFFF;
+    --ok:#1A7F37;     --warn:#B45309;    --crit:#C0261D;
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--body);
+       font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  h1,h2,h3{font-family:var(--display);font-weight:600;text-wrap:balance;margin:0}
+  a{color:var(--amber)}
+  .eyebrow{font-family:var(--display);text-transform:uppercase;letter-spacing:.14em;
+           font-size:11px;color:var(--ink-faint);font-weight:600}
+
+  .top{border-bottom:1px solid var(--line);background:var(--surface);
+       padding:14px clamp(16px,3vw,32px);display:flex;gap:20px;align-items:baseline;flex-wrap:wrap}
+  .top h1{font-size:20px;letter-spacing:.02em}
+  .top h1 span{color:var(--ink-faint);font-weight:400}
+  .top .meta{margin-left:auto;display:flex;gap:18px;flex-wrap:wrap;
+             font-family:var(--mono);font-size:11.5px;color:var(--ink-dim)}
+  .top .meta b{color:var(--ink);font-weight:600}
+
+  .wrap{max-width:1700px;margin:0 auto;padding:clamp(16px,2.4vw,28px)}
+  .lede{max-width:66ch;color:var(--ink-dim);margin:0 0 22px}
+  .lede strong{color:var(--ink);font-weight:600}
+  code{font-family:var(--mono);font-size:.9em}
+
+  .bench{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:22px;align-items:start}
+  @media (max-width:1180px){.bench{grid-template-columns:minmax(0,1fr)}}
+  .left{display:flex;flex-direction:column;gap:18px;min-width:0}
+
+  .screens{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+  .screens.focused{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .screens.focused .dev.big{grid-column:1/-1;order:-1}
+  .dev.off{display:none}
+  @media (max-width:820px){.screens,.screens.focused{grid-template-columns:minmax(0,1fr)}
+    .screens.focused .dev.big{grid-column:auto}}
+
+  /* aparelho: moldura escura nos dois temas (e um objeto, nao um cartao da pagina) */
+  .dev{margin:0;background:var(--bezel);border:1px solid var(--bezel-line);border-radius:12px;
+       padding:9px;box-shadow:0 1px 0 rgba(255,255,255,.04) inset}
+  .dev figcaption{display:flex;align-items:center;gap:8px;padding:2px 3px 8px;
+                  font-family:var(--display);font-size:11.5px;letter-spacing:.09em;
+                  text-transform:uppercase;color:#9AA5AB}
+  .dev figcaption .pill{margin-left:auto;letter-spacing:0}
+  .pill{font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:99px;
+        border:1px solid currentColor;line-height:1.5;white-space:nowrap}
+  .pill.ok{color:var(--ok)} .pill.warn{color:var(--warn)} .pill.crit{color:var(--crit)}
+  .pill.idle{color:var(--ink-faint)}
+  .dev figcaption .pill.idle{color:#8A959B}
+  .dev figcaption .pill.ok{color:#3FB950}
+  .dev figcaption .pill.warn{color:#FF9500}
+  .dev figcaption .pill.crit{color:#FF3B30}
+  canvas{display:block;width:100%;height:auto;background:#000;border-radius:4px;
+         cursor:crosshair;touch-action:manipulation}
+  .dev .foot{display:flex;align-items:center;gap:6px;padding:7px 3px 0;flex-wrap:wrap}
+  .dev .foot .hint{font-family:var(--mono);font-size:10px;color:#6B767C;margin-right:auto}
+  .dev .foot button{font-size:10.5px;padding:3px 7px;background:#12171A;border-color:#2A3034;color:#9AA5AB}
+  .dev .foot button:hover{border-color:#FFC53D;color:#FFC53D}
+  .dev .foot button[aria-pressed="true"]{background:#FF3B30;border-color:#FF3B30;color:#fff}
+
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+         padding:16px;display:flex;flex-direction:column;gap:17px;position:sticky;top:16px}
+  @media (max-width:1180px){.panel{position:static}}
+  .grp{display:flex;flex-direction:column;gap:9px}
+  .grp>.eyebrow{padding-bottom:4px;border-bottom:1px solid var(--line-soft)}
+  .row{display:flex;gap:7px;flex-wrap:wrap}
+  button{font-family:var(--display);font-size:12.5px;letter-spacing:.04em;text-transform:uppercase;
+         font-weight:600;color:var(--ink);background:var(--surface2);border:1px solid var(--line);
+         border-radius:6px;padding:7px 11px;cursor:pointer;white-space:nowrap;
+         transition:border-color .12s,color .12s}
+  button:hover{border-color:var(--amber);color:var(--amber)}
+  button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  button[aria-pressed="true"]{background:var(--amber);color:var(--amber-ink);border-color:var(--amber)}
+  button.danger[aria-pressed="true"]{background:var(--crit);border-color:var(--crit);color:#fff}
+  .seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg button{border:0;border-radius:0;flex:1}
+  .seg button+button{border-left:1px solid var(--line)}
+  label.fld{display:flex;flex-direction:column;gap:4px;font-family:var(--mono);
+            font-size:11px;color:var(--ink-dim)}
+  input[type=range]{width:100%;accent-color:var(--amber)}
+  .readout{font-family:var(--mono);font-size:11.5px;color:var(--ink-dim);
+           display:grid;grid-template-columns:auto 1fr;gap:2px 10px}
+  .readout b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+  .readout b.bad{color:var(--crit)}
+
+  .io{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+  @media (max-width:820px){.io{grid-template-columns:minmax(0,1fr)}}
+  .mon{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .mon header{display:flex;align-items:center;gap:8px;padding:9px 12px;
+              border-bottom:1px solid var(--line);background:var(--surface2)}
+  .mon header .eyebrow{color:var(--ink-dim)}
+  .mon pre{margin:0;padding:10px 12px;height:230px;overflow:auto;font-family:var(--mono);
+           font-size:11px;line-height:1.62;color:var(--ink-dim);white-space:pre}
+  .mon pre b{color:var(--amber);font-weight:600}
+  .mon pre .tx{color:var(--amber)} .mon pre .rx{color:var(--ok)}
+  .mon pre .lost{color:var(--crit)} .mon pre .col{color:var(--crit);font-weight:600}
+
+  .state{margin-top:32px;border-top:1px solid var(--line);padding-top:24px}
+  .state h2{font-size:17px;letter-spacing:.02em;margin-bottom:4px}
+  .state .sub{color:var(--ink-dim);max-width:74ch;margin:0 0 18px}
+  .tbl{width:100%;border-collapse:collapse;font-size:13.5px}
+  .tbl th{text-align:left;font-family:var(--display);text-transform:uppercase;letter-spacing:.1em;
+          font-size:10.5px;color:var(--ink-faint);font-weight:600;padding:0 12px 7px 0;
+          border-bottom:1px solid var(--line)}
+  .tbl td{padding:9px 12px 9px 0;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  .tbl td:first-child{font-family:var(--mono);font-size:12px;color:var(--ink)}
+  .tbl td.note{color:var(--ink-dim)}
+  .scroller{overflow-x:auto}
+  .fine{font-size:12.5px;color:var(--ink-faint);max-width:78ch}
+  .fine code{color:var(--ink-dim)}
+  .tip{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);display:flex;
+       gap:14px;flex-wrap:wrap;align-items:center}
+  .tip b{color:var(--ink-dim);font-weight:600}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<div class="top">
+  <h1>Bancada TRILHA <span>/ simulador das telas embarcadas</span></h1>
+  <div class="meta">
+    <span>firmware espelhado <b>firmware/grupo_ws</b></span>
+    <span>painel <b>1024&times;600 RGB</b></span>
+    <span id="metaMode">modo <b>GRUPO (4 nós)</b></span>
+  </div>
+</div>
+
+<div class="wrap">
+  <p class="lede">Quatro Waveshare ESP32-S3-Touch-LCD-7B rodando a lógica do
+  <code>grupo_ws.ino</code>. A bancada abre na <strong>tela inicial</strong> e executa o fluxo real:
+  a Tela 1 cria o grupo <code>12345</code>, as outras três entram digitando o mesmo código, mandam
+  <code>JOIN</code>, recebem o <code>ROSTER</code> com o slot e passam a mandar posição. Os cliques do
+  roteiro entram pelo mesmo <code>handleTouch()</code> que o dedo usa.</p>
+
+  <div class="bench">
+   <div class="left">
+    <div class="tip">
+      <span><b>Clique na tela</b> para operar: sino = alerta, +/− = zoom, SAIR = tela inicial</span>
+      <span style="margin-left:auto"><b>Ampliar</b></span>
+      <span class="seg" role="group" aria-label="Ampliar tela">
+        <button data-focus="" aria-pressed="true">todas</button>
+        <button data-focus="0">1</button>
+        <button data-focus="1">2</button>
+        <button data-focus="2">3</button>
+        <button data-focus="3">4</button>
+      </span>
+    </div>
+
+    <div class="screens" id="screens"></div>
+
+    <div class="io">
+      <div class="mon">
+        <header><span class="eyebrow">Serial &mdash; as quatro telas</span><span class="pill idle" id="pillSer">—</span></header>
+        <pre id="ser"></pre>
+      </div>
+      <div class="mon">
+        <header><span class="eyebrow">Pacotes no ar</span><span class="pill idle" id="pillAir">—</span></header>
+        <pre id="air"></pre>
+      </div>
+    </div>
+   </div>
+
+    <aside class="panel">
+      <div class="grp">
+        <div class="eyebrow">Modo do firmware</div>
+        <div class="seg" role="group" aria-label="Modo">
+          <button data-mode="GRUPO" aria-pressed="true">Grupo</button>
+          <button data-mode="P2P">P2P</button>
+          <button data-mode="TDMA">TDMA</button>
+        </div>
+        <div class="tip" id="modeNote" style="font-size:10.5px;line-height:1.5"></div>
+      </div>
+
+      <div class="grp">
+        <div class="eyebrow">Bancada</div>
+        <div class="row">
+          <button id="bScript">Criar e entrar</button>
+          <button id="bReset">Tela inicial</button>
+        </div>
+        <div class="row"><button id="bPlay" aria-pressed="true">Rodando</button></div>
+        <div class="seg" role="group" aria-label="Velocidade do tempo">
+          <button data-spd="1" aria-pressed="true">1&times;</button>
+          <button data-spd="4">4&times;</button>
+          <button data-spd="12">12&times;</button>
+        </div>
+        <label class="fld">Redesenho
+          <span class="seg" role="group" aria-label="Taxa de redesenho">
+            <button data-draw="1000" aria-pressed="true">1 Hz (real)</button>
+            <button data-draw="100">10 Hz</button>
+          </span>
+        </label>
+      </div>
+
+      <div class="grp" id="grpTdma" style="display:none">
+        <div class="eyebrow">TDMA &mdash; Fase 4</div>
+        <label class="fld">Slots por frame
+          <span class="seg" role="group" aria-label="Slots">
+            <button data-slots="8" aria-pressed="true">8</button>
+            <button data-slots="16">16</button>
+            <button data-slots="32">32</button>
+          </span>
+        </label>
+        <label class="fld">Frame
+          <span class="seg" role="group" aria-label="Frame">
+            <button data-frame="1" aria-pressed="true">1 s</button>
+            <button data-frame="2">2 s</button>
+            <button data-frame="3">3 s</button>
+          </span>
+        </label>
+        <label class="fld">Nós fantasma (sem tela)
+          <span class="seg" role="group" aria-label="Fantasmas">
+            <button data-ghosts="0" aria-pressed="true">0</button>
+            <button data-ghosts="4">+4</button>
+            <button data-ghosts="12">+12</button>
+            <button data-ghosts="28">+28</button>
+          </span>
+        </label>
+        <label class="fld">Fonte de tempo
+          <span class="seg" role="group" aria-label="Sincronia">
+            <button data-sync="beacon" aria-pressed="true">Beacon</button>
+            <button data-sync="pps">PPS</button>
+            <button data-sync="misto">PPS+beacon</button>
+          </span>
+        </label>
+        <div class="tip" style="font-size:10.5px;line-height:1.5"><b>Beacon</b> = fase 2, âncora no
+        pacote do nó 0. <b>PPS</b> = fase 3, como o <code>RETOMAR.md</code> manda (substitui o beacon).
+        <b>PPS+beacon</b> = a mistura ingênua, que é o que sai se você adicionar o PPS sem apagar a
+        linha do beacon &mdash; veja o que acontece com <code>tx</code>.</div>
+        <div class="row"><button id="bFixFB">Corrigir o frameBase</button></div>
+        <div class="tip" style="font-size:10.5px;line-height:1.5">Arredonda em vez de truncar a divisão
+        do <code>tdmaOnBeacon</code>. Com beacon e cristais diferentes, ligue e veja o
+        <code>tx por nó</code> voltar a subir.</div>
+        <div class="readout" id="tdmaOut"></div>
+      </div>
+
+      <div class="grp" id="grpRadio">
+        <div class="eyebrow">Rádio LoRaMESH</div>
+        <div class="row">
+          <button id="bCut" class="danger">Cortar sinal</button>
+          <button id="bCut20">Queda 20 s</button>
+        </div>
+        <label class="fld">Perda de pacotes <b id="lossV">0 %</b>
+          <input type="range" id="loss" min="0" max="80" step="5" value="0">
+        </label>
+        <label class="fld">Atraso extra do mesh <b id="delayV">60 ms</b>
+          <input type="range" id="delay" min="0" max="900" step="20" value="60">
+        </label>
+        <div class="row"><button id="bIdeal">Rádio ideal</button></div>
+        <div class="tip" style="font-size:10.5px;line-height:1.5">Entrega instantânea, sem colisão e sem
+        perda. <b>Serve para separar bug de firmware de artefato de rede:</b> o que continuar errado com
+        o rádio ideal está no código, não na bancada.</div>
+        <div class="row"><button id="bSlot">Usar o slot (slotDue)</button></div>
+        <div class="tip" style="font-size:10.5px;line-height:1.5">Fora do firmware: faz o uplink esperar
+        o <code>slotDue</code> que o <code>parseRx</code> já calcula e o <code>loop()</code> ignora.</div>
+      </div>
+
+      <div class="grp">
+        <div class="eyebrow">Trilha</div>
+        <label class="fld">Velocidade do líder <b id="spdV">32 km/h</b>
+          <input type="range" id="spd" min="0" max="70" step="1" value="32">
+        </label>
+        <label class="fld">Vão entre carros <b id="gapV">140 m</b>
+          <input type="range" id="gap" min="10" max="600" step="10" value="140">
+        </label>
+      </div>
+
+      <div class="grp">
+        <div class="eyebrow">Tema do firmware</div>
+        <div class="seg" role="group" aria-label="Tema">
+          <button data-theme="0" aria-pressed="true">Rally</button>
+          <button data-theme="1">Tático</button>
+          <button data-theme="2">HUD</button>
+        </div>
+      </div>
+
+      <div class="grp">
+        <div class="eyebrow">Leitura</div>
+        <div class="readout" id="readout"></div>
+      </div>
+    </aside>
+  </div>
+
+  <section class="state">
+    <h2>É bug do firmware ou artefato da bancada?</h2>
+    <p class="sub">A pergunta certa, e ela tem resposta mecânica: ligue <b>Rádio ideal</b> — entrega
+    instantânea, sem colisão, sem perda. <strong>O que continua errado com o rádio ideal está no
+    firmware; o que desaparece era o modelo de rede.</strong> As duas tabelas abaixo já vêm separadas
+    por esse critério, com o número medido nos dois modos.</p>
+    <p class="sub" style="border-left:2px solid var(--warn);padding-left:12px">
+    <b>Correção de uma versão anterior desta página:</b> eu modelava o rádio como um SX1262 cru, onde
+    colisão é perda definitiva — e a página afirmava que o líder "perde carros inteiros". Está errado.
+    O que está nas telas é um <b>Radioenge LoRaMESH: um módulo de rede com ACK e retransmissão
+    próprios</b>, atrás da UART (é justamente por esse firmware fechado que a Fase 4 migra para
+    SX1262). Com o ACK no modelo, o líder <b>vê os quatro carros em todos os cenários testados</b>,
+    com idade de dado de ~1,1 s. O custo do descompasso é tráfego e latência, não perda.</p>
+
+    <h3 style="font-size:14px;margin:22px 0 8px">Bugs de lógica &mdash; encontrados aqui, já corrigidos no firmware</h3>
+    <div class="scroller">
+      <table class="tbl">
+        <thead><tr><th>Achado</th><th>Por que acontecia</th><th>Correção</th></tr></thead>
+        <tbody id="findRows"></tbody>
+      </table>
+    </div>
+
+    <h3 style="font-size:14px;margin:26px 0 8px">Custo de rede &mdash; depende do modelo, trate como estimativa</h3>
+    <div class="scroller">
+      <table class="tbl">
+        <thead><tr><th>Cenário (4 telas, 85 s)</th><th>Medido na bancada</th><th>Leitura</th></tr></thead>
+        <tbody id="netRows"></tbody>
+      </table>
+    </div>
+    <p class="fine" style="margin-top:14px"><b>Como saber se a bancada divergiu do firmware:</b>
+    <code>node web/bancada-trilha/audit.js</code> lê o <code>trilha_core.h</code> e o
+    <code>grupo_ws.ino</code> de verdade e confere 47 itens — constantes, comandos do protocolo, os
+    três temas em RGB565, a paleta de 8 cores, todas as strings de tela e as regras numéricas de
+    desenho. Ele já pegou duas invenções minhas: a bancada limpava <code>route[]</code> ao sair do
+    grupo (o firmware não limpa) e inicializava <code>world[].color</code> com zero em vez de
+    <code>rcolor[k]?rcolor[k]:k</code> — que era o motivo de todos os carros saírem azuis no líder.
+    Some com <code>selftest.js</code> (44 verificações de comportamento, inclusive 600 toques
+    aleatórios) e é isso que sustenta o resto desta página.</p>
+    <p class="fine" style="margin-top:14px">O que o modelo de rede <b>não</b> tem: a janela de recepção
+    de 5&ndash;15 s do LoRaMESH, o roteamento multi-hop, o número real de retentativas do módulo e
+    alcance em mata fechada. Por isso a coluna de latência é otimista e os números acima servem para
+    comparar cenários entre si &mdash; não para dimensionar o produto. Isso só o
+    <code>firmware/e22_ping</code> com rádio na mão resolve.</p>
+  </section>
+
+  <section class="state">
+    <h2>TDMA da Fase 4 &mdash; o que apareceu antes do hardware chegar</h2>
+    <p class="sub">O modo <b>TDMA</b> no painel roda o <code>tdma_core.h</code> e o
+    <code>tdma_test.ino</code> de verdade: rede plana de 1 salto, pacote de 16 B, SX1262 cru (sem ACK),
+    cada nó com <strong>seu próprio relógio</strong> — offset de partida e drift de cristal de ±40 ppm.
+    Sem clock separado por nó um TDMA parece perfeito de graça, e não é isso que se quer descobrir.</p>
+    <div class="scroller">
+      <table class="tbl">
+        <thead><tr><th>Achado</th><th>Medido aqui</th><th>Correção</th></tr></thead>
+        <tbody id="tdmaRows"></tbody>
+      </table>
+    </div>
+    <p class="fine" style="margin-top:14px">Nada disso precisou de rádio. Os quatro primeiros já estão
+    <b>corrigidos</b> no <code>tdma_core.h</code> e no <code>tdma_test.ino</code>; os toggles do painel
+    ligam e desligam cada correção para comparar. O primeiro deles calava metade da rede e
+    <b>não seria pego com dois nós</b>, porque depende do sinal do erro relativo dos cristais.
+    Como não há compilador C++ aqui e o auto-teste do firmware roda no ESP32,
+    <code>node web/bancada-trilha/tdma_replay.js</code> reexecuta os 9 grupos de teste do
+    <code>tdma_selftest.ino</code> — os mesmos casos, os mesmos números — sobre este port: 43 PASS.</p>
+  </section>
+
+  <section class="state">
+    <h2>Onde o projeto está</h2>
+    <p class="sub">Duas pilhas convivem no repositório. A de produção roda hoje nas telas; a da Fase 4
+    existe em código e em teste, e três sketches dela nunca foram executados por falta de hardware.</p>
+    <div class="scroller">
+      <table class="tbl">
+        <thead><tr><th>Componente</th><th>O que é</th><th>Estado</th></tr></thead>
+        <tbody id="stateRows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="state">
+    <h2>O que este simulador reproduz fielmente &mdash; e o que não</h2>
+    <p class="sub">Importa saber onde a bancada mente, porque decisão tomada sobre aproximação volta
+    como bug no campo.</p>
+    <div class="scroller">
+      <table class="tbl">
+        <thead><tr><th>Item</th><th>Na bancada</th><th></th></tr></thead>
+        <tbody id="fidRows"></tbody>
+      </table>
+    </div>
+    <p class="fine" style="margin-top:16px">O código de desenho é transcrição linha a linha de
+    <code>drawHome/drawKeypad/drawSettings/drawSearching/drawMap/drawUI</code> sobre um <em>shim</em> da
+    API LovyanGFX. A matemática e o protocolo vêm de <code>trilha_core.h</code> sem alteração:
+    <code>haversine</code>, <code>worldToScreen</code>, <code>nearestRouteIdx</code>,
+    <code>packWorld/packRoster/packUplink/packJoin</code>, <code>parseRx</code> e, no modo P2P,
+    <code>sendTrail</code>/<code>sendP2P</code> com o catch-up por <code>peerAck</code>.</p>
+  </section>
+</div>
+
+<script>
+"use strict";
+/* =====================================================================
+   BANCADA TRILHA - simulador fiel das telas embarcadas.
+
+   Espelha firmware/grupo_ws/grupo_ws.ino + firmware/trilha_core.h.
+   Convencao do repo: comentarios em portugues sem acentuacao (o codigo
+   embarcado e assim; manter igual facilita o diff mental).
+
+   Ordem, seguindo o firmware:
+     1. cores/temas (RGB565 truncado de verdade)
+     2. shim da API LovyanGFX sobre canvas 2D
+     3. nucleo compartilhado (trilha_core.h portado)
+     4. aparelhos + protocolo (GRUPO: JOIN/ROSTER/WORLD/UPLINK; P2P: TRAIL/POS)
+     5. canal de radio: custo de UART + air-time, colisao, perda, corte
+     6. GPS/mundo sintetico
+     7. telas (transcricao do .ino)
+     8. loop, roteiro de operacao e UI da pagina
+   ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   1. CORES  -  RGB16 do firmware, com a MESMA perda de bits.
+   ------------------------------------------------------------------ */
+function rgb16(r,g,b){ const R=r&0xF8,G=g&0xFC,B=b&0xF8; return `rgb(${R|R>>5},${G|G>>6},${B|B>>5})`; }
+function c565(v){ const r=(v>>11)&31,g=(v>>5)&63,b=v&31;
+  return `rgb(${(r<<3)|(r>>2)},${(g<<2)|(g>>4)},${(b<<3)|(b>>2)})`; }
+const FL_CORNERS=1, FL_GRID=2, FL_CROSS=4;
+const THEMES=[
+ {name:"RALLY", bg:[11,9,6],   card:[29,24,16], line:[61,49,25], you:[40,216,255],  leader:[255,210,62], route:[255,149,0], routec:[90,58,0], trav:[90,70,34], travc:[50,40,20], red:[255,59,48], mut:[179,155,111], fl:FL_CORNERS},
+ {name:"TATICO",bg:[10,13,9],  card:[21,27,16], line:[47,61,32], you:[232,255,207], leader:[255,122,26], route:[166,255,77],routec:[40,70,18], trav:[60,74,42], travc:[35,45,26], red:[255,47,32], mut:[127,144,104], fl:FL_GRID|FL_CROSS},
+ {name:"HUD",   bg:[10,12,16], card:[24,30,38], line:[32,42,52], you:[0,229,255],   leader:[255,255,255],route:[0,229,255], routec:[16,50,60], trav:[38,66,74], travc:[28,46,52], red:[255,56,96], mut:[102,114,126], fl:0},
+];
+const PALETTE=[0x3C7F,0x2CF1,0x9694,0xEC88,0xE36E,0x2648,0xFD20,0x07FF].map(c565);
+const colorOf=i=>PALETTE[i&7];
+const C_WHITE="rgb(255,255,255)", C_ORANGE=c565(0xFD20), C_GHOST=c565(0x7C53), C_RED_CASING=c565(0x6800);
+const C={}; let g_theme=0;
+function applyTheme(i){
+  if(i<0||i>2)i=0; g_theme=i; const t=THEMES[i];
+  C.BG=rgb16(...t.bg); C.CARD=rgb16(...t.card); C.LINE=rgb16(...t.line);
+  C.BLUE=rgb16(...t.you); C.AMBER=rgb16(...t.leader);
+  C.ROUTE=rgb16(...t.route); C.ROUTEC=rgb16(...t.routec);
+  C.TRAV=rgb16(...t.trav); C.TRAVC=rgb16(...t.travc);
+  C.RED=rgb16(...t.red); C.MUT=rgb16(...t.mut); C.YEL=c565(0xFE60); C.FL=t.fl;
+  // FORCA rota=ROXO (falta andar) e rastro=AZUL CLARO (ja andei), em qualquer tema
+  C.ROUTE=rgb16(180,100,255); C.ROUTEC=rgb16(80,40,120);
+  C.TRAV=rgb16(80,210,255);   C.TRAVC=rgb16(30,90,120);
+}
+
+/* ---------------------------------------------------------------------
+   2. SHIM LovyanGFX -> canvas 2D
+   ------------------------------------------------------------------ */
+const fonts={
+  FreeSans9pt7b:{px:18,w:400},      FreeSansBold9pt7b:{px:18,w:700},
+  FreeSans12pt7b:{px:24,w:400},     FreeSansBold12pt7b:{px:24,w:700},
+  FreeSansBold18pt7b:{px:36,w:700}, FreeSansBold24pt7b:{px:48,w:700},
+  Font7:{seg:true,px:48},
+};
+const CAP=0.72;   // fracao do font-size que o GFX trata como altura do glifo
+const FACE='Helvetica, Arial, "Liberation Sans", sans-serif';
+
+class Gfx{
+  constructor(ctx,w,h){ this.x=ctx; this.W=w; this.H=h;
+    this.f=fonts.FreeSans12pt7b; this.sz=1; this.col=C_WHITE; this.datum="top_left"; }
+  fillScreen(c){ this.x.fillStyle=c; this.x.fillRect(0,0,this.W,this.H); }
+  fillRect(x,y,w,h,c){ this.x.fillStyle=c; this.x.fillRect(x|0,y|0,w|0,h|0); }
+  drawRect(x,y,w,h,c){ this.x.strokeStyle=c; this.x.lineWidth=1;
+    this.x.strokeRect((x|0)+.5,(y|0)+.5,(w|0)-1,(h|0)-1); }
+  fillRoundRect(x,y,w,h,r,c){ this.x.fillStyle=c; this._rr(x|0,y|0,w|0,h|0,r); this.x.fill(); }
+  drawRoundRect(x,y,w,h,r,c){ this.x.strokeStyle=c; this.x.lineWidth=1;
+    this._rr((x|0)+.5,(y|0)+.5,(w|0)-1,(h|0)-1,r); this.x.stroke(); }
+  _rr(x,y,w,h,r){ const k=this.x; r=Math.min(r,w/2,h/2); k.beginPath();
+    k.moveTo(x+r,y); k.lineTo(x+w-r,y); k.arcTo(x+w,y,x+w,y+r,r);
+    k.lineTo(x+w,y+h-r); k.arcTo(x+w,y+h,x+w-r,y+h,r);
+    k.lineTo(x+r,y+h); k.arcTo(x,y+h,x,y+h-r,r);
+    k.lineTo(x,y+r); k.arcTo(x,y,x+r,y,r); k.closePath(); }
+  fillCircle(cx,cy,r,c){ this.x.fillStyle=c; this.x.beginPath();
+    this.x.arc(cx|0,cy|0,Math.max(r,0.5),0,6.2832); this.x.fill(); }
+  drawCircle(cx,cy,r,c){ this.x.strokeStyle=c; this.x.lineWidth=1; this.x.beginPath();
+    this.x.arc((cx|0)+.5,(cy|0)+.5,Math.max(r,0.5),0,6.2832); this.x.stroke(); }
+  fillTriangle(x0,y0,x1,y1,x2,y2,c){ const k=this.x; k.fillStyle=c; k.beginPath();
+    k.moveTo(x0|0,y0|0); k.lineTo(x1|0,y1|0); k.lineTo(x2|0,y2|0); k.closePath(); k.fill(); }
+  drawTriangle(x0,y0,x1,y1,x2,y2,c){ const k=this.x; k.strokeStyle=c; k.lineWidth=1; k.beginPath();
+    k.moveTo((x0|0)+.5,(y0|0)+.5); k.lineTo((x1|0)+.5,(y1|0)+.5); k.lineTo((x2|0)+.5,(y2|0)+.5);
+    k.closePath(); k.stroke(); }
+  drawLine(x0,y0,x1,y1,c,w){ const k=this.x; k.strokeStyle=c; k.lineWidth=w||1; k.beginPath();
+    k.moveTo((x0|0)+.5,(y0|0)+.5); k.lineTo((x1|0)+.5,(y1|0)+.5); k.stroke(); }
+  drawFastVLine(x,y,h,c){ this.fillRect(x,y,1,h,c); }
+  drawFastHLine(x,y,w,c){ this.fillRect(x,y,w,1,c); }
+  setFont(f){ this.f=f; } setTextSize(s){ this.sz=s; }
+  setTextColor(c){ this.col=c; } setTextDatum(d){ this.datum=d; }
+  _apply(){ const px=this.f.px*this.sz;
+    this.x.font=`${this.f.w>=700?"700":"400"} ${px}px ${FACE}`; return px; }
+  textWidth(s){ if(this.f.seg) return segWidth(s,this.f.px*this.sz);
+    this._apply(); this.x.textBaseline="alphabetic"; return Math.round(this.x.measureText(s).width); }
+  drawString(s,x,y){
+    const px=this.f.px*this.sz, cap=px*CAP;
+    if(this.f.seg){ drawSeg(this,s,x,y,px,this.col,this.datum); return; }
+    this._apply(); const k=this.x; k.fillStyle=this.col; k.textBaseline="alphabetic";
+    const w=k.measureText(s).width; let ax=x, ay=y;
+    if(this.datum.endsWith("center")) ax=x-w/2; else if(this.datum.endsWith("right")) ax=x-w;
+    if(this.datum.startsWith("top")) ay=y+cap; else if(this.datum.startsWith("middle")) ay=y+cap/2;
+    k.fillText(s,Math.round(ax),Math.round(ay));
+  }
+}
+// Font7 do LovyanGFX e display de 7 segmentos; emular as barras fica mais perto
+// do painel do que trocar por uma fonte qualquer.
+const SEGMAP={ "0":0b1110111,"1":0b0010010,"2":0b1011101,"3":0b1011011,"4":0b0111010,
+  "5":0b1101011,"6":0b1101111,"7":0b1010010,"8":0b1111111,"9":0b1111011,"-":0b0001000," ":0 };
+const segCharW=(ch,h)=>(ch==="."||ch===",")?h*0.22:h*0.55;
+function segWidth(s,h){ let w=0; for(const ch of s) w+=segCharW(ch,h)+h*0.09; return Math.round(w); }
+function drawSeg(g,s,x,y,h,col,datum){
+  const total=segWidth(s,h); let cx=x, cy=y;
+  if(datum.endsWith("center")) cx=x-total/2; else if(datum.endsWith("right")) cx=x-total;
+  if(datum.startsWith("middle")) cy=y-h/2;
+  const t=Math.max(3,h*0.13), k=g.x; k.fillStyle=col;
+  for(const ch of s){
+    const w=segCharW(ch,h);
+    if(ch==="."||ch===","){ k.fillRect(Math.round(cx),Math.round(cy+h-t),Math.round(t),Math.round(t)); }
+    else{
+      const m=SEGMAP[ch]!==undefined?SEGMAP[ch]:0b0001000;
+      const bar=(bx,by,bw,bh)=>k.fillRect(Math.round(cx+bx),Math.round(cy+by),Math.round(bw),Math.round(bh));
+      const mid=(h-t)/2, inner=w-t;
+      if(m&0b1000000) bar(t*0.5,0,inner,t);
+      if(m&0b0100000) bar(0,t*0.5,t,mid-t*0.5);
+      if(m&0b0010000) bar(w-t,t*0.5,t,mid-t*0.5);
+      if(m&0b0001000) bar(t*0.5,mid,inner,t);
+      if(m&0b0000100) bar(0,mid+t*0.5,t,mid-t*0.5);
+      if(m&0b0000010) bar(w-t,mid+t*0.5,t,mid-t*0.5);
+      if(m&0b0000001) bar(t*0.5,h-t,inner,t);
+    }
+    cx+=w+h*0.09;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   3. NUCLEO  -  trilha_core.h portado sem mudanca de logica
+   ------------------------------------------------------------------ */
+const MAXN=8, ROUTE_MAX=1200, HIST_N=12, R_EARTH=6371000.0, STEP_M=5.0;
+const NODE_TTL=15000, OFFROUTE_M=30.0, TRAIL_N=24;
+const SLOT_MS=450, CYCLE_MS=MAXN*SLOT_MS;          // 3600 ms
+const CMD_WORLD=0x30, CMD_ROSTER=0x31, CMD_UPLINK=0x32, CMD_JOIN=0x33;
+const P2P_CMD=0x11, P2P_TRAIL=0x12;
+const rad=d=>d*Math.PI/180;
+const s16=v=>(v<<16)>>16;
+function haversine(la1,lo1,la2,lo2){
+  const dLa=rad(la2-la1), dLo=rad(lo2-lo1);
+  const a=Math.sin(dLa/2)**2+Math.cos(rad(la1))*Math.cos(rad(la2))*Math.sin(dLo/2)**2;
+  return R_EARTH*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function routeAdd(d,la,lo){
+  d.route[d.routeHead]={lat:la,lon:lo};
+  d.routeHead=(d.routeHead+1)%ROUTE_MAX;
+  if(d.routeN<ROUTE_MAX) d.routeN++;
+}
+function nearestRouteIdx(d,la,lo){
+  let best=-1,bd=1e18; const cl=Math.cos(la*0.017453292519943295), cl2=cl*cl;
+  for(let k=0;k<d.routeN;k++){ const i=(d.routeHead-d.routeN+k+ROUTE_MAX)%ROUTE_MAX;
+    const p=d.route[i], dla=p.lat-la, dlo=p.lon-lo, q=dla*dla+dlo*dlo*cl2;
+    if(q<bd){bd=q;best=k;} }
+  return best;
+}
+function leaderRecordOwnPath(d){
+  if(d.myFix && (!d.haveAdd || haversine(d.lastAddLat,d.lastAddLon,d.myLat,d.myLon)>=STEP_M)){
+    routeAdd(d,d.myLat,d.myLon); d.routeSeq=(d.routeSeq+1)&0xFFFF;
+    d.lastAddLat=d.myLat; d.lastAddLon=d.myLon; d.haveAdd=true; }
+}
+function worldToScreen(lat,lon,clat,clon,head,mpp,CX,CY){
+  const east=R_EARTH*Math.cos(rad(clat))*rad(lon-clon), north=R_EARTH*rad(lat-clat);
+  const h=rad(head), up=north*Math.cos(h)+east*Math.sin(h), ri=east*Math.cos(h)-north*Math.sin(h);
+  return [CX+((ri/mpp)|0), CY-((up/mpp)|0)];
+}
+const put32=(a,o,v)=>{ v|=0; a[o]=v&0xFF; a[o+1]=(v>>8)&0xFF; a[o+2]=(v>>16)&0xFF; a[o+3]=(v>>24)&0xFF; };
+const get32=(a,o)=>((a[o]|(a[o+1]<<8)|(a[o+2]<<16)|(a[o+3]<<24))|0);
+const roomOf=p=>(p[0]|(p[1]<<8)|(p[2]<<16))>>>0;
+const strOf=(p,o,L)=>{ let s=""; for(let i=0;i<L;i++) s+=String.fromCharCode(p[o+i]); return s; };
+
+/* ---------------------------------------------------------------------
+   4. APARELHOS E PROTOCOLO
+   ------------------------------------------------------------------ */
+let T=0;                        // millis() simulado, comum a todos
+const millis=()=>T|0;
+let MODE="GRUPO";               // espelha o #define P2P do .ino (GRUPO = P2P 0)
+
+function newDev(i,label,uid){
+  return {
+    i, label, uid, on:true,
+    g_name:label, g_role:0, g_room:0, g_color:i, joined:false, searching:false, curSlot:0,
+    // o setup() do firmware faz world[k].color = rcolor[k] ? rcolor[k] : k, e nao
+    // zero: sem isso o lider pinta todos os carros com PALETTE[0] (azul)
+    world:Array.from({length:MAXN},(_,k)=>({active:false,lat:0,lon:0,fix:false,alert:false,lastMs:0,color:k})),
+    route:new Array(ROUTE_MAX), routeN:0, routeHead:0, routeSeq:0, lastRouteSeq:0, haveRouteSeq:false,
+    rname:Array.from({length:MAXN},(_,k)=>k===0?"Lider":("Carro "+k)),
+    rcolor:Array.from({length:MAXN},(_,k)=>k), ruid:new Array(MAXN).fill(0), haveRoster:false,
+    myLat:0,myLon:0,myFix:false,mySats:0,mySpeed:0,myHeading:0,myLastFix:0,
+    worldRxMs:0, myAlert:false, lastAddLat:0,lastAddLon:0,haveAdd:false, wantRoster:false,
+    slotDue:0, pendingUplink:false,
+    peerAck:0, peerAckKnown:false, pendingReply:false, replyDue:0, lastP2PTx:0, lastTrailTx:0,
+    lastCycle:0, cyc:0, lj:0, lu:0,
+    uiPage:0, editName:false, nameBuf:"", codeBuf:"", pendingRole:0,
+    mapMPP:2.0, txUp:0, gpsChars:0, lastDbg:0, lastDraw:-1e9, uartFree:0,
+    rx:[], gpsOff:false, stray:false, s:0, _flags:{},
+    // --- modo TDMA (Fase 4) ---
+    // clock PROPRIO por no: offset inicial + drift de cristal. Sem isso o TDMA
+    // pareceria perfeito de graca - todos compartilhando o mesmo relogio.
+    tdma:null, clkUs:0, ppm:0, seqOut:0, rxCRC:0, wrongSlot:0, peerSeq:new Array(MAXN).fill(-1),
+  };
+}
+const isLeader=d=>d.g_role===1;
+
+// ---- modo GRUPO: montagem dos pacotes
+function packWorld(d){
+  const p=[]; const room=d.g_room;
+  p.push(room&0xFF,(room>>8)&0xFF,(room>>16)&0xFF, ((millis()/CYCLE_MS)|0)&0xFF);
+  for(let k=0;k<MAXN;k++) p.push(d.rcolor[k]);
+  for(let k=0;k<MAXN;k++){ const w=d.world[k];
+    let fl=0; if(w.active)fl|=1; if(w.fix)fl|=2; if(w.alert)fl|=4;
+    p.push(fl); const t=new Uint8Array(8);
+    put32(t,0,Math.round(w.lat*1e7)); put32(t,4,Math.round(w.lon*1e7));
+    for(const b of t) p.push(b); }
+  const nh=Math.min(d.routeN,HIST_N);
+  p.push(nh, d.routeSeq&0xFF, (d.routeSeq>>8)&0xFF);
+  const idx=(d.routeHead-nh+ROUTE_MAX)%ROUTE_MAX;
+  for(let i=0;i<nh;i++){ const q=d.route[(idx+i)%ROUTE_MAX]; const t=new Uint8Array(8);
+    put32(t,0,Math.round(q.lat*1e7)); put32(t,4,Math.round(q.lon*1e7));
+    for(const b of t) p.push(b); }
+  return new Uint8Array(p);
+}
+function packRoster(d){
+  const p=[d.g_room&0xFF,(d.g_room>>8)&0xFF,(d.g_room>>16)&0xFF];
+  for(let k=0;k<MAXN;k++){ const t=new Uint8Array(4); put32(t,0,d.ruid[k]);
+    for(const b of t) p.push(b);
+    p.push(d.rcolor[k]);
+    const nm=(d.rname[k]||"").slice(0,15); p.push(nm.length);
+    for(let i=0;i<nm.length;i++) p.push(nm.charCodeAt(i)&0xFF); }
+  return new Uint8Array(p);
+}
+function packUplink(d){
+  const p=new Uint8Array(13);
+  p[0]=d.g_room&0xFF; p[1]=(d.g_room>>8)&0xFF; p[2]=(d.g_room>>16)&0xFF; p[3]=d.curSlot;
+  let fl=0; if(d.myFix)fl|=2; if(d.myAlert)fl|=4; p[4]=fl;
+  put32(p,5,Math.round(d.myLat*1e7)); put32(p,9,Math.round(d.myLon*1e7));
+  return p;
+}
+function packJoin(d){
+  const nm=d.g_name.slice(0,15), p=new Uint8Array(9+nm.length);
+  p[0]=d.g_room&0xFF; p[1]=(d.g_room>>8)&0xFF; p[2]=(d.g_room>>16)&0xFF;
+  put32(p,3,d.uid); p[7]=d.g_color; p[8]=nm.length;
+  for(let i=0;i<nm.length;i++) p[9+i]=nm.charCodeAt(i)&0xFF;
+  return p;
+}
+// ---- modo GRUPO: parseRx (transcricao do trilha_core.h)
+function parseRx(d,cmd,p){
+  const plen=p.length;
+  if(isLeader(d)){
+    if(cmd===CMD_UPLINK && plen>=13 && roomOf(p)===d.g_room){
+      const sl=p[3];
+      if(sl>=1&&sl<MAXN){ const fl=p[4], w=d.world[sl];
+        w.active=true; w.fix=!!(fl&2); w.alert=!!(fl&4);
+        w.lat=get32(p,5)/1e7; w.lon=get32(p,9)/1e7; w.lastMs=millis();
+        airPush("rx",`${fmtT()} ${d.label} <- UPLINK slot=${sl}${(fl&4)?" ALERTA":""}`); }
+    } else if(cmd===CMD_JOIN && plen>=9 && roomOf(p)===d.g_room){
+      const uid=get32(p,3)>>>0, col=p[7]; let L=p[8]; if(L>15)L=15;
+      const nm=(9+L<=plen)?strOf(p,9,L):"";
+      let slot=-1;
+      for(let k=1;k<MAXN;k++) if(d.ruid[k]===uid){ slot=k; break; }
+      if(slot<0) for(let k=1;k<MAXN;k++) if(d.ruid[k]===0){ slot=k; break; }
+      if(slot>=1){ d.ruid[slot]=uid; if(col<8)d.rcolor[slot]=col;
+        if(nm) d.rname[slot]=nm; d.haveRoster=true; d.wantRoster=true;
+        airPush("rx",`${fmtT()} ${d.label} <- JOIN uid=${uid} "${nm}" -> slot ${slot}`); }
+    }
+    return;
+  }
+  if(cmd===CMD_ROSTER && plen>=3 && roomOf(p)===d.g_room){
+    let o=3;
+    for(let k=0;k<MAXN&&o+6<=plen;k++){
+      d.ruid[k]=get32(p,o)>>>0; o+=4; d.rcolor[k]=p[o++];
+      let L=p[o++]; if(L>15)L=15; if(o+L>plen)break;
+      d.rname[k]=strOf(p,o,L); o+=L; }
+    d.haveRoster=true;
+    if(!d.joined){ for(let k=1;k<MAXN;k++) if(d.ruid[k]===d.uid){ d.curSlot=k; d.joined=true;
+      airPush("rx",`${fmtT()} ${d.label} <- ROSTER: sou o slot ${k}`);
+      serial(d,`ROSTER recebido: meu slot e ${k}`); break; } }
+    return;
+  }
+  if(cmd===CMD_WORLD && plen>=4+8+72+3 && roomOf(p)===d.g_room){
+    d.worldRxMs=millis(); d.searching=false; let o=4;
+    for(let k=0;k<MAXN;k++) d.world[k].color=p[o++];
+    for(let k=0;k<MAXN;k++){ const fl=p[o], w=d.world[k];
+      w.active=!!(fl&1); w.fix=!!(fl&2); w.alert=!!(fl&4);
+      w.lat=get32(p,o+1)/1e7; w.lon=get32(p,o+5)/1e7;
+      if(w.active) w.lastMs=millis(); o+=9; }
+    const nh=p[o++]; const seqN=(p[o]|(p[o+1]<<8)); o+=2;
+    let added=0, jump=false;
+    for(let i=0;i<nh;i++){
+      const la=get32(p,o)/1e7, lo=get32(p,o+4)/1e7; o+=8;
+      const seq=(seqN-(nh-1)+i)&0xFFFF;
+      if(!d.haveRouteSeq||s16(seq-d.lastRouteSeq)>0){
+        if(d.haveRouteSeq&&s16(seq-d.lastRouteSeq)>1) jump=true;
+        routeAdd(d,la,lo); d.lastRouteSeq=seq; d.haveRouteSeq=true; added++; } }
+    // slotDue/pendingUplink existem no core mas o .ino NAO os usa para decidir o
+    // TX (o uplink sai a cada 1200 ms, livre). E exatamente o furo que o TDMA da
+    // Fase 4 fecha - por isso as colisoes aparecem no log com 4 nos.
+    d.slotDue=d.worldRxMs+d.curSlot*SLOT_MS; d.pendingUplink=true;
+    airPush("rx",`${fmtT()} ${d.label} <- WORLD nh=${nh} seq=${seqN} +${added} pt${jump?" (SALTO: vao na rota)":""}`);
+  }
+}
+// ---- modo P2P (o que esta gravado hoje): posicao + trajeto com catch-up
+function sendP2P(d,peer){
+  const p=new Uint8Array(11);
+  let fl=0; if(d.myFix)fl|=1; if(d.myAlert)fl|=2; if(d.haveRouteSeq)fl|=4;
+  p[0]=fl; put32(p,1,Math.round(d.myLat*1e7)); put32(p,5,Math.round(d.myLon*1e7));
+  p[9]=d.lastRouteSeq&0xFF; p[10]=(d.lastRouteSeq>>8)&0xFF;
+  txPacket(d,"PEER",P2P_CMD,p); d.txUp++;
+}
+function sendTrail(d,peer){
+  let fl=0; if(d.myFix)fl|=1; if(d.myAlert)fl|=2;
+  const oldest=(d.routeSeq-(d.routeN>0?d.routeN-1:0))&0xFFFF;
+  let base;
+  const behind=d.peerAckKnown && s16(d.peerAck-d.routeSeq)<-TRAIL_N;
+  if(behind){ fl|=8; base=(d.peerAck+1)&0xFFFF; if(s16(base-oldest)<0) base=oldest; }
+  else base=(d.routeN<TRAIL_N)?oldest:((d.routeSeq-TRAIL_N+1)&0xFFFF);
+  let off=s16(d.routeSeq-base); if(off<0)off=0; if(d.routeN>0&&off>d.routeN-1)off=d.routeN-1;
+  let nh=off+1; if(nh>TRAIL_N)nh=TRAIL_N; if(d.routeN===0)nh=0;
+  const idx=(d.routeHead-1-off+4*ROUTE_MAX)%ROUTE_MAX;
+  const p=new Uint8Array(12+nh*8); let o=0;
+  p[o++]=fl; put32(p,o,Math.round(d.myLat*1e7)); o+=4; put32(p,o,Math.round(d.myLon*1e7)); o+=4;
+  p[o++]=nh; p[o++]=base&0xFF; p[o++]=(base>>8)&0xFF;
+  for(let i=0;i<nh;i++){ const q=d.route[(idx+i)%ROUTE_MAX]||{lat:0,lon:0};
+    put32(p,o,Math.round(q.lat*1e7)); o+=4; put32(p,o,Math.round(q.lon*1e7)); o+=4; }
+  txPacket(d,"PEER",P2P_TRAIL,p); d.txUp++;
+  d.lastTrailInfo={nh,base,catchup:!!(fl&8)};
+}
+function parseP2P(d,cmd,p){
+  const plen=p.length;
+  if(!d.joined) return;
+  if(isLeader(d)){
+    if(cmd===P2P_CMD && plen>=9){ const fl=p[0], w=d.world[1];
+      w.active=true; w.fix=!!(fl&1); w.alert=!!(fl&2);
+      w.lat=get32(p,1)/1e7; w.lon=get32(p,5)/1e7; w.lastMs=millis(); d.worldRxMs=millis();
+      if(plen>=11){ const ack=p[9]|(p[10]<<8); d.peerAck=(fl&4)?ack:0; d.peerAckKnown=true; }
+      airPush("rx",`${fmtT()} ${d.label} <- POS ack=${d.peerAck}`); }
+    return;
+  }
+  if(cmd===P2P_TRAIL && plen>=12){
+    const fl=p[0], w=d.world[0];
+    w.active=true; w.fix=!!(fl&1); w.alert=!!(fl&2);
+    w.lat=get32(p,1)/1e7; w.lon=get32(p,5)/1e7; w.lastMs=millis(); d.worldRxMs=millis();
+    const isCatchup=!!(fl&8), nh=p[9], base=p[10]|(p[11]<<8); let o=12, added=0;
+    for(let n=0;n<nh&&o+8<=plen;n++){
+      const la=get32(p,o)/1e7, lo=get32(p,o+4)/1e7; o+=8;
+      const seq=(base+n)&0xFFFF, dd=s16(seq-d.lastRouteSeq);
+      if(!d.haveRouteSeq){ routeAdd(d,la,lo); d.lastRouteSeq=seq; d.haveRouteSeq=true; added++; }
+      else if(dd===1){ routeAdd(d,la,lo); d.lastRouteSeq=seq; added++; }
+      else if(dd>1&&isCatchup){ routeAdd(d,la,lo); d.lastRouteSeq=seq; added++; } }
+    airPush("rx",`${fmtT()} ${d.label} <- TRAIL nh=${nh} base=${base}${isCatchup?" CATCH-UP":""} +${added} pt`);
+    d.pendingReply=true; d.replyDue=millis(); return;
+  }
+  if(cmd===P2P_CMD && plen>=9){ const fl=p[0], w=d.world[0];
+    w.active=true; w.fix=!!(fl&1); w.alert=!!(fl&2);
+    w.lat=get32(p,1)/1e7; w.lon=get32(p,5)/1e7; w.lastMs=millis(); d.worldRxMs=millis();
+    d.pendingReply=true; d.replyDue=millis(); }
+}
+function readLoRa(d){
+  let g=0;
+  while(g++<3 && d.rx.length){
+    const m=d.rx.shift();
+    if(MODE==="P2P") parseP2P(d,m.cmd,m.p);
+    else parseRx(d,m.cmd,m.p);
+  }
+  if(d.wantRoster){ d.wantRoster=false; sendRoster(d); }
+}
+const sendWorld =d=>txPacket(d,"BCAST",CMD_WORLD,packWorld(d));
+const sendRoster=d=>txPacket(d,"BCAST",CMD_ROSTER,packRoster(d));
+const sendUplink=d=>{ txPacket(d,"LEADER",CMD_UPLINK,packUplink(d)); d.txUp++; };
+const sendJoin  =d=>txPacket(d,"LEADER",CMD_JOIN,packJoin(d));
+
+/* ---------------------------------------------------------------------
+   5. CANAL DE RADIO
+   O que esta nas telas NAO e um SX1262 cru: e um Radioenge LoRaMESH, um
+   modulo de rede com firmware fechado atras da UART, que faz mesh e tem
+   ACK/retransmissao PROPRIOS (CLAUDE.md e README:146 registram isso - e a
+   razao de a Fase 4 migrar para SX1262). Modelar como radio cru foi um erro:
+   dava colisao definitiva onde o modulo, na verdade, reenvia sozinho e o
+   firmware nem sabe.
+
+   Modelo atual:
+     - custo de TX = UART 9600 8N1 (serial, um pacote por vez) + air-time
+       SF7/BW500 CR4/5, a config que o setup() trava em config_bps().
+       O UART DOMINA: um WORLD de 183 B gasta ~199 ms de serial e ~73 ms de ar.
+     - UNICAST (uplink/join, endereçados ao ID 0): ACK do modulo, com
+       RETRY_MAX reenvios e backoff. Quase sempre chega - com latencia.
+     - BROADCAST (world/roster, ID 2047): sem ACK. Colisao = perda de verdade.
+     - captura de co-canal: LoRa decodifica o sinal mais forte quando a
+       diferenca passa de ~6 dB; aproximado por path loss (o dobro da
+       distancia = 6 dB). Quem esta mais perto do lider ganha a disputa.
+     - radio.ideal: entrega instantanea, sem colisao e sem perda. Serve para
+       separar bug de logica de artefato de rede - se o problema continua com
+       o radio ideal, o problema esta no firmware.
+   ------------------------------------------------------------------ */
+const RETRY_MAX=3;
+const radio={down:false, loss:0, delay:60, sent:0, lost:0, collisions:0, airMs:0,
+             retries:0, ideal:false};
+const chan={inAir:[]};
+const airLog=[];
+function airPush(kind,txt){ airLog.push({kind,txt}); if(airLog.length>200) airLog.shift(); }
+const hex=a=>Array.from(a).map(v=>v.toString(16).padStart(2,"0")).join(" ");
+const fmtT=()=>{ const s=T/1000; return (s<10?"  ":s<100?" ":"")+s.toFixed(1)+"s"; };
+function txCost(n){
+  const uart=(n+8)*10/9600*1000;                       // 8N1, +8 B de header do LoRaMESH
+  const symMs=Math.pow(2,7)/500000*1000;               // SF7, BW500 -> 0,256 ms
+  const nsym=12.25+8+Math.max(0,Math.ceil((8*n-4*7+28+16)/(4*7))*5);
+  return {uart, air:nsym*symMs};
+}
+const CMDNAME={0x30:"WORLD",0x31:"ROSTER",0x32:"UPLINK",0x33:"JOIN",0x11:"POS",0x12:"TRAIL"};
+// entrega direta, usada pelo radio ideal e pelo fim do caminho normal
+function deliver(pkt){
+  for(const d of devs){
+    if(!d.on || d===pkt.from) continue;
+    if(pkt.to==="LEADER" && !isLeader(d)) continue;   // unicast para o ID 0
+    d.rx.push(pkt);
+  }
+  // os nos fantasma tambem precisam ouvir - senao nunca pegam o beacon do no 0
+  if(pkt.tdma) for(const g of ghosts) if(g!==pkt.from) g.rx.push(pkt);
+}
+function txPacket(from,to,cmd,bytes,tries){
+  radio.sent++;
+  if(radio.ideal){                                   // radio ideal: sem ar, sem perda
+    airPush("tx",`${fmtT()} ${from.label} -> ${to==="BCAST"?"todos":"lider"}  ${CMDNAME[cmd]} ${bytes.length}B  (radio ideal)`);
+    deliver({from,to,cmd,p:bytes});
+    return;
+  }
+  const c=txCost(bytes.length);
+  // A UART ate o modulo e um recurso SERIAL: o segundo pacote so comeca a ser
+  // empurrado quando o primeiro terminou. Sem isto um ROSTER curto passaria na
+  // frente de um WORLD longo enviado na mesma volta do loop.
+  const start=Math.max(T, from.uartFree||0);
+  // jitter do loop: o firmware testa a condicao de TX uma vez por volta, e a
+  // volta varia alguns ms (o serial imprime loopMax de 8-14 ms).
+  const jit=Math.random()*12;
+  from.uartFree=start+c.uart;
+  radio.airMs+=c.air;                      // para o duty cycle do canal
+  const t0=start+c.uart+jit, t1=t0+c.air;  // janela em que o pacote esta NO AR
+  const pkt={from,to,cmd,p:bytes,t0,t1,bad:false,tries:tries||0,unicast:to!=="BCAST"};
+  // colisao com captura de co-canal: quem chega ao destino com ~6 dB de vantagem
+  // e decodificado; o outro se perde. 6 dB ~ o dobro da distancia (path loss).
+  for(const o of chan.inAir) if(t0<o.t1 && o.t0<t1){
+    const dn=distLider(pkt.from), doo=distLider(o.from);
+    if(dn>1&&doo>1&&doo>2*dn){ o.bad=true; }          // eu ganho a disputa
+    else if(dn>1&&doo>1&&dn>2*doo){ pkt.bad=true; }   // o outro ganha
+    else { o.bad=true; pkt.bad=true; }                // potencias parecidas: os dois morrem
+  }
+  chan.inAir.push(pkt);
+  const rt=pkt.tries?`  retry ${pkt.tries}`:"";
+  airPush("tx",`${fmtT()} ${from.label} -> ${to==="BCAST"?"todos":to==="LEADER"?"lider":"peer"}  `+
+    `0x${cmd.toString(16)} ${CMDNAME[cmd]} ${bytes.length}B  uart ${c.uart.toFixed(0)}ms + ar ${c.air.toFixed(0)}ms${rt}`);
+  if(!pkt.tries) airPush("plain",`         ${hex(bytes.slice(0,24))}${bytes.length>24?" ...":""}`);
+}
+// distancia do no ao lider, para o efeito de captura
+function distLider(d){
+  const L=devs[0];
+  if(!L||!d||d===L) return 1;
+  return haversine(d.myLat,d.myLon,L.myLat,L.myLon);
+}
+// reenvio do MODULO, nao do firmware: o LoRaMESH espera o ACK do destino e
+// retransmite sozinho. O firmware nao ve nada disso (nem tem TxDone).
+const reenvio=[];
+function chanTick(){
+  for(let i=0;i<reenvio.length;i++) if(T>=reenvio[i].at){
+    const r=reenvio[i]; reenvio.splice(i--,1);
+    txPacket(r.from,r.to,r.cmd,r.p,r.tries);
+  }
+  for(let i=0;i<chan.inAir.length;i++){
+    const k=chan.inAir[i];
+    // o atraso extra e do mesh do LoRaMESH. No SX1262 cru o rxDone vem no fim do
+    // pacote e ponto - aplicar o atraso aqui desalinhava o TDMA (bug da bancada).
+    if(T < k.t1+(k.tdma?0:radio.delay)) continue;
+    chan.inAir.splice(i--,1);
+    const colidiu=k.bad, sumiu=radio.down||Math.random()*100<radio.loss;
+    if(colidiu||sumiu){
+      if(colidiu) radio.collisions++;
+      if(k.tdma){   // SX1262 cru: CRC ruim e ponto final, nao ha ACK nem reenvio
+        radio.lost++;
+        for(const d of devs) if(d.on&&d!==k.from) d.rxCRC++;
+        airPush("col",`${fmtT()} ${colidiu?"COLISAO":"PERDA"}: POS16 de ${k.from.label} - rxCRC`);
+        continue;
+      }
+      // unicast tem ACK: o modulo reenvia com backoff. E o que salva o uplink de
+      // 4 nos sem disciplina - e o que torna a latencia, e nao a perda, o sintoma.
+      if(k.unicast && k.tries<RETRY_MAX && !radio.down){
+        radio.retries++;
+        reenvio.push({from:k.from,to:k.to,cmd:k.cmd,p:k.p,tries:k.tries+1,
+                      at:T+150+Math.random()*250});
+        airPush("col",`${fmtT()} ${colidiu?"COLISAO":"PERDA"}: ${CMDNAME[k.cmd]} de ${k.from.label}`+
+                      ` - sem ACK, modulo reenvia (${k.tries+1}/${RETRY_MAX})`);
+      } else {
+        radio.lost++;
+        airPush("lost",`${fmtT()} ${CMDNAME[k.cmd]} de ${k.from.label} PERDIDO`+
+                       (k.unicast?` apos ${RETRY_MAX} tentativas`:" (broadcast nao tem ACK)"));
+      }
+      continue;
+    }
+    if(k.unicast) radio.airMs+=txCost(8).air;   // o ACK tambem ocupa o ar
+    deliver(k);
+  }
+}
+
+/* =====================================================================
+   5b. TDMA  -  port fiel de firmware/tdma_core.h + firmware/tdma_test.ino
+   Este e o alvo da FASE 4, e nao roda nas telas de hoje: e o SX1262/E22 em
+   rede plana de 1 salto, cada no falando so no seu slot. Aqui ele vive lado
+   a lado com o modo GRUPO para dar para comparar os dois no mesmo mundo.
+
+   Diferencas de arquitetura em relacao ao modo GRUPO:
+     - nao ha lider reencaminhando: todos ouvem todos e remontam world[]
+     - o pacote e de 16 bytes fixos (nao carrega historico de trajeto)
+     - o radio e cru: sem ACK, sem retransmissao. Colisao = CRC ruim.
+     - quem ancora o frame e o beacon do no 0 (fase 2) ou o PPS (fase 3)
+   ===================================================================== */
+// parametros do tdma_test.ino
+const TDMA_N_SLOTS=8, TDMA_FRAME_SECS=1, TDMA_GUARD_US=15000, TDMA_ROOM=1;
+const TDMA_PKT_N=16;
+const TDMA_FL_FIX=0x01, TDMA_FL_ALERT=0x02, TDMA_FL_LEADER=0x04;
+const TDMA_ANCHOR_TTL_US=1500000, TDMA_HOLDOVER_GUARD=3;
+// RF do e22_ping/tdma_test: 915 MHz, BW 125, SF 7, CR 4/5, preambulo 8
+const TDMA_SF=7, TDMA_BW_KHZ=125, TDMA_PRE=8;
+const TDMA_SYNC_NONE=0, TDMA_SYNC_BEACON=1, TDMA_SYNC_PPS=2;
+
+function tdmaInit(nodeId,nSlots,frameSecs,guardUs){
+  const t={nodeId, nSlots:nSlots||1, frameSecs:frameSecs||1, guardUs};
+  t.frameUs=t.frameSecs*1000000; t.slotUs=Math.floor(t.frameUs/t.nSlots);
+  t.sync=TDMA_SYNC_NONE; t.anchorUs=0; t.anchorSec=0;
+  t.haveAnchor=false; t.holdover=false; t.frameBase=0;
+  t.airtimeUs=0; t.isAnchor=(nodeId===0); t.txFrameDone=0; t.haveTxFrame=false;
+  t.anchorCount=0; t.txCount=0; t.missedTx=0;
+  return t;
+}
+const tdmaHeadroomUs=(t,air)=>t.slotUs-air-t.guardUs;
+const tdmaFits=(t,air)=>tdmaHeadroomUs(t,air)>0;
+const tdmaMaxNodes=(t,air)=>{ const per=air+t.guardUs; return per?Math.floor(t.frameUs/per):0; };
+// FASE 2: o pacote do no 0 marca o inicio do frame
+function tdmaOnBeacon(t,rxUs){
+  // o rxDone vem no FIM do pacote e o no 0 fala meia-guarda depois do inicio do
+  // frame: sem recuar os dois, a ancora atrasa ~59 ms - a folga inteira do slot
+  let edge=rxUs;
+  if(t.airtimeUs && edge>t.airtimeUs) edge-=t.airtimeUs;   // tdmaSetAirtime informou
+  rxUs=edge;
+  if(t.haveAnchor && t.sync===TDMA_SYNC_BEACON && rxUs>=t.anchorUs){
+    // frameBase mantem o indice MONOTONICO atraves das re-ancoras: sem isso a
+    // guarda de "1 TX por frame" concluiria que o no ja falou e ele pararia de
+    // transmitir para sempre depois do 1o frame (comentario do tdma_core.h).
+    //
+    // BUG DO FIRMWARE, reproduzido aqui de proposito: a divisao e INTEIRA. Se o
+    // cristal deste no for mais lento que o do no 0, o intervalo entre beacons
+    // medido no relogio local fica abaixo de frameUs (1 s a -40 ppm = 999,96 ms),
+    // o resultado e 0, o frameBase congela e o no cala PARA SEMPRE - exatamente o
+    // sintoma que este campo existe para evitar. Metade dos nos tem cristal mais
+    // lento que o da ancora, entao metade da rede emudece.
+    let n=Math.floor((rxUs-t.anchorUs)/t.frameUs);
+    if(sim.fixFrameBase){                       // a correcao: arredondar, minimo 1
+      n=Math.round((rxUs-t.anchorUs)/t.frameUs); if(n<1) n=1;
+    }
+    t.frameBase+=n;
+  }
+  t.sync=TDMA_SYNC_BEACON; t.anchorUs=rxUs; t.anchorSec=0;
+  t.haveAnchor=true; t.holdover=false; t.anchorCount++;
+}
+// FASE 3: borda do PPS + o segundo UTC daquela borda
+function tdmaOnPps(t,ppsUs,utcSec){
+  t.sync=TDMA_SYNC_PPS; t.anchorUs=ppsUs; t.anchorSec=utcSec;
+  t.haveAnchor=true; t.holdover=false; t.anchorCount++;
+}
+const tdmaGuardNow=t=>t.holdover?t.guardUs*TDMA_HOLDOVER_GUARD:t.guardUs;
+function tdmaTick(t,nowUs){
+  if(!t.haveAnchor) return;
+  // quem ancora a rede nao tem quem o sincronize: marcar holdover nele triplicava
+  // a guarda do no 0 para sempre e acendia o alarme em regime normal
+  if(sim.fixAnchorHoldover && t.isAnchor && t.sync===TDMA_SYNC_BEACON){ t.holdover=false; return; }
+  t.holdover=(nowUs-t.anchorUs)>TDMA_ANCHOR_TTL_US;
+}
+function tdmaUsInFrame(t,nowUs){
+  if(!t.haveAnchor) return null;
+  const since=nowUs-t.anchorUs;
+  if(t.sync===TDMA_SYNC_PPS){
+    // a borda do PPS pode cair no MEIO de um frame: o offset vem do segundo UTC
+    const secInFrame=t.anchorSec%t.frameSecs;
+    const off=secInFrame*1000000+since;
+    return {usInFrame:off%t.frameUs,
+            frameIdx:Math.floor(t.anchorSec/t.frameSecs)+Math.floor(off/t.frameUs)};
+  }
+  return {usInFrame:since%t.frameUs, frameIdx:t.frameBase+Math.floor(since/t.frameUs)};
+}
+const tdmaSlotStartUs=(t,slot)=>slot*t.slotUs;
+function tdmaSlotAt(t,usInFrame){
+  const s=Math.floor(usInFrame/t.slotUs);
+  return s<t.nSlots?s:t.nSlots-1;
+}
+// true UMA vez por frame, dentro de [inicio+guarda/2, inicio+slot-guarda/2]
+function tdmaShouldTx(t,nowUs){
+  const p=tdmaUsInFrame(t,nowUs); if(!p) return false;
+  if(t.haveTxFrame && t.txFrameDone===p.frameIdx) return false;
+  const g=tdmaGuardNow(t), half=Math.floor(g/2), start=tdmaSlotStartUs(t,t.nodeId);
+  if(t.slotUs<=g) return false;
+  const lo=start+half, hi=start+t.slotUs-half;
+  if(p.usInFrame>=lo && p.usInFrame<=hi){
+    t.txFrameDone=p.frameIdx; t.haveTxFrame=true; t.txCount++; return true;
+  }
+  if(p.usInFrame>hi && !(t.haveTxFrame&&t.txFrameDone===p.frameIdx)){
+    t.txFrameDone=p.frameIdx; t.haveTxFrame=true; t.missedTx++;   // perdi a janela
+  }
+  return false;
+}
+// pacote de 16 bytes (secao 7 do PLANO_IMPLEMENTACAO_MESH.md)
+function tdmaPack(k){
+  const p=new Uint8Array(TDMA_PKT_N);
+  p[0]=k.room&0xFF; p[1]=(k.room>>8)&0xFF; p[2]=(k.room>>16)&0xFF;
+  p[3]=k.slot; p[4]=k.seq; p[5]=k.flags;
+  put32(p,6,Math.round(k.lat*1e7)); put32(p,10,Math.round(k.lon*1e7));
+  let h=k.heading; while(h<0)h+=360; while(h>=360)h-=360;
+  p[14]=Math.floor(h/2.0);        // graus/2 cabe em 1 byte
+  p[15]=k.speed&0xFF;
+  return p;
+}
+function tdmaUnpack(p){
+  if(p.length<TDMA_PKT_N) return null;
+  return {room:((p[0]|(p[1]<<8)|(p[2]<<16))>>>0), slot:p[3], seq:p[4], flags:p[5],
+          lat:get32(p,6)/1e7, lon:get32(p,10)/1e7, heading:p[14]*2.0, speed:p[15]};
+}
+// air-time LoRa: o mesmo calculo do getTimeOnAir, em ms
+function loraAirMs(bytes,sf,bwKHz,pre){
+  const sym=Math.pow(2,sf)/(bwKHz*1000)*1000;
+  const n=(pre+4.25)+8+Math.max(0,Math.ceil((8*bytes-4*sf+28+16)/(4*sf))*5);
+  return n*sym;
+}
+const TDMA_AIR_MS=loraAirMs(TDMA_PKT_N,TDMA_SF,TDMA_BW_KHZ,TDMA_PRE);
+
+/* ---- radio do TDMA: SX1262 CRU. Sem ACK, sem retransmissao, sem UART de
+   9600 (o SPI e ~0,2 ms). Colisao = CRC ruim, que e o alarme do tdma_test. --- */
+function txTdma(node,bytes){
+  radio.sent++;
+  const pkt={from:node,to:"BCAST",cmd:0x40,p:bytes,bad:false,tries:0,unicast:false,tdma:true};
+  if(radio.ideal){ deliver(pkt); return; }
+  pkt.t0=T+0.2; pkt.t1=pkt.t0+TDMA_AIR_MS;
+  // no TDMA nao aplico captura de co-canal: dois pacotes no mesmo instante
+  // significam slots sobrepostos, e o alarme tem de aparecer inteiro.
+  for(const o of chan.inAir) if(pkt.t0<o.t1 && o.t0<pkt.t1){ o.bad=true; pkt.bad=true; }
+  chan.inAir.push(pkt); radio.airMs+=TDMA_AIR_MS;
+  const k=tdmaUnpack(bytes);
+  airPush("tx",`${fmtT()} ${node.label} -> todos  POS16 ${TDMA_PKT_N}B  slot ${k.slot} `+
+    `seq ${k.seq}  ar ${TDMA_AIR_MS.toFixed(1)}ms`);
+}
+// transmissao de posicao: transmitPos() do tdma_test.ino
+function tdmaTransmit(node){
+  const isLider=node.tdma.nodeId===0;
+  node.seqOut=(node.seqOut+1)&0xFF;
+  txTdma(node,tdmaPack({room:TDMA_ROOM, slot:node.tdma.nodeId, seq:node.seqOut,
+    flags:TDMA_FL_FIX|(isLider?TDMA_FL_LEADER:0)|(node.myAlert?TDMA_FL_ALERT:0),
+    lat:node.myLat, lon:node.myLon, heading:node.myHeading||0,
+    speed:Math.round(node.mySpeed||0)}));
+}
+// recepcao: o bloco rxFlag do tdma_test.ino. Marca o instante ANTES de trabalhar.
+function readTdma(d){
+  while(d.rx.length){
+    const m=d.rx.shift();
+    const rxUs=d.clkUs;
+    const k=tdmaUnpack(m.p);
+    if(!k || k.room!==TDMA_ROOM || k.slot>=d.tdma.nSlots || k.slot===d.tdma.nodeId) continue;
+    // ANCORA (fase 2): o pacote do no 0 marca o inicio do frame.
+    // O tdma_test.ino faz isto SEM checar se ja existe PPS - ver o achado da
+    // mistura de ancoras. "misto" reproduz o sketch como esta escrito hoje.
+    if(k.slot===0 && d.tdma.nodeId!==0 && (sim.sync==="beacon"||sim.sync==="misto"))
+      tdmaOnBeacon(d.tdma,rxUs);
+    if(d.ghost) continue;
+    // A camada de produto para em MAXN=8: world[], roster e desenho nao veem
+    // mais que 8 nos, mesmo com a rede TDMA rodando 16 ou 32 slots.
+    if(k.slot>=MAXN){ d.foraDoWorld=(d.foraDoWorld||0)+1; continue; }
+    // perda por salto de sequencia (uint8, diferenca circular)
+    const anterior=d.peerSeq[k.slot];
+    if(anterior>=0){ const dd=(k.seq-anterior)&0xFF; if(dd>1) d.lostSeq=(d.lostSeq||0)+(dd-1); }
+    d.peerSeq[k.slot]=k.seq;
+    const w=d.world[k.slot];
+    w.active=true; w.fix=!!(k.flags&TDMA_FL_FIX); w.alert=!!(k.flags&TDMA_FL_ALERT);
+    w.lat=k.lat; w.lon=k.lon; w.lastMs=millis(); w.color=k.slot;
+    d.worldRxMs=millis();
+    // chegou no slot esperado? divergencia = desalinhamento
+    const p=tdmaUsInFrame(d.tdma,rxUs);
+    if(p && tdmaSlotAt(d.tdma,p.usInFrame)!==k.slot) d.wrongSlot++;
+    // O pacote de 16 B NAO carrega historico de trajeto: cada no acumula o
+    // caminho do lider a partir das posicoes que recebe. A resolucao passa a ser
+    // ditada pelo FRAME, nao pelos 5 m do STEP_M.
+    if(k.flags&TDMA_FL_LEADER){
+      if(!d.haveAdd || haversine(d.lastAddLat,d.lastAddLon,k.lat,k.lon)>=STEP_M){
+        routeAdd(d,k.lat,k.lon); d.lastAddLat=k.lat; d.lastAddLon=k.lon; d.haveAdd=true;
+      }
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------
+   6. MUNDO  -  trilha sintetica de ~4 km; passo de 1 m, indice = metro
+   ------------------------------------------------------------------ */
+const LAT0=-23.5500, LON0=-46.6300;
+const PATH=[];
+(function buildPath(){
+  let x=0,y=0;
+  for(let i=0;i<4200;i++){
+    const h=34*Math.sin(i/260)+13*Math.sin(i/71)+4*Math.sin(i/23);
+    x+=Math.sin(rad(h)); y+=Math.cos(rad(h));
+    PATH.push({e:x,n:y,h:(h%360+360)%360});
+  }
+})();
+function atS(s){
+  const i=Math.max(0,Math.min(PATH.length-1,s|0)), p=PATH[i];
+  return {lat:LAT0+p.n/111320, lon:LON0+p.e/(111320*Math.cos(rad(LAT0))), head:p.h};
+}
+// useSlot: NAO e o firmware. E o experimento - fazer o uplink respeitar o
+// slotDue que o parseRx JA calcula e o loop() ignora. Nasce desligado, para a
+// bancada mostrar o comportamento real de hoje.
+const sim={run:true, spd:1, drawEvery:1000, leadKmh:32, gapM:140, tHold:0, useSlot:true,
+           slots:TDMA_N_SLOTS, frameSecs:TDMA_FRAME_SECS, ghosts:0, sync:"beacon",
+           fixFrameBase:true, fixBeaconEdge:true, fixAnchorHoldover:true, fixAlerta:true, fixZumbi:true};
+
+function worldStep(dt){
+  const v=sim.leadKmh/3.6;
+  devs[0].s+=v*dt/1000;
+  if(devs[0].s>PATH.length-60) resetRun();
+  for(const d of devs){
+    if(!d.on) continue;
+    d.s = Math.max(0, devs[0].s - d.i*sim.gapM);
+    const p=atS(d.s);
+    let lat=p.lat, lon=p.lon;
+    if(d.stray){
+      // amplitude sempre acima de OFFROUTE_M (30 m), senao o botao "desviar" as
+      // vezes nao levanta o aviso e parece que nao funcionou
+      const off=55+20*Math.sin(T/2600), hp=rad(p.head+90);
+      lat+=off*Math.cos(hp)/111320; lon+=off*Math.sin(hp)/(111320*Math.cos(rad(LAT0)));
+    }
+    d.myLat=lat; d.myLon=lon; d.mySpeed=sim.leadKmh;
+    if(sim.leadKmh>=1.5) d.myHeading=p.head;
+    d.myFix=!d.gpsOff; if(d.myFix) d.myLastFix=millis();
+    d.mySats=d.gpsOff?0:(9+d.i%3); d.gpsChars+=Math.round(dt*0.6);
+  }
+  // os fantasma tambem andam na fila, para as distancias fazerem sentido
+  for(const g of ghosts){
+    g.s=Math.max(0,devs[0].s-g.i*sim.gapM);
+    const p=atS(g.s);
+    g.myLat=p.lat; g.myLon=p.lon; g.myHeading=p.head; g.mySpeed=sim.leadKmh;
+  }
+}
+function resetRun(){
+  devs[0].s=0;
+  for(const d of devs){
+    d.routeN=0; d.routeHead=0; d.routeSeq=0; d.lastRouteSeq=0; d.haveRouteSeq=false;
+    d.haveAdd=false; d.peerAck=0; d.peerAckKnown=false;
+  }
+}
+
+/* ---------------------------------------------------------------------
+   7. TELAS  -  transcricao de grupo_ws.ino
+   ------------------------------------------------------------------ */
+const KP=["1","2","3","4","5","6","7","8","9","<","0","OK"];
+const SCR_W=1024, SCR_H=600, CXp=512, CYp=300;
+
+function txt(g,f,x,y,col,s,d="top_left"){ g.setFont(f); g.setTextSize(1); g.setTextColor(col); g.setTextDatum(d); g.drawString(s,x,y); }
+function txtBig(g,f,sz,x,y,col,s,d){ g.setFont(f); g.setTextSize(sz); g.setTextColor(col); g.setTextDatum(d); g.drawString(s,x,y); g.setTextSize(1); }
+function card(g,x,y,w,h){ g.fillRoundRect(x,y,w,h,10,C.CARD); g.drawRoundRect(x,y,w,h,10,C.LINE); }
+function triMk(g,cx,cy,col,s){
+  const ax=cx, ay=cy-s, bx=cx-(0.62*s|0), by=cy+(0.72*s|0), cx2=cx+(0.62*s|0);
+  g.fillTriangle(ax,ay,bx,by,cx2,by,col); g.drawTriangle(ax,ay,bx,by,cx2,by,C_WHITE);
+}
+function dotMk(g,cx,cy,col,r){ g.fillCircle(cx,cy,r,col); g.drawCircle(cx,cy,r,C_WHITE); }
+// Emulacao literal do roadSeg: N linhas de 1 px deslocadas em x E em y. Nao vale
+// trocar por uma linha grossa - o casing do segmento seguinte sobrescreve o fill
+// do anterior, e com segmentos de 5 m esse artefato E o que a tela mostra.
+function roadSeg(g,x0,y0,x1,y1,cas,fil,wc,wf){
+  const hc=(wc/2)|0, hf=(wf/2)|0;
+  for(let d=-hc;d<=hc;d++){ g.drawLine(x0+d,y0,x1+d,y1,cas); g.drawLine(x0,y0+d,x1,y1+d,cas); }
+  for(let d=-hf;d<=hf;d++){ g.drawLine(x0+d,y0,x1+d,y1,fil); g.drawLine(x0,y0+d,x1,y1+d,fil); }
+}
+function drawDashed(g,x0,y0,x1,y1,c){
+  let dx=x1-x0,dy=y1-y0; const len=Math.hypot(dx,dy); if(len<1)return; dx/=len;dy/=len;
+  for(let s=0;s<len;s+=16){ const e=Math.min(s+8,len);
+    g.drawLine(x0+dx*s|0,y0+dy*s|0,x0+dx*e|0,y0+dy*e|0,c);
+    g.drawLine(x0+dx*s|0,(y0+dy*s|0)+1,x0+dx*e|0,(y0+dy*e|0)+1,c); }
+}
+function bigNum(g,x,y,num,unit,col){
+  g.setFont(fonts.Font7); g.setTextSize(1); g.setTextColor(col); g.setTextDatum("top_left");
+  g.drawString(num,x,y);
+  txt(g,fonts.FreeSansBold12pt7b,x+g.textWidth(num)+8,y+34,C.MUT,unit,"top_left");
+}
+function chromeBg(g){ if(C.FL&FL_GRID){
+  for(let x=38;x<SCR_W;x+=38) g.drawFastVLine(x,0,SCR_H,C.LINE);
+  for(let y=38;y<SCR_H;y+=38) g.drawFastHLine(0,y,SCR_W,C.LINE); } }
+function chromeFg(g){ if(!(C.FL&FL_CORNERS))return; const L=28,m=12,c=C.ROUTE;
+  for(let t=0;t<3;t++){
+    g.drawFastHLine(m,m+t,L,c); g.drawFastVLine(m+t,m,L,c);
+    g.drawFastHLine(SCR_W-m-L,m+t,L,c); g.drawFastVLine(SCR_W-m-1-t,m,L,c);
+    g.drawFastHLine(m,SCR_H-m-1-t,L,c); g.drawFastVLine(m+t,SCR_H-m-L,L,c);
+    g.drawFastHLine(SCR_W-m-L,SCR_H-m-1-t,L,c); g.drawFastVLine(SCR_W-m-1-t,SCR_H-m-L,L,c); } }
+function gearIcon(g,cx,cy,r,col){
+  for(let a=0;a<360;a+=45){ const q=a*Math.PI/180;
+    g.fillCircle(cx+(Math.cos(q)*r|0),cy+(Math.sin(q)*r|0),3,col); }
+  g.fillCircle(cx,cy,r,col); g.fillCircle(cx,cy,r/2|0,C.BG);
+}
+const gearRect =()=>({x:SCR_W-210-6,y:8,w:210,h:64});
+const homeRects=()=>{ const bw=(SCR_W*0.48)|0; return {bx:((SCR_W-bw)/2)|0,bw,bh:(SCR_H*0.14)|0,by1:(SCR_H*0.50)|0,by2:(SCR_H*0.70)|0}; };
+function kpRect(i){ const kw=((SCR_W*0.42)|0)/3|0, kx=((SCR_W-kw*3)/2)|0, ky=(SCR_H*0.32)|0,
+  kh=(((SCR_H*0.95)|0)-ky)/4|0, r=i/3|0, c=i%3;
+  return {x:kx+c*kw+5,y:ky+r*kh+5,w:kw-10,h:kh-10}; }
+function themeBtnRect(i){ const bw=((SCR_W*0.8)|0)/3|0;
+  return {x:((SCR_W*0.1)|0)+i*bw+4,y:(SCR_H*0.24)|0,w:bw-8,h:(SCR_H*0.10)|0}; }
+function abcRect(i){ const cols=7,kx=(SCR_W*0.04)|0,ky=(SCR_H*0.40)|0,kw=((SCR_W*0.92)|0)/cols|0,
+  kh=(((SCR_H*0.96)|0)-ky)/4|0,r=i/cols|0,c=i%cols;
+  return {x:kx+c*kw+4,y:ky+r*kh+4,w:kw-8,h:kh-8}; }
+
+function drawHome(g,d){
+  g.fillScreen(C.BG); chromeFg(g);
+  txtBig(g,fonts.FreeSansBold24pt7b,2,SCR_W/2|0,(SCR_H*0.20)|0,C_WHITE,"TRILHA","middle_center");
+  txt(g,fonts.FreeSans12pt7b,SCR_W/2|0,(SCR_H*0.33)|0,C.ROUTE,"MODO GRUPO","middle_center");
+  const gr=gearRect(), gcx=SCR_W-34, gcy=gr.y+gr.h/2|0;
+  gearIcon(g,gcx,gcy,15,C.MUT);
+  txt(g,fonts.FreeSansBold12pt7b,gcx-32,gcy,C_WHITE,d.g_name,"middle_right");
+  const h=homeRects();
+  g.fillRoundRect(h.bx,h.by1,h.bw,h.bh,16,C.ROUTE);
+  txt(g,fonts.FreeSansBold18pt7b,h.bx+h.bw/2|0,h.by1+h.bh/2|0,C.BG,"CRIAR GRUPO","middle_center");
+  g.drawRoundRect(h.bx,h.by2,h.bw,h.bh,16,C.BLUE); g.drawRoundRect(h.bx+1,h.by2+1,h.bw-2,h.bh-2,16,C.BLUE);
+  txt(g,fonts.FreeSansBold18pt7b,h.bx+h.bw/2|0,h.by2+h.bh/2|0,C.BLUE,"ENTRAR NO GRUPO","middle_center");
+  txt(g,fonts.FreeSans9pt7b,SCR_W/2|0,(SCR_H*0.93)|0,C.MUT,
+      `LoRa ${d.uid}  -  GPS ${d.myFix?"OK":(d.mySats>0?"buscando":"--")}`,"middle_center");
+}
+function drawKeypad(g,d){
+  g.fillScreen(C.BG); chromeFg(g);
+  txt(g,fonts.FreeSans12pt7b,SCR_W/2|0,(SCR_H*0.06)|0,C.MUT,
+    d.pendingRole===1?"CRIAR GRUPO - digite um codigo de 5 digitos":"ENTRAR - digite o codigo do grupo","middle_center");
+  const bw=(SCR_W*0.085)|0, gap=(SCR_W*0.02)|0, tot=bw*5+gap*4, bx=((SCR_W-tot)/2)|0,
+        by=(SCR_H*0.13)|0, bh=(bw*1.15)|0;
+  for(let i=0;i<5;i++){ const x=bx+i*(bw+gap);
+    g.fillRoundRect(x,by,bw,bh,12,C.CARD); g.drawRoundRect(x,by,bw,bh,12,i<d.codeBuf.length?C.ROUTE:C.LINE);
+    if(i<d.codeBuf.length) txtBig(g,fonts.FreeSansBold24pt7b,1,x+bw/2|0,by+bh/2|0,C_WHITE,d.codeBuf[i],"middle_center"); }
+  for(let i=0;i<12;i++){ const r=kpRect(i);
+    g.fillRoundRect(r.x,r.y,r.w,r.h,14,i===11?C.ROUTE:C.CARD); g.drawRoundRect(r.x,r.y,r.w,r.h,14,C.LINE);
+    const c=i===9?C.RED:(i===11?C.BG:C_WHITE);
+    txtBig(g,fonts.FreeSansBold24pt7b,1,r.x+r.w/2|0,r.y+r.h/2|0,c,KP[i],"middle_center"); }
+}
+function drawSettings(g,d){
+  g.fillScreen(C.BG); chromeFg(g);
+  txt(g,fonts.FreeSans12pt7b,(SCR_W*0.1)|0,(SCR_H*0.04)|0,C.MUT,"NOME DO CARRO");
+  g.drawRoundRect((SCR_W*0.1)|0,(SCR_H*0.08)|0,(SCR_W*0.8)|0,(SCR_H*0.10)|0,10,C.ROUTE);
+  txtBig(g,fonts.FreeSansBold24pt7b,1,(SCR_W*0.12)|0,(SCR_H*0.13)|0,C_WHITE,d.nameBuf||"...","middle_left");
+  for(let i=0;i<3;i++){ const r=themeBtnRect(i), sel=i===g_theme;
+    g.fillRoundRect(r.x,r.y,r.w,r.h,8, sel?rgb16(...THEMES[i].route):C.CARD);
+    g.drawRoundRect(r.x,r.y,r.w,r.h,8, sel?rgb16(...THEMES[i].route):C.LINE);
+    txt(g,fonts.FreeSansBold12pt7b,r.x+r.w/2|0,r.y+r.h/2|0, sel?rgb16(...THEMES[i].bg):C_WHITE, THEMES[i].name,"middle_center"); }
+  for(let i=0;i<28;i++){ const r=abcRect(i);
+    g.fillRoundRect(r.x,r.y,r.w,r.h,6,C.CARD); g.drawRoundRect(r.x,r.y,r.w,r.h,6,C.LINE);
+    let lb, c=C_WHITE;
+    if(i<26) lb=String.fromCharCode(65+i); else if(i===26){lb="<";c=C.RED;} else {lb="OK";c=C.ROUTE;}
+    txt(g,fonts.FreeSansBold12pt7b,r.x+r.w/2|0,r.y+r.h/2|0,c,lb,"middle_center"); }
+}
+function drawSearching(g,d){
+  g.fillScreen(C.BG); chromeFg(g);
+  txt(g,fonts.FreeSans12pt7b,SCR_W/2|0,(SCR_H*0.24)|0,C.MUT,"PROCURANDO GRUPO","middle_center");
+  txtBig(g,fonts.FreeSansBold24pt7b,2,SCR_W/2|0,(SCR_H*0.44)|0,C_WHITE,String(d.g_room),"middle_center");
+  const nd=((millis()/450)|0)%4;
+  txt(g,fonts.FreeSans12pt7b,SCR_W/2|0,(SCR_H*0.62)|0,C.MUT,"aguardando o lider"+".".repeat(nd),"middle_center");
+  const w=(SCR_W*0.18)|0,h=(SCR_H*0.10)|0,x=((SCR_W-w)/2)|0,y=(SCR_H*0.80)|0;
+  g.drawRoundRect(x,y,w,h,10,C.LINE);
+  txt(g,fonts.FreeSansBold12pt7b,SCR_W/2|0,y+h/2|0,C.MUT,"VOLTAR","middle_center");
+}
+function drawMap(g,d){
+  g.fillScreen(C.BG); chromeBg(g);
+  for(let r=(SCR_H*0.14)|0; r<((SCR_H*0.46)|0); r+=(SCR_H*0.16)|0) g.drawCircle(CXp,CYp,r,C.LINE);
+  txt(g,fonts.FreeSansBold9pt7b,SCR_W/2|0,10,C.MUT,"N","top_center");
+  g.fillTriangle(SCR_W/2|0,26,(SCR_W/2|0)-5,34,(SCR_W/2|0)+5,34,C.ROUTE);
+  const clat=d.myLat, clon=d.myLon, chead=d.myHeading;
+  if(!d.myFix){
+    txtBig(g,fonts.FreeSansBold18pt7b,1,SCR_W/2|0,CYp,C.AMBER,"PROCURANDO GPS","middle_center");
+    triMk(g,CXp,CYp,C.BLUE,20);
+  } else {
+    const myNear=nearestRouteIdx(d,clat,clon);
+    let myBest=1e9;
+    if(myNear>=0){ const mi=(d.routeHead-d.routeN+myNear+ROUTE_MAX)%ROUTE_MAX;
+      myBest=haversine(clat,clon,d.route[mi].lat,d.route[mi].lon); }
+    let psx=-1,psy=-1,plat=0,plon=0,hp=false;
+    const meSlot=isLeader(d)?0:(d.joined?d.curSlot:255);
+    // Antes o peer era o PRIMEIRO no ativo, e o alerta de um slot alto nao acendia
+    // em ninguem. Agora procura quem esta em alerta e cai no primeiro se nao houver.
+    let peer=-1, first=-1;
+    for(let k=0;k<MAXN;k++){
+      if(k===meSlot||!d.world[k].active||millis()-d.world[k].lastMs>=NODE_TTL) continue;
+      if(first<0) first=k;
+      if(d.world[k].alert && peer<0) peer=k;
+    }
+    let peerAlert=(peer>=0);
+    if(!sim.fixAlerta){ peer=first; peerAlert=(first>=0&&d.world[first].alert); }  // comportamento antigo
+    if(peer<0) peer=first;
+    const alertOn=d.myAlert||peerAlert;
+    let aLo=-1,aHi=-2;
+    if(alertOn&&peer>=0&&myNear>=0){ const pIdx=nearestRouteIdx(d,d.world[peer].lat,d.world[peer].lon);
+      if(pIdx>=0){ aLo=Math.min(myNear,pIdx); aHi=Math.max(myNear,pIdx); } }
+    for(let k=0;k<d.routeN;k++){
+      const idx=(d.routeHead-d.routeN+k+ROUTE_MAX)%ROUTE_MAX, q=d.route[idx];
+      const [sx,sy]=worldToScreen(q.lat,q.lon,clat,clon,chead,d.mapMPP,CXp,CYp);
+      const vis=(sx>=-20&&sx<SCR_W+20&&sy>=-20&&sy<SCR_H+20);
+      if(vis&&psx>=0){
+        const gap=hp&&haversine(plat,plon,q.lat,q.lon)>40.0;
+        const red=(k>aLo&&k<=aHi);
+        if(!gap){
+          if(red) roadSeg(g,psx,psy,sx,sy,C_RED_CASING,C.RED,11,6);
+          else if(k>myNear) roadSeg(g,psx,psy,sx,sy,C.ROUTEC,C.ROUTE,10,5);
+          else roadSeg(g,psx,psy,sx,sy,C.TRAVC,C.TRAV,8,3);
+        } else drawDashed(g,psx,psy,sx,sy,C_GHOST);
+      }
+      psx=vis?sx:-1; psy=sy; plat=q.lat; plon=q.lon; hp=true;
+    }
+    for(let k=0;k<MAXN;k++){
+      const w=d.world[k];
+      if(!w.active||k===meSlot) continue;
+      if(millis()-w.lastMs>NODE_TTL) continue;
+      const [sx,sy]=worldToScreen(w.lat,w.lon,clat,clon,chead,d.mapMPP,CXp,CYp);
+      if(sx<-24||sx>SCR_W+24||sy<-24||sy>SCR_H+24) continue;
+      const mc=w.alert?C.RED:(k===0?C.AMBER:colorOf(w.color));
+      if(k===0) triMk(g,sx,sy,mc,15); else dotMk(g,sx,sy,mc,9);
+      txt(g,fonts.FreeSans12pt7b,sx+12,sy-8,mc,d.haveRoster?d.rname[k]:(k===0?"Lider":"Carro"));
+    }
+    triMk(g,CXp,CYp,C.BLUE,20);
+    const lost=d.joined&&d.worldRxMs!==0&&millis()-d.worldRxMs>4000;
+    const offRoute=!isLeader(d)&&d.routeN>3&&myBest>OFFROUTE_M;
+    d._flags={lost,offRoute,alertOn,myBest};
+    if((((millis()/300)|0)%2)===0){
+      if(alertOn){ for(let t=0;t<6;t++) g.drawRect(t,t,SCR_W-1-2*t,SCR_H-1-2*t,C.RED); }
+      else if(lost){ for(let t=0;t<6;t++) g.drawRect(t,t,SCR_W-1-2*t,SCR_H-1-2*t,C_ORANGE);
+        txtBig(g,fonts.FreeSansBold18pt7b,1,SCR_W/2|0,26,C_ORANGE,isLeader(d)?"REDUZA":"SINAL PERDIDO","top_center"); }
+      else if(offRoute){ for(let t=0;t<6;t++) g.drawRect(t,t,SCR_W-1-2*t,SCR_H-1-2*t,C.YEL);
+        txtBig(g,fonts.FreeSansBold18pt7b,1,SCR_W/2|0,26,C.YEL,"FORA DO TRAJETO","top_center"); }
+    }
+  }
+  chromeFg(g);
+}
+function drawUI(g,d){
+  const m=(SCR_W*0.024)|0;
+  card(g,m,(SCR_H*0.04)|0,200,66);
+  txt(g,fonts.FreeSans9pt7b,m+14,((SCR_H*0.04)|0)+12,C.AMBER,"GRUPO");
+  txt(g,fonts.FreeSansBold24pt7b,m+14,((SCR_H*0.04)|0)+30,C_WHITE,String(d.g_room));
+  d.exX=m; d.exY=((SCR_H*0.04)|0)+76; d.exW=200; d.exH=42;
+  g.fillRoundRect(d.exX,d.exY,d.exW,d.exH,10,C.CARD); g.drawRoundRect(d.exX,d.exY,d.exW,d.exH,10,C.RED);
+  txt(g,fonts.FreeSansBold12pt7b,d.exX+d.exW/2|0,d.exY+d.exH/2|0,C.RED,"SAIR DO GRUPO","middle_center");
+
+  const rw=(SCR_W*0.26)|0, rx=SCR_W-rw-m, ry=(SCR_H*0.04)|0;
+  let active=0; for(let k=0;k<MAXN;k++) if(d.world[k].active&&millis()-d.world[k].lastMs<NODE_TTL)active++;
+  card(g,rx,ry,rw,44+active*30);
+  txt(g,fonts.FreeSans9pt7b,rx+14,ry+12,C.MUT,`NA TRILHA - ${active}`);
+  let yy=ry+38;
+  for(let k=0;k<MAXN;k++){ const w=d.world[k];
+    if(!w.active||millis()-w.lastMs>NODE_TTL) continue;
+    const me=(!isLeader(d)&&d.joined&&k===d.curSlot)||(isLeader(d)&&k===0), ld=(k===0);
+    const col=me?C.BLUE:(ld?C.AMBER:colorOf(w.color));
+    if(me||ld) g.fillTriangle(rx+18,yy+4,rx+11,yy+20,rx+25,yy+20,col); else g.fillCircle(rx+18,yy+13,7,col);
+    txt(g,fonts.FreeSans12pt7b,rx+34,yy+4,w.alert?C.RED:C_WHITE,d.haveRoster?d.rname[k]:(ld?"Lider":"Carro"));
+    if(!me&&d.myFix&&w.fix){ const dist=haversine(d.myLat,d.myLon,w.lat,w.lon);
+      const ds=dist>=1000?(dist/1000).toFixed(1)+"k":((dist|0)+"m");
+      txt(g,fonts.FreeSans12pt7b,rx+rw-14,yy+4,C.MUT,ds,"top_right"); }
+    yy+=30; }
+
+  const sy=SCR_H-((SCR_H*0.04)|0)-116;
+  card(g,m,sy,250,116);
+  if(isLeader(d)){
+    let dmin=-1;
+    for(let k=1;k<MAXN;k++){ const w=d.world[k];
+      if(w.active&&w.fix&&millis()-w.lastMs<NODE_TTL){ const q=haversine(d.myLat,d.myLon,w.lat,w.lon);
+        if(dmin<0||q<dmin)dmin=q; } }
+    txt(g,fonts.FreeSans9pt7b,m+16,sy+12,C.MUT,"SEGUIDOR ATRAS");
+    if(dmin<0) bigNum(g,m+16,sy+30,"--","",C.MUT);
+    else if(dmin>=1000) bigNum(g,m+16,sy+30,(dmin/1000).toFixed(1),"km",C_WHITE);
+    else bigNum(g,m+16,sy+30,String(dmin|0),"m",C_WHITE);
+    txt(g,fonts.FreeSans9pt7b,m+16,sy+96,C.MUT,`voce: ${(d.mySpeed+0.5)|0} km/h`);
+  } else {
+    txt(g,fonts.FreeSans9pt7b,m+16,sy+12,C.MUT,"DISTANCIA AO LIDER");
+    if(d.world[0].active&&d.myFix){ const q=haversine(d.myLat,d.myLon,d.world[0].lat,d.world[0].lon);
+      if(q>=1000) bigNum(g,m+16,sy+30,(q/1000).toFixed(1),"km",C_WHITE);
+      else bigNum(g,m+16,sy+30,String(q|0),"m",C_WHITE);
+    } else bigNum(g,m+16,sy+30,"--","",C.MUT);
+  }
+
+  d.abR=42; d.abX=SCR_W-d.abR-m; d.abY=SCR_H-d.abR-((SCR_H*0.04)|0);
+  const on=d.myAlert;
+  g.fillCircle(d.abX,d.abY,d.abR,on?C.RED:C.CARD);
+  g.drawCircle(d.abX,d.abY,d.abR,C.RED); g.drawCircle(d.abX,d.abY,d.abR-1,C.RED);
+  const tc=on?C_WHITE:C.RED;
+  g.fillTriangle(d.abX,d.abY-20,d.abX-18,d.abY+14,d.abX+18,d.abY+14,tc);
+  g.fillRect(d.abX-2,d.abY-8,5,12,on?C.RED:C.CARD); g.fillRect(d.abX-2,d.abY+8,5,5,on?C.RED:C.CARD);
+
+  d.zSz=60; d.zpX=SCR_W-d.zSz-m; d.zpY=d.abY-d.abR-16-d.zSz; d.zmX=d.zpX; d.zmY=d.zpY-10-d.zSz;
+  g.fillRoundRect(d.zmX,d.zmY,d.zSz,d.zSz,12,C.CARD); g.drawRoundRect(d.zmX,d.zmY,d.zSz,d.zSz,12,C.LINE);
+  g.fillRect(d.zmX+16,d.zmY+d.zSz/2-3,d.zSz-32,6,C_WHITE); g.fillRect(d.zmX+d.zSz/2-3,d.zmY+16,6,d.zSz-32,C_WHITE);
+  g.fillRoundRect(d.zpX,d.zpY,d.zSz,d.zSz,12,C.CARD); g.drawRoundRect(d.zpX,d.zpY,d.zSz,d.zSz,12,C.LINE);
+  g.fillRect(d.zpX+16,d.zpY+d.zSz/2-3,d.zSz-32,6,C_WHITE);
+  txt(g,fonts.FreeSans9pt7b,d.zpX+d.zSz/2|0,d.zpY+d.zSz+4,C.MUT,`${(d.mapMPP+0.5)|0}m/px`,"top_center");
+}
+function frame(d,g){
+  if(d.g_room===0){ if(d.editName) drawSettings(g,d); else if(d.uiPage===0) drawHome(g,d); else drawKeypad(g,d); }
+  else if(d.searching) drawSearching(g,d);
+  else { drawMap(g,d); drawUI(g,d); }
+}
+
+/* ---- toque: mesmas caixas, mesma ordem do handleTouch ---- */
+function handleTouch(d,tx,ty){
+  if(d.g_room===0){
+    if(d.editName){ settingsTouch(d,tx,ty); return; }
+    if(d.uiPage===0){
+      const gr=gearRect();
+      if(tx>=gr.x&&tx<=gr.x+gr.w&&ty>=gr.y&&ty<=gr.y+gr.h){
+        d.editName=true; d.nameBuf=(d.g_name==="Carro")?"":d.g_name.toUpperCase(); return; }
+      const h=homeRects();
+      if(tx>=h.bx&&tx<=h.bx+h.bw){
+        const b1=(ty>=h.by1&&ty<=h.by1+h.bh), b2=(ty>=h.by2&&ty<=h.by2+h.bh);
+        if(MODE==="P2P"){ if(b1) p2pPair(d,true); else if(b2) p2pPair(d,false); }
+        else { if(b1){d.pendingRole=1;d.uiPage=1;d.codeBuf="";}
+               else if(b2){d.pendingRole=0;d.uiPage=1;d.codeBuf="";} }
+      }
+      return;
+    }
+    keypadTouch(d,tx,ty); return;
+  }
+  if(d.searching){
+    const w=(SCR_W*0.18)|0,h=(SCR_H*0.10)|0,x=((SCR_W-w)/2)|0,y=(SCR_H*0.80)|0;
+    if(tx>=x&&tx<=x+w&&ty>=y&&ty<=y+h){ d.g_room=0;d.searching=false;d.uiPage=0;d.joined=false; }
+    return;
+  }
+  if(tx>=d.exX&&tx<=d.exX+d.exW&&ty>=d.exY&&ty<=d.exY+d.exH){
+    // limpa o estado do grupo, como o firmware passou a fazer: antes o route[] e o
+    // world[] sobreviviam a saida e o trajeto do grupo anterior aparecia emendado
+    // no novo, com a ponte tracejada ligando os dois lugares
+    d.routeN=0; d.routeHead=0; d.haveRouteSeq=false; d.haveAdd=false; d.worldRxMs=0;
+    d.peerAckKnown=false; d.peerAck=0;
+    for(const w of d.world) w.active=false;
+    d.g_room=0; d.uiPage=0; d.joined=false; d.searching=false; d.myAlert=false; d.codeBuf="";
+    return;
+  }
+  if(tx>=d.zmX&&tx<=d.zmX+d.zSz&&ty>=d.zmY&&ty<=d.zmY+d.zSz){ d.mapMPP*=0.7; if(d.mapMPP<0.5)d.mapMPP=0.5; return; }
+  if(tx>=d.zpX&&tx<=d.zpX+d.zSz&&ty>=d.zpY&&ty<=d.zpY+d.zSz){ d.mapMPP*=1.4; if(d.mapMPP>40)d.mapMPP=40; return; }
+  if((tx-d.abX)**2+(ty-d.abY)**2<=(d.abR+8)**2) d.myAlert=!d.myAlert;
+}
+function keypadTouch(d,tx,ty){
+  for(let i=0;i<12;i++){ const r=kpRect(i);
+    if(tx>=r.x&&tx<=r.x+r.w&&ty>=r.y&&ty<=r.y+r.h){
+      if(i===9){ if(d.codeBuf.length>0) d.codeBuf=d.codeBuf.slice(0,-1); else d.uiPage=0; }
+      else if(i===11){ if(d.codeBuf.length===5){
+        d.g_room=parseInt(d.codeBuf,10)||1; d.g_role=d.pendingRole;
+        if(isLeader(d)){ d.curSlot=0; d.ruid[0]=d.uid; d.rname[0]=d.g_name; d.rcolor[0]=d.g_color;
+          d.haveRoster=true; d.joined=true; d.searching=false;
+          serial(d,`grupo ${d.g_room} criado; sou o LIDER (slot 0)`); }
+        else { d.joined=false; d.curSlot=0; d.searching=true; d.worldRxMs=0;
+          serial(d,`entrando no grupo ${d.g_room}; mandando JOIN a cada 1500 ms`); } } }
+      else if(d.codeBuf.length<5) d.codeBuf+=KP[i];
+      return; } }
+}
+function settingsTouch(d,tx,ty){
+  for(let i=0;i<3;i++){ const r=themeBtnRect(i);
+    if(tx>=r.x&&tx<=r.x+r.w&&ty>=r.y&&ty<=r.y+r.h){ applyTheme(i); syncThemeButtons(); return; } }
+  for(let i=0;i<28;i++){ const r=abcRect(i);
+    if(tx>=r.x&&tx<=r.x+r.w&&ty>=r.y&&ty<=r.y+r.h){
+      if(i<26){ if(d.nameBuf.length<12) d.nameBuf+=String.fromCharCode(65+i); }
+      else if(i===26) d.nameBuf=d.nameBuf.slice(0,-1);
+      else { if(d.nameBuf.length>0){ d.g_name=d.nameBuf; if(isLeader(d)) d.rname[0]=d.g_name; } d.editName=false; }
+      return; } }
+}
+// pareamento 1:1 do modo P2P
+function p2pPair(d,asLeader){
+  d.g_room=1; d.g_role=asLeader?1:0; d.joined=true; d.searching=false; d.uiPage=0;
+  if(asLeader){ d.curSlot=0; d.ruid[0]=d.uid; d.rname[0]=d.g_name; d.rname[1]="Seguidor"; }
+  else { d.curSlot=1; d.rname[0]="Lider"; }
+  d.haveRoster=true;
+}
+
+/* ---------------------------------------------------------------------
+   8. LOOP, ROTEIRO E UI DA PAGINA
+   ------------------------------------------------------------------ */
+let devs=[];
+const serLog=[];
+function serial(d,txt){ serLog.push({t:T,label:d.label,txt}); if(serLog.length>240) serLog.shift(); }
+
+let ghosts=[];
+function bootDevices(){
+  const UID=[13680,13683,15794,15801];
+  devs=UID.map((u,i)=>newDev(i,"Tela "+(i+1),u));
+  ghosts=[];
+  applyModeFlags();
+  chan.inAir.length=0; reenvio.length=0; airLog.length=0; serLog.length=0;
+  radio.sent=0; radio.lost=0; radio.collisions=0; radio.airMs=0; radio.retries=0;
+  T=0; devs[0].s=200; script.length=0;
+  if(MODE==="TDMA") bootTdma();
+}
+// No TDMA nao existe criar/entrar: a rede e plana e o slot E a identidade
+// (secao 5 do PLANO_IMPLEMENTACAO_MESH.md). Todos os nos ja pertencem ao ROOM.
+function bootTdma(){
+  const nSlots=Math.max(4,sim.slots);
+  devs.forEach((d,i)=>{
+    d.tdma=tdmaInit(i,nSlots,sim.frameSecs,TDMA_GUARD_US);
+    if(sim.fixBeaconEdge) d.tdma.airtimeUs=Math.round(TDMA_AIR_MS*1000);   // tdmaSetAirtime
+    d.ppm=(Math.random()*80-40);                 // cristal de ESP32: +-40 ppm
+    d.clkUs=Math.floor(Math.random()*2000000);   // cada no ligou num instante diferente
+    d.g_room=TDMA_ROOM; d.joined=true; d.searching=false; d.uiPage=0;
+    d.curSlot=i; d.g_role=(i===0?1:0);
+    // roster NAO existe na pilha nova (tarefa 3 do RETOMAR): sem ele o mapa
+    // mostra "Lider"/"Carro" para todo mundo - e o que a tela vai mostrar
+    d.haveRoster=false;
+    if(i===0){ tdmaOnBeacon(d.tdma,d.clkUs); }   // o no 0 e a ancora
+    
+  });
+  // nos fantasma: transmitem e ocupam o ar, mas nao tem tela. Servem para medir
+  // a capacidade real do frame sem precisar de 32 canvas.
+  for(let g=0;g<sim.ghosts;g++){
+    const i=devs.length+g;
+    if(i>=nSlots) break;
+    const gt=tdmaInit(i,nSlots,sim.frameSecs,TDMA_GUARD_US);
+    if(sim.fixBeaconEdge) gt.airtimeUs=Math.round(TDMA_AIR_MS*1000);   // tdmaSetAirtime
+    ghosts.push({ghost:true, label:"no "+i, tdma:gt,
+      ppm:(Math.random()*80-40), clkUs:Math.floor(Math.random()*2000000),
+      seqOut:0, rx:[], s:0, myLat:0, myLon:0, myHeading:0, mySpeed:0, i, on:true});
+  }
+}
+function applyModeFlags(){
+  devs.forEach((d,i)=>{ d.on = (MODE==="P2P") ? i<2 : true; });
+  document.querySelectorAll("#screens .dev").forEach((el,i)=>el.classList.toggle("off",!devs[i].on));
+  const NOME={P2P:"P2P (2 nós)", GRUPO:"GRUPO (4 nós)", TDMA:"TDMA (Fase 4)"};
+  $("#metaMode").innerHTML="modo <b>"+NOME[MODE]+"</b>";
+  $("#modeNote").innerHTML = MODE==="P2P"
+    ? "<code>#define P2P 1</code> — o que está gravado nas telas hoje: par fixo, sem código de grupo, trajeto com catch-up por ack."
+    : MODE==="GRUPO"
+    ? "<code>#define P2P 0</code> — o caminho de grupo do mesmo <code>.ino</code>: código de 5 dígitos, JOIN/ROSTER por slot, WORLD em broadcast a cada 3,6 s."
+    : "<b>Fase 4, não roda hoje.</b> <code>tdma_core.h</code> + <code>tdma_test.ino</code> sobre SX1262/E22: rede plana de 1 salto, pacote de 16 B, cada nó fala só no seu slot. Sem líder reencaminhando e sem ACK de módulo.";
+  $("#bScript").textContent = MODE==="P2P" ? "Parear as duas" : MODE==="TDMA" ? "Religar a rede" : "Criar e entrar";
+  $("#grpTdma").style.display = MODE==="TDMA" ? "" : "none";
+  $("#grpRadio").style.display = MODE==="TDMA" ? "none" : "";
+}
+function devLoop(d){
+  if(MODE==="TDMA"){ tdmaLoop(d); return; }
+  readLoRa(d);
+  const now=millis();
+  const ms=isLeader(d)?0:d.curSlot;
+  if(isLeader(d)||d.joined){ const w=d.world[ms];
+    w.active=true; w.fix=d.myFix; w.alert=d.myAlert;
+    w.lat=d.myLat; w.lon=d.myLon; w.lastMs=now; w.color=d.g_color; }
+  // EXPIRA quem parou de reportar: sem isto o lider anuncia active=1 para sempre e
+  // o parseRx do seguidor refresca o lastMs local, entao o carro morto nunca sai
+  if(sim.fixZumbi) for(let k=0;k<MAXN;k++)
+    if(k!==ms && d.world[k].active && now-d.world[k].lastMs>NODE_TTL) d.world[k].active=false;
+
+  if(MODE==="P2P"){
+    const peer=devs[d.i===0?1:0];
+    if(d.joined){
+      if(isLeader(d)){
+        leaderRecordOwnPath(d);
+        const behind=d.peerAckKnown && s16(d.peerAck-d.routeSeq)<-TRAIL_N;
+        if(now-d.lastTrailTx>(behind?330:1000)){ sendTrail(d,peer); d.lastTrailTx=now; }
+      } else {
+        if(d.pendingReply&&now>=d.replyDue){ sendP2P(d,peer); d.pendingReply=false; d.lastP2PTx=now; }
+        else if(now-d.lastP2PTx>2000){ sendP2P(d,peer); d.lastP2PTx=now; }
+      }
+    } else { d.worldRxMs=0; d.pendingReply=false; }
+  } else {
+    if(d.g_room!==0){
+      if(isLeader(d)){
+        leaderRecordOwnPath(d);
+        if(now-d.lastCycle>=CYCLE_MS){
+          if(d.myFix){ sendWorld(d); if((d.cyc++%3)===0) sendRoster(d); }
+          d.lastCycle=now; }
+      } else if(!d.joined){
+        if(now-d.lj>1500){ sendJoin(d); d.lj=now; }
+      } else {
+        // O firmware manda de 1200 em 1200 ms sem nenhuma aleatorizacao de fase.
+        // Como o ROSTER e broadcast, os seguidores comecam a contar quase no
+        // mesmo instante -> lockstep (ver achados).
+        if(sim.useSlot){
+          // EXPERIMENTO: usa o slotDue que o parseRx ja calculou. Cada slot fala
+          // 450 ms depois do anterior, uma vez por ciclo de WORLD -> sem colisao.
+          if(d.pendingUplink && now>=d.slotDue){ sendUplink(d); d.pendingUplink=false; d.lu=now; }
+        } else {
+          if(now-d.lu>1200){ sendUplink(d); d.lu=now; }
+        }
+      }
+    } else { d.worldRxMs=0; }
+  }
+
+  if(now-d.lastDbg>2000){
+    let c=0; for(let k=0;k<MAXN;k++) if(d.world[k].active&&now-d.world[k].lastMs<NODE_TTL)c++;
+    const role=isLeader(d)?"LIDER":(d.searching?"searching":(d.joined?"seguidor":"---"));
+    serial(d,`grupo=${d.g_room} ${role} slot=${d.curSlot} | world=${d.worldRxMs?"ok":"--"} nos=${c} `+
+      `fix=${d.myFix?1:0} sats=${d.mySats} | txUp=${d.txUp} loopMax=${8+(Math.random()*6|0)}ms`);
+    d.lastDbg=now;
+  }
+}
+
+/* ---- loop do modo TDMA: o loop() do tdma_test.ino ---- */
+function tdmaLoop(d){
+  tdmaTick(d.tdma,d.clkUs);
+  // PPS (fase 3): a borda vem do satelite, entao e SIMULTANEA em todos os nos -
+  // e por isso que ela alinha melhor que o beacon, que chega depois do ar.
+  if(sim.sync==="pps"||sim.sync==="misto"){
+    const utc=Math.floor(T/1000);
+    if(utc!==d.lastPpsSec){ d.lastPpsSec=utc; tdmaOnPps(d.tdma,d.clkUs,utc); }
+  }
+  readTdma(d);
+  const me=d.world[d.tdma.nodeId];
+  me.active=true; me.fix=d.myFix; me.alert=d.myAlert;
+  me.lat=d.myLat; me.lon=d.myLon; me.lastMs=millis(); me.color=d.tdma.nodeId;
+  if(d.tdma.nodeId===0) leaderRecordOwnPath(d);   // o lider grava com 5 m de resolucao
+  // o setup() do tdma_test RECUSA rodar se o pacote nao cabe no slot
+  if(!tdmaFits(d.tdma,TDMA_AIR_MS*1000)) return;
+  if(d.myFix && tdmaShouldTx(d.tdma,d.clkUs)) tdmaTransmit(d);
+  if(millis()-d.lastDbg>5000){
+    const t=d.tdma;
+    serial(d,`id=${t.nodeId} sync=${t.sync===TDMA_SYNC_PPS?"PPS":(t.sync===TDMA_SYNC_BEACON?"beacon":"NENHUMA")}`+
+      `${t.holdover?" HOLDOVER":""} | ancoras=${t.anchorCount} tx=${t.txCount} perdiJanela=${t.missedTx}`+
+      ` | rxCRC=${d.rxCRC} slotErrado=${d.wrongSlot}`);
+    d.lastDbg=millis();
+  }
+}
+function ghostLoop(g){
+  tdmaTick(g.tdma,g.clkUs);
+  if(sim.sync==="pps"||sim.sync==="misto"){
+    const utc=Math.floor(T/1000);
+    if(utc!==g.lastPpsSec){ g.lastPpsSec=utc; tdmaOnPps(g.tdma,g.clkUs,utc); }
+  }
+  readTdma(g);
+  if(!tdmaFits(g.tdma,TDMA_AIR_MS*1000)) return;
+  if(tdmaShouldTx(g.tdma,g.clkUs)) tdmaTransmit(g);
+}
+
+/* ---- roteiro: clica nas telas de verdade, pelo handleTouch ---- */
+const script=[];
+const queue=(at,fn)=>script.push({at,fn});
+function runScript(){
+  for(let i=0;i<script.length;i++) if(T>=script[i].at){ const s=script[i]; script.splice(i--,1); s.fn(); }
+}
+function tapHome(d,leader){
+  const h=homeRects(), y=leader?h.by1+h.bh/2:h.by2+h.bh/2;
+  handleTouch(d,h.bx+h.bw/2,y|0); d.lastDraw=-1e9;
+}
+function tapKey(d,ch){
+  const r=kpRect(KP.indexOf(ch));
+  handleTouch(d,r.x+r.w/2|0,r.y+r.h/2|0); d.lastDraw=-1e9;
+}
+function roteiro(){
+  script.length=0;
+  // No TDMA nao existe criar/entrar: a rede e plana e o slot vem do nodeId. O
+  // botao so religa tudo. (Sem este atalho o roteiro do modo GRUPO rodava por
+  // cima do TDMA e as telas iam para PROCURANDO GRUPO - bug da bancada.)
+  if(MODE==="TDMA"){ bootDevices(); return; }
+  // BUG que estava aqui: o roteiro clicava na posicao do botao da home mesmo se a
+  // tela ja estivesse no mapa - e o clique caia no FAB de alerta ou no zoom. Agora
+  // ele leva todas para a tela inicial antes de comecar, como um operador faria.
+  for(const d of devs){
+    if(d.g_room!==0){ d.g_room=0; d.uiPage=0; d.joined=false; d.searching=false;
+                      d.myAlert=false; d.codeBuf=""; d.editName=false; }
+    d.lastDraw=-1e9;
+  }
+  if(MODE==="P2P"){ p2pPair(devs[0],true); p2pPair(devs[1],false);
+    devs.forEach(d=>d.lastDraw=-1e9); return; }
+  const code="12345"; let t=T+400;
+  queue(t,()=>tapHome(devs[0],true)); t+=700;
+  for(const ch of code){ queue(t,()=>tapKey(devs[0],ch)); t+=260; }
+  queue(t,()=>tapKey(devs[0],"OK")); t+=900;
+  for(let i=1;i<4;i++){
+    queue(t,()=>tapHome(devs[i],false)); t+=650;
+    for(const ch of code){ queue(t,()=>tapKey(devs[i],ch)); t+=220; }
+    queue(t,()=>tapKey(devs[i],"OK")); t+=700;
+  }
+}
+
+// passo de integracao. No TDMA ele precisa ser MENOR que a guarda de 15 ms: com
+// passo de 25 ms o instante de TX teria erro maior que a propria guarda e a
+// bancada inventaria desalinhamento. 5 ms fica perto da volta real do loop()
+// (o serial do firmware reporta loopMax de 8-14 ms).
+const STEP_GRUPO=25, STEP_TDMA=5;
+let acc=0,lastRAF=0;
+function tick(ts){
+  if(!lastRAF) lastRAF=ts;
+  const real=Math.min(ts-lastRAF,120); lastRAF=ts;
+  const STEP=(MODE==="TDMA")?STEP_TDMA:STEP_GRUPO;
+  if(sim.run){
+    acc+=real*sim.spd;
+    let guard=0;
+    while(acc>=STEP && guard++<2000){
+      T+=STEP; acc-=STEP;
+      // cada no tem o SEU relogio: offset de partida + drift do cristal
+      for(const n of devs) if(n.on) n.clkUs+=STEP*1000*(1+n.ppm/1e6);
+      for(const g of ghosts) g.clkUs+=STEP*1000*(1+g.ppm/1e6);
+      runScript(); worldStep(STEP); chanTick();
+      for(const d of devs) if(d.on) devLoop(d);
+      for(const g of ghosts) ghostLoop(g);
+      if(sim.tHold>0){ sim.tHold-=STEP; if(sim.tHold<=0){ radio.down=false; syncCut(); } }
+    }
+  }
+  devs.forEach((d,i)=>{ if(!d.on) return;
+    if(T-d.lastDraw>=sim.drawEvery || d.lastDraw<0){ d.lastDraw=T; frame(d,gfx[i]); } });
+  paintDom();
+  requestAnimationFrame(tick);
+}
+
+/* ---- UI da pagina ---- */
+const $=s=>document.querySelector(s);
+const gfx=[];
+(function buildScreens(){
+  const host=$("#screens");
+  for(let i=0;i<4;i++){
+    const fig=document.createElement("figure");
+    fig.className="dev";
+    fig.innerHTML=
+      `<figcaption>Tela ${i+1} <span class="pill idle" id="pill${i}">tela inicial</span></figcaption>`+
+      `<canvas id="cv${i}" width="1024" height="600"></canvas>`+
+      `<div class="foot"><span class="hint" id="hint${i}">—</span>`+
+      `<button data-nofix="${i}" title="simula GPS sem fix">sem fix</button>`+
+      `<button data-stray="${i}" title="empurra o carro para fora da trilha">desviar</button></div>`;
+    host.appendChild(fig);
+    const cv=fig.querySelector("canvas");
+    gfx.push(new Gfx(cv.getContext("2d"),SCR_W,SCR_H));
+    cv.addEventListener("pointerdown",ev=>{
+      const r=cv.getBoundingClientRect();
+      handleTouch(devs[i],
+        Math.round((ev.clientX-r.left)*SCR_W/r.width),
+        Math.round((ev.clientY-r.top)*SCR_H/r.height));
+      devs[i].lastDraw=-1e9;
+    });
+  }
+})();
+const press=(el,on)=>el.setAttribute("aria-pressed",on?"true":"false");
+const syncCut=()=>press($("#bCut"),radio.down);
+function syncThemeButtons(){ document.querySelectorAll("[data-theme]").forEach(b=>press(b,+b.dataset.theme===g_theme)); }
+
+document.querySelectorAll("[data-mode]").forEach(b=>b.addEventListener("click",()=>{
+  MODE=b.dataset.mode;
+  document.querySelectorAll("[data-mode]").forEach(x=>press(x,x===b));
+  bootDevices();
+  if(MODE!=="TDMA") roteiro();   // no TDMA o bootDevices ja monta a rede
+}));
+$("#bScript").addEventListener("click",roteiro);
+$("#bReset").addEventListener("click",()=>bootDevices());
+$("#bPlay").addEventListener("click",e=>{ sim.run=!sim.run;
+  press(e.currentTarget,sim.run); e.currentTarget.textContent=sim.run?"Rodando":"Pausado"; });
+document.querySelectorAll("[data-spd]").forEach(b=>b.addEventListener("click",()=>{
+  sim.spd=+b.dataset.spd; document.querySelectorAll("[data-spd]").forEach(x=>press(x,x===b)); }));
+document.querySelectorAll("[data-draw]").forEach(b=>b.addEventListener("click",()=>{
+  sim.drawEvery=+b.dataset.draw; document.querySelectorAll("[data-draw]").forEach(x=>press(x,x===b)); }));
+document.querySelectorAll("[data-theme]").forEach(b=>b.addEventListener("click",()=>{
+  applyTheme(+b.dataset.theme); syncThemeButtons(); devs.forEach(d=>d.lastDraw=-1e9); }));
+document.querySelectorAll("[data-focus]").forEach(b=>b.addEventListener("click",()=>{
+  const f=b.dataset.focus;
+  $("#screens").className="screens"+(f?" focused":"");
+  document.querySelectorAll("#screens .dev").forEach((el,i)=>el.classList.toggle("big",f!==""&&+f===i));
+  document.querySelectorAll("[data-focus]").forEach(x=>press(x,x===b)); }));
+document.querySelectorAll("[data-nofix]").forEach(b=>b.addEventListener("click",()=>{
+  const d=devs[+b.dataset.nofix]; d.gpsOff=!d.gpsOff; press(b,d.gpsOff); }));
+document.querySelectorAll("[data-stray]").forEach(b=>b.addEventListener("click",()=>{
+  const d=devs[+b.dataset.stray]; d.stray=!d.stray; press(b,d.stray); }));
+$("#bSlot").addEventListener("click",e=>{ sim.useSlot=!sim.useSlot; press(e.currentTarget,sim.useSlot); });
+$("#bIdeal").addEventListener("click",e=>{ radio.ideal=!radio.ideal; press(e.currentTarget,radio.ideal);
+  if(radio.ideal){ chan.inAir.length=0; reenvio.length=0; } });
+// controles do TDMA: mudar slots/frame/fantasmas exige religar a rede (igual ao
+// hardware - o setup() e que valida a configuracao e recusa se nao couber)
+for(const [attr,campo] of [["slots","slots"],["frame","frameSecs"],["ghosts","ghosts"]])
+  document.querySelectorAll("[data-"+attr+"]").forEach(b=>b.addEventListener("click",()=>{
+    sim[campo]=+b.dataset[attr];
+    document.querySelectorAll("[data-"+attr+"]").forEach(x=>press(x,x===b));
+    bootDevices(); }));
+$("#bFixFB").addEventListener("click",e=>{ sim.fixFrameBase=!sim.fixFrameBase;
+  press(e.currentTarget,sim.fixFrameBase); bootDevices(); });
+document.querySelectorAll("[data-sync]").forEach(b=>b.addEventListener("click",()=>{
+  sim.sync=b.dataset.sync;
+  document.querySelectorAll("[data-sync]").forEach(x=>press(x,x===b));
+  bootDevices(); }));
+$("#bCut").addEventListener("click",()=>{ radio.down=!radio.down; sim.tHold=0; syncCut(); });
+$("#bCut20").addEventListener("click",()=>{ radio.down=true; sim.tHold=20000; syncCut(); });
+$("#loss").addEventListener("input",e=>{ radio.loss=+e.target.value; $("#lossV").textContent=radio.loss+" %"; });
+$("#delay").addEventListener("input",e=>{ radio.delay=+e.target.value; $("#delayV").textContent=radio.delay+" ms"; });
+$("#spd").addEventListener("input",e=>{ sim.leadKmh=+e.target.value; $("#spdV").textContent=sim.leadKmh+" km/h"; });
+$("#gap").addEventListener("input",e=>{ sim.gapM=+e.target.value; $("#gapV").textContent=sim.gapM+" m"; });
+
+const esc=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+const row=(k,v,bad)=>`<span>${k}</span><b class="${bad?"bad":""}">${v}</b>`;
+function pill(el,cls,txt){ el.className="pill "+cls; el.textContent=txt; }
+let domTick=0;
+function paintDom(){
+  if(domTick++%6) return;
+  devs.forEach((d,i)=>{
+    const p=$("#pill"+i), h=$("#hint"+i);
+    if(!d.on){ pill(p,"idle","desligada"); h.textContent="—"; return; }
+    const f=d._flags||{};
+    if(d.g_room===0) pill(p,"idle",d.editName?"ajustes":(d.uiPage?"digitando codigo":"tela inicial"));
+    else if(d.searching) pill(p,"warn","procurando grupo");
+    else if(!d.myFix) pill(p,"warn","sem fix");
+    else if(f.alertOn) pill(p,"crit","alerta");
+    else if(f.lost) pill(p,"warn",isLeader(d)?"reduza":"sinal perdido");
+    else if(f.offRoute) pill(p,"warn","fora do trajeto");
+    else if(isLeader(d)) pill(p,"ok","lider - slot 0");
+    else if(d.joined) pill(p,"ok","slot "+d.curSlot);
+    else pill(p,"warn","sem slot");
+    const ref=isLeader(d)?1:0, w=d.world[ref];
+    const dist=(w.active&&d.myFix)?Math.round(haversine(d.myLat,d.myLon,w.lat,w.lon))+" m":"--";
+    h.textContent=`route[] ${d.routeN} pts   zoom ${d.mapMPP.toFixed(1)} m/px   `+
+      `${isLeader(d)?"1o seguidor":"lider"} ${dist}`;
+  });
+  if(MODE==="TDMA"&&devs[0].tdma){
+    const t=devs[0].tdma, airUs=TDMA_AIR_MS*1000;
+    const folga=tdmaHeadroomUs(t,airUs)/1000, cabe=tdmaMaxNodes(t,airUs);
+    const nos=devs.filter(d=>d.on).length+ghosts.length;
+    const crc=devs.reduce((s,d)=>s+(d.on?d.rxCRC:0),0);
+    const errado=devs.reduce((s,d)=>s+(d.on?d.wrongSlot:0),0);
+    const perdiJanela=devs.reduce((s,d)=>s+(d.on?d.tdma.missedTx:0),0);
+    const holdover=devs.some(d=>d.on&&d.tdma.holdover);
+    const semAncora=devs.filter(d=>d.on&&!d.tdma.haveAnchor).length;
+    $("#tdmaOut").innerHTML=
+      row("nos na rede",nos+" de "+t.nSlots+" slots")+
+      row("slot",(t.slotUs/1000).toFixed(0)+" ms")+
+      row("air-time 16 B",TDMA_AIR_MS.toFixed(1)+" ms")+
+      row("folga no slot",folga.toFixed(0)+" ms",folga<=0)+
+      row("cabem",cabe+" nos",cabe<nos)+
+      row("sync",sim.sync==="pps"?"PPS":sim.sync==="misto"?"PPS+beacon":(semAncora?semAncora+" sem ancora":"beacon"),semAncora>0)+
+      row("holdover",holdover?"SIM":"nao",holdover)+
+      row("rxCRC",crc,crc>0)+
+      row("slot errado",errado,errado>0)+
+      row("perdi janela",perdiJanela,perdiJanela>0)+
+      row("tx por no",devs.filter(d=>d.on).map(d=>d.tdma.txCount).join(" / "),
+          devs.some(d=>d.on&&d.tdma.txCount<devs[0].tdma.txCount/2))+
+      row("ppm do cristal",devs.filter(d=>d.on).map(d=>Math.round(d.ppm)).join(" / "))+
+      row("fora do world[]",devs.reduce((s,d)=>s+(d.foraDoWorld||0),0),
+          devs.some(d=>d.foraDoWorld>0));
+    if(folga<=0) $("#tdmaOut").innerHTML+=
+      `<span style="grid-column:1/-1;color:var(--crit)">o pacote NAO cabe no slot: `+
+      `o setup() do tdma_test recusa rodar</span>`;
+  }
+  const nAtivos=devs.filter(d=>d.on).length;
+  const nJoined=devs.filter(d=>d.on&&(isLeader(d)||d.joined)).length;
+  $("#readout").innerHTML=
+    row("t simulado",(T/1000).toFixed(1)+" s")+
+    row("no grupo",nJoined+" de "+nAtivos)+
+    row("pacotes",radio.sent+" enviados")+
+    row("colisoes",radio.collisions,radio.collisions>0)+
+    row("reenvios do modulo",radio.retries)+
+    row("perdidos de vez",radio.lost,radio.lost>0)+
+    row("idade do dado",idadeMax().toFixed(1)+" s",idadeMax()>5)+
+    row("route lider",devs[0].routeN+" pts")+
+    row("ocupacao do ar",ocupacao()+" %");
+  pill($("#pillAir"),radio.ideal?"ok":(radio.down?"crit":(radio.lost?"warn":"ok")),
+       radio.ideal?"radio ideal":(radio.down?"sinal cortado":
+       (radio.lost?radio.lost+" perdidos de vez":"entregando")));
+  pill($("#pillSer"),"idle",nJoined+"/"+nAtivos+" no grupo");
+  $("#ser").innerHTML=serLog.slice(-40).map(l=>
+    `<b>${l.label.replace("Tela ","T")}</b> ${(l.t/1000).toFixed(1)}s ${esc(l.txt)}`).join("\n");
+  const a=$("#air");
+  a.innerHTML=airLog.slice(-50).map(l=>
+    l.kind==="plain"?esc(l.txt):`<span class="${l.kind}">${esc(l.txt)}</span>`).join("\n");
+  if(!a._pin) a.scrollTop=a.scrollHeight;
+  const s=$("#ser"); if(!s._pin) s.scrollTop=s.scrollHeight;
+}
+// duty cycle do canal: soma do air-time de tudo que foi transmitido sobre o
+// tempo corrido. Amostrar chan.inAir nao serve - um pacote fica no ar ~70 ms e
+// quase nunca esta lá no instante da amostra.
+const ocupacao=()=>(100*radio.airMs/Math.max(1,T)).toFixed(1);
+// pior idade de posicao que o LIDER tem de um seguidor. E o numero que o
+// motorista sente: a distancia no roster fica velha sem ele saber.
+function idadeMax(){
+  const L=devs[0]; if(!L||!isLeader(L)) return 0;
+  let m=0;
+  for(let k=1;k<MAXN;k++){ const w=L.world[k]; if(w.active) m=Math.max(m,(T-w.lastMs)/1000); }
+  return m;
+}
+for(const el of [$("#air"),$("#ser")])
+  el.addEventListener("scroll",e=>{ const x=e.target;
+    x._pin=(x.scrollHeight-x.scrollTop-x.clientHeight)>30; });
+
+/* ---- tabelas ---- */
+// Achados de LOGICA: reproduzidos com radio ideal, entao nao dependem de
+// nenhuma hipotese sobre o radio. Cada um tem um teste em selftest.js.
+const FINDS=[
+  ["Carro que saia do ar ficava no mapa dos seguidores, parado, para sempre",
+   "Nada no firmware zera <code>world[].active</code>. O lider segue empacotando <code>active=1</code> para quem se reportou uma vez, e o <code>parseRx</code> do seguidor faz <code>if(active) lastMs = millis()</code> - <b>refresca o relogio local a cada WORLD</b>. O <code>NODE_TTL</code> de 15 s nunca dispara lá.",
+   "<b>CORRIGIDO.</b> O <code>loop()</code> passou a expirar <code>world[].active</code> depois de <code>NODE_TTL</code>, entao o lider deixa de anunciar <code>active=1</code> e o carro morto sai do mapa de todos. Antes: 41 s depois de sair do ar, o lider ja o dava por morto e os seguidores o mostravam com 2,0 s de idade, congelado."],
+  ["Quem via o alerta de quem era imprevisivel",
+   "<code>drawMap</code> escolhe <em>um</em> peer: o primeiro no ativo com slot diferente do meu. Com o grupo cheio, o lider so olha o slot 1 e os seguidores so olham o lider - o alerta do slot 2 ou 3 nao entra no <code>alertOn</code> de ninguem. E se um slot menor expirar, o peer muda e o mesmo alerta de repente acende.",
+   "<b>CORRIGIDO.</b> O <code>drawMap</code> agora procura <em>qualquer</em> carro em alerta antes de cair no primeiro peer: <code>alertOn = 1111</code> em vez de <code>0001</code>. O sino de qualquer slot acende em todas as telas."],
+  ["O slot calculado existia e era jogado no lixo",
+   "<code>parseRx</code> calcula <code>slotDue = worldRxMs + curSlot*SLOT_MS</code> e liga <code>pendingUplink</code> - metade de um TDMA ancorado no WORLD. O <code>loop()</code> ignora os dois e manda de 1200 em 1200 ms, livre.",
+   "<b>CORRIGIDO.</b> O <code>loop()</code> passou a esperar o <code>slotDue</code> (com fallback de 3 s se o WORLD nao vier). Colisao de uplink de 73 para <b>zero</b> e ocupacao de ar de 7,4 % para 4,0 %."],
+  ["Queda de mais de ~11 s abre um buraco permanente na rota",
+   "Cada WORLD leva os ultimos <code>HIST_N</code> = 12 pontos, ou seja repoe <b>60 m</b> de trilha (12 x <code>STEP_M</code>). O que passou de 60 m nunca volta: nao existe catch-up no caminho de grupo. A 32 km/h, 60 m sao 6,8 s - e o buraco so vira ponte tracejada acima de 40 m, o que da uma queda de ~11 s.",
+   "<b>NAO corrigido - e decisao de produto.</b> Resolver exige o WORLD carregar o que falta (mais bytes) ou um ack como o do P2P. O modo gravado hoje e o P2P, que tem catch-up; no caminho de grupo isto fica registrado. \"Queda 20 s\" e olhe a rota do seguidor."],
+  ["Seguidor que entra atras acusa FORA DO TRAJETO sem estar fora",
+   "Ele so conhece os pontos que o lider gravou desde que ligou. Entrando atras, o ponto mais proximo do trajeto conhecido esta a mais de <code>OFFROUTE_M</code> (30 m) - e a borda amarela pisca sem motivo.",
+   "<b>NAO corrigido.</b> E geometria: o seguidor nao tem como saber que o trecho onde ele esta simplesmente nunca foi transmitido. Corrigir exige o lider mandar trajeto anterior ao ingresso - mesma decisao do item acima. No roteiro, a Tela 4 fica amarela ate o lider andar o vao dela."],
+  ["Carros perto viram uma mancha de texto no mapa",
+   "<code>drawMap</code> escreve o nome em <code>sx+12, sy-8</code> sem checar colisao de texto. A 2 m/px, carros a 30 m ficam a 15 px um do outro - menos que a altura da fonte de 24 px. Numa fila de trilha lenta (o caso real) os rotulos se empilham e cobrem os proprios marcadores.",
+   "<b>Continua.</b> Puxe o \"vao entre carros\" para 30 m e amplie a Tela 1: \"Tela 2/3/4\" viram um borrao. Com os 25-50 nos da Fase 4, ilegivel."],
+  ["Sair do grupo deixa o trajeto e os carros do grupo anterior",
+   "O SAIR do firmware faz so <code>g_room=0; searching=false; joined=false; uiPage=0; myAlert=false</code> e limpa o codigo. Nao mexe em <code>route[]</code>, nem em <code>world[].active</code>, nem em <code>haveRouteSeq</code>.",
+   "<b>Continua.</b> Saia e entre em outro codigo: os 40 pontos do trajeto antigo continuam desenhados e o novo trajeto e emendado neles - com a ponte tracejada ligando os dois lugares, porque o salto passa de 40 m."],
+  ["Sem provisionar cor, todos os carros sairiam iguais",
+   "<code>g_color</code> nasce 0 no NVS e o JOIN manda esse 0: o lider grava <code>rcolor[slot]=0</code> para todos e o mapa pinta <code>PALETTE[0]</code> em todo mundo.",
+   "<b>CORRIGIDO.</b> O <code>parseRx</code> do JOIN agora faz <code>rcolor[slot] = col ? col : slot</code>: sem provisionamento, o slot vira a cor - que e unica por definicao."],
+];
+$("#findRows").innerHTML=FINDS.map(([a,b,c])=>
+  `<tr><td>${a}</td><td class="note">${b}</td><td class="note">${c}</td></tr>`).join("");
+
+// Numeros de rede: 85 s com as 4 telas no mesmo grupo, medidos com o mesmo
+// motor da pagina (scratchpad/veredito.js). Comparam cenarios entre si; nao
+// dimensionam o produto - para isso e preciso radio na mao.
+const NET=[
+  ["Radio ideal (referencia)",
+   "carros vistos 3/3 &middot; idade do dado 0,3 s &middot; 0 colisoes &middot; 0 perdas &middot; ar 0 %",
+   "O piso: o melhor que a logica atual entrega. O que ainda estiver errado aqui e firmware."],
+  ["LoRaMESH como esta hoje",
+   "carros vistos <b>3/3</b> &middot; idade 1,1 s &middot; 73 colisoes &middot; <b>69 reenvios do modulo</b> &middot; 4 perdas &middot; ar 7,4 %",
+   "O lider <b>nao perde</b> os carros: o ACK do modulo cobre o descompasso. O preco e trafego (quase um reenvio por colisao) e latencia."],
+  ["LoRaMESH usando o slotDue",
+   "carros vistos 3/3 &middot; idade 1,3 s &middot; <b>0 colisoes</b> &middot; 0 reenvios &middot; ar <b>4,0 %</b>",
+   "Metade do ar pelo mesmo servico. Com 4 nos e conforto; com os 25-50 da Fase 4 e a diferenca entre funcionar e nao funcionar."],
+  ["LoRaMESH com 30 % de perda",
+   "carros vistos 3/3 &middot; idade 1,1 s &middot; 33 colisoes &middot; <b>128 reenvios</b> &middot; 20 perdas &middot; ar 7,9 %",
+   "O modulo compensa perda com retransmissao e o consumo de ar sobe junto. E o mecanismo que satura primeiro quando o grupo cresce."],
+];
+$("#netRows").innerHTML=NET.map(([a,b,c])=>
+  `<tr><td>${a}</td><td class="note">${b}</td><td class="note">${c}</td></tr>`).join("");
+
+const TDMAFIND=[
+  ["<b>O <code>frameBase</code> cala metade da rede</b> (fase 2, beacon)",
+   "<code>t.frameBase += (rxUs - t.anchorUs) / t.frameUs</code> e divisao INTEIRA. Num no com cristal mais lento que o da ancora, o intervalo entre beacons medido localmente fica abaixo de <code>frameUs</code> (1 s a -40 ppm = 999,96 ms), o resultado e 0, o <code>frameBase</code> congela, o <code>frameIdx</code> para e a guarda de \"1 TX por frame\" bloqueia para sempre.<br>Medido, 60 s, cristais forcados:<br>&nbsp;&nbsp;<code>0 / -30 / -20 / -10 ppm -> tx = 60 / 2 / 2 / 2</code><br>&nbsp;&nbsp;<code>0 / +30 / +20 / +10 ppm -> tx = 60 / 60 / 60 / 60</code><br>&nbsp;&nbsp;<code>0 / -40 / +25 / -15 ppm -> tx = 60 / 1 / 60 / 1</code>",
+   "<b>CORRIGIDO no <code>tdma_core.h</code>:</b> arredonda com minimo 1 em vez de truncar. O <code>tx</code> volta a 60/60/60/60, inclusive com 30 % de beacon perdido. <b>Com dois nos o bug passava</b> - depende do sinal do erro relativo, entao funcionaria na bancada e morreria no grupo. Desligue \"corrigir o frameBase\" para ver como era."],
+  ["A ancora do beacon chega no fim do pacote",
+   "O rxDone vem quando o pacote TERMINA. O no 0 transmite ~7,5 ms depois do inicio do frame e o pacote dura 51,5 ms, entao o receptor ancora ~59 ms tarde - e a folga do slot e exatamente 59 ms (125 - 51,5 - 15). Medido no beacon: <code>slotErrado</code> em quase todo pacote e, com 8 nos, <code>rxCRC</code> subindo. Com PPS: <code>slotErrado = 0</code>, <code>rxCRC = 0</code>.",
+   "<b>CORRIGIDO:</b> o <code>tdmaOnBeacon</code> desconta o air-time e o <code>setup()</code> informa o valor MEDIDO por <code>tdmaSetAirtime()</code>. Fica de fora so o instante do TX dentro do slot (~7,5 ms contra os 59 ms que sairam). Com <code>airtimeUs = 0</code> a correcao e inerte, entao o auto-teste antigo do firmware continua valendo."],
+  ["Somar PPS sem apagar o beacon mata o TX",
+   "O <code>tdma_test.ino:196</code> chama <code>tdmaOnBeacon()</code> sem checar a fonte de tempo. Se o PPS entrar por cima, <code>sync</code> alterna PPS/BEACON a cada segundo; o <code>frameBase</code> so incrementa quando o sync anterior JA era beacon, entao ele congela e o no cala. Selecione \"PPS+beacon\" e veja.",
+   "<b>CORRIGIDO:</b> o <code>tdma_test.ino</code> passou a checar <code>tdma.sync != TDMA_SYNC_PPS</code> antes de ancorar no beacon - ele e fallback, nao um segundo relogio somado ao primeiro. Selecione \"PPS+beacon\" para ver o que acontecia."],
+  ["A ancora da rede vive em holdover permanente",
+   "O no 0 chama <code>tdmaOnBeacon(tdma, tdmaNowUs())</code> uma vez no <code>setup()</code> e nunca mais re-ancora - nao existe quem o sincronize. Passados 1,5 s (<code>TDMA_ANCHOR_TTL_US</code>), o <code>tdmaTick</code> marca <code>holdover</code> nele para sempre, e a guarda passa a ser multiplicada por <code>TDMA_HOLDOVER_GUARD</code> = 3.",
+   "<b>CORRIGIDO:</b> o <code>Tdma</code> ganhou <code>isAnchor</code> e o <code>tdmaTick</code> nao marca holdover em quem ancora a rede. Antes a janela util do no 0 encolhia de 110 ms para 80 ms sem motivo e o alarme de HOLDOVER ficava aceso em regime normal."],
+  ["A rede escala para 32 nos; a tela para em 8",
+   "<code>MAXN = 8</code> no <code>trilha_core.h</code> governa <code>world[]</code>, roster e desenho. Com 16 ou 32 slots o radio funciona, mas todo pacote de slot &ge; 8 e descartado - o contador \"fora do world[]\" sobe.",
+   "<b>NAO corrigido - e decisao de arquitetura.</b> Crescer <code>MAXN</code> engorda o pacote WORLD (9 B por no) e o roster; o plano da Fase 4 e justamente nao ter WORLD. Fica registrado para quando a rede plana substituir o caminho de grupo."],
+  ["Capacidade real: 15 nos por frame de 1 s",
+   "Air-time de 16 B em SF7/BW125 = <b>51,5 ms</b>. Com guarda de 15 ms cabem <code>1000/(51,5+15) = 15</code> nos. Para 25-50 e preciso frame de 2-3 s. 8 nos num frame de 1 s ja ocupam <b>41 % do ar</b>; 32 nos num frame de 3 s, ~55 %.",
+   "<b>Numero para dimensionar, nao bug.</b> Frame maior = posicao mais velha: a 32 km/h com frame de 3 s o carro anda 27 m entre atualizacoes, e o trajeto que os seguidores desenham passa a ter essa resolucao - nao os 5 m do <code>STEP_M</code>."],
+  ["Acima de ~48 km/h o trajeto vira tracejado",
+   "O pacote de 16 B nao carrega historico: cada no acumula o caminho do lider pelas posicoes que recebe, uma por frame. Se <code>velocidade x frame &gt; 40 m</code>, cada par de pontos vira \"vao\" e o <code>drawMap</code> desenha a ponte tracejada. Com frame de 3 s isso comeca em 48 km/h; com 2 s, em 72 km/h.",
+   "<b>NAO corrigido - escolha de produto em aberto.</b> Ou o frame encurta (menos nos), ou o pacote leva historico (mais bytes, menos nos), ou o limiar de 40 m sobe. O plano ainda nao decidiu."],
+  ["Sem roster, todos os carros se chamam \"Carro\"",
+   "O pacote de 16 B nao tem nome nem cor - e a tarefa 3 do <code>RETOMAR.md</code>. Sem <code>haveRoster</code>, o <code>drawMap</code> escreve \"Lider\" e \"Carro\" para todo mundo.",
+   "<b>NAO corrigido - e a tarefa 3 do RETOMAR.</b> Com 8 carros na tela, oito rotulos \"Carro\" iguais. Precisa de um slot de roster rotativo ou piggyback em frames alternados."],
+];
+$("#tdmaRows").innerHTML=TDMAFIND.map(([a,b,c])=>
+  `<tr><td style="white-space:normal;max-width:26ch">${a}</td><td class="note">${b}</td><td class="note">${c}</td></tr>`).join("");
+
+const STATE=[
+  ["firmware/grupo_ws","Firmware das telas: P2P de 2 nos + caminho de grupo, mapa vetorial, LoRaMESH em UART","ok","roda em campo hoje"],
+  ["firmware/trilha_core.h","Protocolo, temas, estado do grupo, projecao - sem hardware","ok","em producao"],
+  ["firmware/tdma_core.h","Frames/slots com fonte de tempo atras de interface (beacon -> PPS)","ok","matematica validada por auto-teste"],
+  ["firmware/tile_pack.h","Leitor de tiles por setor, sem filesystem","ok","conformidade com o gravador: 28 PASS"],
+  ["tools/tiles/","Baixa, converte para RGB565, empacota com indice + CRC32","ok","testado end-to-end no PC"],
+  ["firmware/e22_ping","Ping-pong SX1262; mede o tempo real de TX","warn","compila, nunca executado - E22 em transito"],
+  ["firmware/tdma_test","TDMA de 3 nos com coordenadas falsas","warn","compila, nunca executado"],
+  ["firmware/sd_bench","Mede CS pelo expansor, custo de leitura, contencao do painel","crit","compila, nunca executado - trava a arquitetura do mapa"],
+];
+$("#stateRows").innerHTML=STATE.map(([a,b,c,d])=>
+  `<tr><td>${a}</td><td class="note">${b}</td><td><span class="pill ${c}">${d}</span></td></tr>`).join("");
+
+const FID=[
+  ["Fluxo de entrada no grupo","codigo de 5 digitos, JOIN com uid+cor+nome, alocacao de slot pelo lider, ROSTER de volta, WORLD em broadcast a cada 3,6 s, UPLINK a cada 1,2 s","ok"],
+  ["Pacotes","montados byte a byte por packWorld/packRoster/packUplink/packJoin; o log mostra o hex que sai no ar","ok"],
+  ["Geometria e mapa","haversine, worldToScreen heading-up, nearestRouteIdx, route[] circular de 1200, STEP_M 5 m, ponte tracejada acima de 40 m","ok"],
+  ["Cores","RGB565 com a MESMA perda de bits do painel, incluindo o override roxo/azul de rota e rastro","ok"],
+  ["Layout e toque","as mesmas contas de retangulo, o mesmo handleTouch, o mesmo redesenho de ~1 Hz","ok"],
+  ["Estrada grossa","roadSeg emulado ao pe da letra: N linhas de 1 px em x e y, com o casing sobrescrevendo o fill do segmento anterior","ok"],
+  ["Custo de transmissao","UART 9600 8N1 + air-time SF7/BW500 CR4/5 calculado; colisao = sobreposicao das janelas no ar; jitter de 0-12 ms para representar a volta do loop()","warn"],
+  ["Fontes","FreeSans*pt7b aproximada por Helvetica/Arial na altura equivalente (CAP 0,72); Font7 emulada em 7 segmentos","warn"],
+  ["Antialiasing","o canvas suaviza diagonais; o LovyanGFX usa Bresenham sem suavizacao - na tela as linhas sao mais duras","warn"],
+  ["Painel RGB","sem tearing, sem starvation de DMA, sem PCLK de 12 MHz: aqui o framebuffer e infinitamente rapido","crit"],
+  ["GT911 e expansor","toque perfeito; os 4 retries do reset e o clear incondicional do frame nao existem","crit"],
+  ["Mesh do LoRaMESH","nao modela ACK proprio, retransmissao, janela de recepcao de 5-15 s nem alcance real na mata. O ACK do modulo pode quebrar parte do lockstep no hardware - mas nada no firmware o evita","crit"],
+];
+$("#fidRows").innerHTML=FID.map(([a,b,c])=>
+  `<tr><td>${a}</td><td class="note">${b}</td><td><span class="pill ${c}">${c==="ok"?"fiel":c==="warn"?"aproximado":"nao simulado"}</span></td></tr>`).join("");
+
+/* ---- boot: abre na tela inicial e executa o fluxo de criar/entrar ---- */
+applyTheme(0);
+bootDevices();
+roteiro();
+requestAnimationFrame(tick);
+</script>
+<!-- ARTIFACT:END -->
+</body>
+</html>
