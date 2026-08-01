@@ -10,6 +10,20 @@
 
 ---
 
+## Antes de tudo: leia o CHANGELOG de 2026-07-31
+
+O `firmware/grupo_ws` **foi alterado** (a pedido do usuário) e o `tdma_core.h` levou
+quatro correções, entre elas uma que calava metade da rede no modo beacon. Tudo
+compila, **nada foi gravado**. A bancada web (`web/bancada-trilha/`, no ar em
+bancada-trilha.vercel.app) reproduz os três modos sem hardware e tem três
+verificações que rodam em Node — comece rodando as três, elas não precisam de placa:
+
+```powershell
+node webancada-trilha\selftest.js      # 63 checagens de comportamento
+node webancada-trilhaudit.js         # 70: a bancada CONTRA o firmware
+node webancada-trilha	dma_replay.js   # 43: os testes do tdma_selftest, em Node
+```
+
 ## Comece por aqui (não precisa de nada novo)
 
 Três sketches rodam **hoje**, numa das telas que você já tem:
@@ -122,7 +136,14 @@ O que observar no relatório de 5 s:
 **Com 3 nós é o primeiro teste onde colisão realmente existe** — com 2 não há o
 que provar.
 
-### Fase 3 — PPS (precisa resolver o GPS)
+### Fase 3 — PPS (precisa resolver o GPS) — **subiu de prioridade**
+
+A bancada mostrou que a âncora por beacon tem três defeitos estruturais (o
+`frameBase`, o atraso de um air-time e a mistura com o PPS). Os três estão
+corrigidos, mas com PPS eles simplesmente não existem: `slotErrado = 0`,
+`rxCRC = 0` e todos os nós transmitindo. **Trate o PPS como pré-requisito, não como
+fase 3** — o GPS com PPS no header é a compra que desbloqueia o TDMA de verdade.
+
 
 O GPS do projeto é **NEO-7M e o PPS não está fiado** — está escrito em
 `tools/ws_diag/ws_diag.ino:23`: *"GPS TXD -> GPIO6 (RXD/PPS nao liga)"*. Pior: os

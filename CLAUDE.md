@@ -15,9 +15,9 @@ o rádio volta.
 
 Nasceu como a Parte 2 de um projeto de odômetro (`legacy/odometro/`).
 
-## Estado atual (2026-07-30)
+## Estado atual (2026-07-31)
 
-Duas coisas rodam em paralelo, e **confundi-las é o erro mais fácil de cometer**:
+Três coisas convivem, e **confundi-las é o erro mais fácil de cometer**:
 
 ### 1. Produção — `firmware/grupo_ws/` (ESP32-S3 + LoRaMESH)
 
@@ -26,6 +26,28 @@ Ponto-a-ponto de 2 nós, mapa vetorial, rádio LoRaMESH em UART.
 
 > **REGRA DURA: não altere `firmware/grupo_ws/` sem o usuário pedir explicitamente.**
 > É o único firmware validado em campo. A pilha nova nasce em sketches separados.
+>
+> Em 2026-07-31 o usuário pediu, e ele foi alterado: vocabulário SALA → GRUPO e sete
+> correções de lógica encontradas na bancada web (carro zumbi, alerta que não acendia,
+> `slotDue` ignorado, cor por slot, rótulos empilhados, lixo ao sair). **Compila em
+> 449331 B, mas nada disso foi gravado nem testado em campo** — ao pegar as telas,
+> gravar e conferir é o primeiro passo. Detalhes no `CHANGELOG.md`.
+
+### 3. Bancada web — `web/bancada-trilha/` (sem hardware)
+
+Simulador das telas em canvas de 1024×600: [bancada-trilha.vercel.app](https://bancada-trilha.vercel.app).
+Reexecuta a lógica do firmware nos três modos (GRUPO, P2P, TDMA) com clock próprio
+por nó. Foi ela que encontrou os bugs acima e os quatro do `tdma_core.h`.
+
+```powershell
+node web\bancada-trilha\selftest.js      # 63 checagens de comportamento
+node web\bancada-trilha\audit.js         # 70 checagens da bancada CONTRA o firmware
+node web\bancada-trilha\tdma_replay.js   # 43: os testes do tdma_selftest, em Node
+```
+
+> **Se mexer no firmware, rode o `audit.js`.** Ele lê os `.h`/`.ino` de verdade e
+> acusa quando a bancada divergir — inclusive quando um bug reproduzido de propósito
+> for "consertado" sem aviso.
 
 ### 2. Fase 4 (em construção) — TDMA + mapa offline
 
@@ -36,11 +58,11 @@ disciplinado por GPS** (cada carro fala só no seu slot, zero colisão) sobre um
 
 | Arquivo | O que é | Estado |
 |---|---|---|
-| `firmware/tdma_core.h` | frames/slots, fonte de tempo atrás de interface (beacon → PPS) | matemática validada por auto-teste |
+| `firmware/tdma_core.h` | frames/slots, fonte de tempo atrás de interface (beacon → PPS) | auto-teste + 4 bugs corrigidos na bancada (ver CHANGELOG) |
 | `firmware/tile_pack.h` | leitor de tiles por setor, sem filesystem | conformidade com o gravador validada (28 PASS) |
 | `tools/tiles/` | baixa, converte para RGB565, empacota com índice + CRC32 | testado end-to-end no PC |
 | `firmware/e22_ping/` | ping-pong SX1262; **mede** o tempo real de TX | compila, **nunca executado** |
-| `firmware/tdma_test/` | TDMA de 3 nós com coordenadas falsas | compila, **nunca executado** |
+| `firmware/tdma_test/` | TDMA de 3 nós com coordenadas falsas | compila, **nunca executado**; agora informa o air-time e não mistura âncoras |
 | `firmware/sd_bench/` | mede CS pelo expansor, custo de leitura, contenção do painel | compila, **nunca executado** |
 | `firmware/*_selftest/` | testes que rodam em qualquer ESP32, sem periférico | compilam |
 
@@ -123,8 +145,9 @@ O que dá para fazer **sem hardware novo**, em ordem de valor (detalhes em
    funciona, o custo real de leitura e a contenção do painel. **A arquitetura de
    render do mapa está bloqueada nesses três números** e não deve ser decidida por
    estimativa.
-2. **Integrar `tdma_core.h` com `world[]`/`worldToScreen` do `trilha_core.h`** e
-   desenhar — roda nas telas com posições falsas, sem rádio.
+2. ~~Integrar `tdma_core.h` com `world[]`/`worldToScreen`~~ — **feito na bancada
+   web** (modo TDMA), que é o que expôs os quatro bugs do `tdma_core.h`. Falta o
+   sketch equivalente para rodar na tela de verdade, com `#define BANCADA 1`.
 3. **Roster** (nomes/cores) na pilha nova: hoje o pacote só leva posição e flags.
 4. **Orçamento de link**: alcance esperado com 1 W + 5 dBi em mata fechada, e o
    custo em capacidade de subir o SF. É o risco nº 1 do projeto.
