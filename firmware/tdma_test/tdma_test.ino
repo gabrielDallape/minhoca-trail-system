@@ -110,6 +110,7 @@ void setup(){
 
   // Valida a configuracao contra o air-time REAL antes de rodar.
   uint32_t at = radio.getTimeOnAir(TDMA_PKT_N);
+  tdmaSetAirtime(tdma, at);   // a ancora do beacon desconta isto (rxDone = FIM do pacote)
   int32_t  hr = tdmaHeadroomUs(tdma, at);
   Serial.printf("[tdma] id=%u slots=%u frame=%lus slot=%lums guarda=%lums\n",
     nodeId, (unsigned)N_SLOTS, (unsigned long)FRAME_SECS,
@@ -192,8 +193,13 @@ void loop(){
         if (tdmaUsInFrame(tdma, usInFrame, frameIdx)) {
           if (tdmaSlotAt(tdma, usInFrame) != k.slot) q.wrongSlot++;
         }
-        // ANCORA: o pacote do no 0 marca o inicio do frame (fase 3 troca por PPS)
-        if (k.slot == 0 && nodeId != 0) tdmaOnBeacon(tdma, rxUs);
+        // ANCORA: o pacote do no 0 marca o inicio do frame (fase 3 troca por PPS).
+        // A checagem de sync NAO e decorativa: se o PPS entrar por cima do beacon,
+        // o sync alterna PPS/BEACON a cada segundo, o frameBase para de avancar
+        // (ele so incrementa quando o sync anterior JA era beacon) e o no cala.
+        // O beacon so vale enquanto nao houver PPS - ele e o fallback, nao um
+        // segundo relogio somado ao primeiro.
+        if (k.slot == 0 && nodeId != 0 && tdma.sync != TDMA_SYNC_PPS) tdmaOnBeacon(tdma, rxUs);
       }
     } else {
       rxCRC++;      // CRC ruim: colisao ou link ruim. E o alarme principal aqui.

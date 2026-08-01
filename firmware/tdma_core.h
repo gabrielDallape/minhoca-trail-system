@@ -70,6 +70,16 @@ struct Tdma {
   // No modo PPS nao e necessario (o indice vem do UTC, que ja e absoluto).
   uint32_t frameBase;
 
+  // Air-time MEDIDO do pacote (e22_ping / getTimeOnAir). O rxDone do radio vem
+  // no FIM do pacote, entao sem descontar isto a ancora do beacon fica atrasada
+  // de um air-time inteiro - que e da ordem da folga do slot. Zero = nao informado
+  // (a ancora nao compensa nada, comportamento antigo).
+  uint32_t airtimeUs;
+
+  // true no no que ANCORA a rede (id 0 na fase 2). Quem ancora nao tem quem o
+  // sincronize, entao nao pode ser marcado em holdover por falta de ancora.
+  bool isAnchor;
+
   uint32_t txFrameDone; // ultimo frame em que ja transmiti -> 1 TX por frame
   bool     haveTxFrame;
 
@@ -89,9 +99,16 @@ inline void tdmaInit(Tdma& t, uint8_t nodeId, uint8_t nSlots, uint32_t frameSecs
   t.anchorUs = 0; t.anchorSec = 0;
   t.haveAnchor = false; t.holdover = false;
   t.frameBase = 0;
+  t.airtimeUs = 0;
+  t.isAnchor = (nodeId == 0);
   t.txFrameDone = 0; t.haveTxFrame = false;
   t.anchorCount = 0; t.txCount = 0; t.missedTx = 0;
 }
+
+// Informa o air-time MEDIDO (nao o estimado) para a ancora do beacon poder
+// descontar o tempo que o pacote levou no ar. Chamar no setup, depois de
+// getTimeOnAir()/e22_ping.
+inline void tdmaSetAirtime(Tdma& t, uint32_t airtimeUs){ t.airtimeUs = airtimeUs; }
 
 // Cabe? slot tem de segurar o pacote no ar + a guarda, com folga.
 // Retorna a folga em us (negativa = configuracao impossivel).
@@ -110,14 +127,36 @@ inline uint32_t tdmaMaxNodes(const Tdma& t, uint32_t airtimeUs){
 // FASE 2: chamado quando chega o pacote do no 0. rxUs = instante local do RX.
 // O beacon do no 0 marca o inicio do frame (ele fala no slot 0).
 inline void tdmaOnBeacon(Tdma& t, uint64_t rxUs){
-  if (t.haveAnchor && t.sync == TDMA_SYNC_BEACON && rxUs >= t.anchorUs) {
-    // quantos frames se passaram desde a ancora anterior. Se for 0, este beacon
-    // caiu no MESMO frame (eco/duplicata) -> nao avanca, senao abriria uma
-    // segunda janela de TX no mesmo frame.
-    t.frameBase += (uint32_t)((rxUs - t.anchorUs) / t.frameUs);
+  // O rxDone do radio vem no FIM do pacote: sem recuar o air-time a ancora fica
+  // atrasada de 51,5ms (16B em SF7/BW125), que e quase a folga inteira de um slot
+  // de 125ms - e com 8 nos isso virava colisao. Recua SO o air-time: airtimeUs=0
+  // (o default) deixa esta correcao inerte, entao quem nao chama tdmaSetAirtime
+  // tem exatamente o comportamento antigo.
+  //
+  // Fica de fora o instante do TX dentro do slot do no 0 (>= guarda/2), que o
+  // receptor nao tem como saber. Sao ~7,5ms contra os 59ms de folga - ordem de
+  // grandeza menor que o erro que se acabou de remover.
+  uint64_t edge = rxUs;
+  if (t.airtimeUs && edge > t.airtimeUs) edge -= t.airtimeUs;
+
+  if (t.haveAnchor && t.sync == TDMA_SYNC_BEACON && edge >= t.anchorUs) {
+    // Quantos frames se passaram desde a ancora anterior.
+    //
+    // ARREDONDA, com minimo 1. Truncar (a versao anterior) tinha um bug fatal:
+    // num no com cristal mais LENTO que o da ancora o intervalo entre beacons
+    // medido no relogio local fica abaixo de frameUs (1s a -40ppm = 999,96ms), a
+    // divisao inteira dava 0, o frameBase congelava e a guarda de "1 TX por
+    // frame" travava o no PARA SEMPRE - exatamente o que este campo existe para
+    // evitar. Como dependia do SINAL do erro relativo dos cristais, com 2 nos
+    // passava e com 3+ metade da rede emudecia. Medido em bancada (60s):
+    //   0/-30/-20/-10 ppm -> tx = 60/2/2/2      (truncando)
+    //   0/-30/-20/-10 ppm -> tx = 60/60/60/60   (arredondando)
+    uint64_t d = edge - t.anchorUs;
+    uint32_t n = (uint32_t)((d + t.frameUs / 2) / t.frameUs);
+    t.frameBase += n ? n : 1;
   }
   t.sync = TDMA_SYNC_BEACON;
-  t.anchorUs = rxUs; t.anchorSec = 0;
+  t.anchorUs = edge; t.anchorSec = 0;
   t.haveAnchor = true; t.holdover = false; t.anchorCount++;
 }
 
@@ -139,6 +178,11 @@ inline uint32_t tdmaGuardNow(const Tdma& t){
 // Atualiza holdover. Chamar no loop do radio antes de decidir o TX.
 inline void tdmaTick(Tdma& t){
   if (!t.haveAnchor) return;
+  // Quem ANCORA a rede nao tem quem o sincronize: ele ancorou em si mesmo no
+  // setup e nunca re-ancora. Marcar holdover nele (o que acontecia depois de
+  // 1,5s) triplicava a guarda do no 0 para sempre, encolhendo a janela util dele
+  // de 110ms para 80ms, e acendia o alarme de HOLDOVER em regime normal.
+  if (t.isAnchor && t.sync == TDMA_SYNC_BEACON) { t.holdover = false; return; }
   uint64_t now = tdmaNowUs();
   t.holdover = (now - t.anchorUs) > TDMA_ANCHOR_TTL_US;
 }
