@@ -19,10 +19,65 @@ bancada-trilha.vercel.app) reproduz os três modos sem hardware e tem três
 verificações que rodam em Node — comece rodando as três, elas não precisam de placa:
 
 ```powershell
-node webancada-trilha\selftest.js      # 63 checagens de comportamento
-node webancada-trilhaudit.js         # 70: a bancada CONTRA o firmware
-node webancada-trilha	dma_replay.js   # 43: os testes do tdma_selftest, em Node
+node web\bancada-trilha\selftest.js      # 63 checagens de comportamento
+node web\bancada-trilha\audit.js         # 70: a bancada CONTRA o firmware
+node web\bancada-trilha\tdma_replay.js   # 43: os testes do tdma_selftest, em Node
 ```
+
+## Ordem recomendada (escrita em 2026-08-02)
+
+Por risco e custo, não por vontade. Se for fazer **uma** coisa só, faça a 3.
+
+### 1. Gravar o `grupo_ws` e andar com as duas telas — 20 min
+
+É o risco mais imediato do projeto: o único firmware validado em campo levou sete
+correções de lógica que **compilam e nunca rodaram**. Descobrir na garagem é barato;
+na trilha, não.
+
+Ressalva que importa: com `#define P2P 1` (o que está gravado) só **parte** das
+correções é exercitada. Com duas telas você valida o vocabulário GRUPO, a expiração
+do carro zumbi, a limpeza ao sair do grupo e os rótulos que desviam. O `slotDue`, a
+cor por slot e o alerta multi-peer **precisam de 3+ nós no modo grupo** — ficam em
+aberto até haver mais rádio.
+
+### 2. Rodar o `tdma_selftest` numa tela — 5 min
+
+Valida no silício real a matemática que mudou: o arredondamento do `frameBase`, o
+recuo do air-time, o `isAnchor`, a aritmética de 64 bits e o `esp_timer`. O
+`tdma_replay.js` roda os mesmos casos, mas em Node — **não é o mesmo compilador nem
+o mesmo `uint32_t`**. Só a placa fecha essa lacuna.
+
+### 3. Rodar o `sd_bench` com um microSD qualquer — 30 min
+
+Continua sendo o maior valor travado, e não precisa de compra nenhuma. A arquitetura
+de render do mapa depende de três números medidos (CS pelo expansor funciona? custo
+de ler um tile? quanto o painel degrada durante a leitura?) e decidir isso por
+estimativa é como se perde uma semana depois. **Anote a saída do serial.**
+
+### 4. Comprar, para os E22 não ficarem na gaveta
+
+| Item | Por quê |
+|---|---|
+| 2–3× ESP32-S3-DevKitC-1 (~R$ 40) | o E22 precisa de 8 GPIOs; a tela tem 10 livres e o console e o cartão já os comem. Sem devkit, os E22 chegam e não há onde ligá-los |
+| 3× GPS com PPS no header (ATGM336H-5N-31) | **subiu de prioridade**: a bancada mostrou que a âncora por beacon tinha três defeitos estruturais e que, mesmo corrigidos, com PPS eles não existem (`slotErrado = 0`, `rxCRC = 0`, todos os nós transmitindo). O PPS não é "fase 3", é o que faz o TDMA funcionar |
+| 3× capacitor ≥470 µF | sem ele a placa reseta no pico de TX e você caça um fantasma |
+
+### 5. Quando os E22 chegarem
+
+`e22_ping` primeiro, e o número que você vai buscar é **um só**: `txUs(min/med/max)`.
+Hoje o slot está dimensionado com **51,5 ms calculado**, e o próprio sketch avisa que
+o `getTimeOnAir` tem bug conhecido de CR. Tudo — quantos nós cabem, que frame usar —
+depende desse número medido. Depois `tdma_test` com **três** nós, que é o mínimo onde
+colisão existe.
+
+### O que não fazer agora
+
+Mexer no P4 (rádio diferente das telas, e TDMA precisa de dois nós que se ouçam:
+valide nos S3 primeiro), OTA/WiFi (adiado deliberadamente; exige trocar a tabela de
+partições e uma gravação por cabo) e aumentar o `MAXN` — isso só faz sentido quando a
+rede plana substituir o caminho de grupo.
+
+---
 
 ## Comece por aqui (não precisa de nada novo)
 
