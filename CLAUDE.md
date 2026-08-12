@@ -5,7 +5,8 @@ Contexto para quem (ou o que) abre este repositório sem memória da sessão ant
 
 ## O que é o projeto
 
-Sistema **"siga o líder" por rádio LoRa para trilhas off-road**. Dois ou mais
+**MTS — Minhoca Trail System.** Sistema **"siga o líder" por rádio LoRa para trilhas
+off-road**. Dois ou mais
 aparelhos com GPS e tela: o líder anda e transmite o **trajeto que fez** (não só a
 posição atual); os seguidores plotam um mapa estilo Waze — você no centro, o
 caminho do líder à frente, o rastro já percorrido, distância — e conseguem seguir

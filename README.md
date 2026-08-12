@@ -1,4 +1,4 @@
-# Outdoor Trail Follow Me 🧭
+# MTS — Minhoca Trail System 🪱🧭
 
 ![platform](https://img.shields.io/badge/platform-ESP32--S3-informational)
 ![display](https://img.shields.io/badge/display-Waveshare%207B%201024×600-informational)
