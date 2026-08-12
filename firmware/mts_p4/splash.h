@@ -45,27 +45,18 @@ void splashDesenhar(GFX& tft)
   tft.endWrite();
 }
 
-// Abertura completa: desenha com a luz apagada, acende suave, segura, apaga suave.
-// Devolve so quando termina. duracaoMs e o tempo TOTAL da abertura.
+// Abertura: mostra e sai. SEM fade.
+//
+// Tinha um fade de entrada e saida aqui. Saiu a pedido - num aparelho de bancada
+// e de trilha, animacao de abertura so atrasa quem quer usar. A luz fica apagada
+// enquanto a arte e montada (senao da para ver ela pintando de cima para baixo) e
+// acende de uma vez com o quadro pronto.
 template <typename GFX>
-void splashMostrar(GFX& tft, uint32_t duracaoMs = 2600)
+void splashMostrar(GFX& tft, uint32_t seguraMs = 1400)
 {
-  const int PASSOS = 24;
-  const uint32_t tFade = 380;                       // subida e descida
-  const uint32_t tSegura = (duracaoMs > 2 * tFade) ? duracaoMs - 2 * tFade : 400;
-
   tft.setBrightness(0);
   splashDesenhar(tft);
-
-  for (int i = 0; i <= PASSOS; i++) {               // acende
-    tft.setBrightness((i * 255) / PASSOS);
-    delay(tFade / PASSOS);
-  }
-  delay(tSegura);
-  for (int i = PASSOS; i >= 0; i--) {               // apaga
-    tft.setBrightness((i * 255) / PASSOS);
-    delay(tFade / PASSOS);
-  }
-  tft.fillScreen(TFT_BLACK);
   tft.setBrightness(255);
+  delay(seguraMs);
+  tft.fillScreen(TFT_BLACK);
 }
