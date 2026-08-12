@@ -33,6 +33,12 @@
 // parecer torta mesmo onde nao havia sobreposicao.
 #define M 48
 
+// Cores dos carros no mapa. Escolhidas para se distinguirem sobre o fundo escuro
+// E entre si - e o que separa um carro do outro quando forem 25.
+static const uint16_t CORES_MAPA[] = { C_SUN, 0x2D7F, 0x4CCB, 0xFD20, 0xF81F, 0x07FF };
+static const char*    CORES_NOME[] = { "laranja", "azul", "verde", "amarelo", "rosa", "ciano" };
+#define N_CORES 6
+
 struct Ret { int16_t x, y, w, h; };
 inline bool dentro(const Ret& r, int16_t px, int16_t py) {
   return px >= r.x && px < r.x + r.w && py >= r.y && py < r.y + r.h;

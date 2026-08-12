@@ -18,6 +18,7 @@
 #include "splash.h"
 #include "teclado.h"
 #include "grupo.h"
+#include "sessao.h"
 #include <Preferences.h>
 
 LGFX_P4 tft;
@@ -26,12 +27,19 @@ Preferences prefs;
 // Mesmo espaco e mesmas chaves do grupo_ws das telas S3, de proposito.
 static char    g_nome[16] = "Carro";
 static uint8_t g_cor = 0;
-static const uint16_t CORES[] = { C_SUN, 0x2D7F, 0x4CCB, 0xFD20, 0xF81F, 0x07FF };
-static const char*    CORES_NOME[] = { "laranja", "azul", "verde", "amarelo", "rosa", "ciano" };
-static const int N_CORES = 6;
 
-static char g_gNome[GRUPO_NOME_MAX] = "";
-static char g_gCod[8] = "";
+static Sessao g_ses;
+static Membro g_membros[MAX_MEMBROS];
+static int    g_nMembros = 0;
+
+// entra o proprio aparelho como primeiro membro da lista
+static void membrosReinicia(bool souLider) {
+  g_nMembros = 0;
+  strncpy(g_membros[0].nome, g_nome, 15); g_membros[0].nome[15] = 0;
+  g_membros[0].cor = g_cor;
+  g_membros[0].lider = souLider;
+  g_nMembros = 1;
+}
 
 static void carregaCfg() {
   prefs.begin("grupo", true);
@@ -82,7 +90,7 @@ static void desenhaInicial(int premido = -1)
   tft.setFont(&fonts::FreeSans9pt7b);
   tft.setTextColor(C_INK3);
   tft.drawString("ESTE APARELHO", M, 630);
-  tft.fillRoundRect(M, 664, 22, 22, 5, CORES[g_cor]);
+  tft.fillRoundRect(M, 664, 22, 22, 5, CORES_MAPA[g_cor]);
   tft.setFont(&fonts::FreeSansBold18pt7b);
   tft.setTextColor(C_TAN);
   tft.drawString(g_nome, M + 34, 658);
@@ -130,7 +138,7 @@ static void telaConfig()
     cabecalho(tft, "configuracao", false);
     tft.drawFastHLine(0, 132, tft.width(), C_LINE);
     linhaCfg(tft, rNome, "NOME DESTE APARELHO", g_nome, "tocar para mudar >", true);
-    linhaCfg(tft, rCor,  "COR NO MAPA", CORES_NOME[g_cor], "tocar para mudar >", true, CORES[g_cor]);
+    linhaCfg(tft, rCor,  "COR NO MAPA", CORES_NOME[g_cor], "tocar para mudar >", true, CORES_MAPA[g_cor]);
     linhaCfg(tft, rTema, "APARENCIA", "tema da trilha", "depois do mapa", false);
     botao(tft, rVolta, "< VOLTAR", "", C_INK2, false);
     tft.setTextDatum(top_right);
@@ -164,13 +172,21 @@ static void telaConfig()
       g_cor = (g_cor + 1) % N_CORES;
       salvaCfg();
       // SO a linha da cor. Direto na tela, sem sprite de tela cheia.
-      linhaCfg(tft, rCor, "COR NO MAPA", CORES_NOME[g_cor], "tocar para mudar >", true, CORES[g_cor]);
+      linhaCfg(tft, rCor, "COR NO MAPA", CORES_NOME[g_cor], "tocar para mudar >", true, CORES_MAPA[g_cor]);
       continue;
     }
     if (dentro(rTema, x, y)) {
       telaAviso("aparencia", "Ainda nao", "O tema entra depois que o mapa existir");
       desenhaTudo();
     }
+  }
+}
+
+// Fica na trilha ate o usuario sair. So SAIR DA TRILHA encerra a sessao.
+static void rodaTrilha() {
+  if (telaTrilha(tft, g_ses, g_membros, g_nMembros)) {
+    sessaoEncerra(g_ses);
+    Serial.println("saiu da trilha");
   }
 }
 
@@ -191,6 +207,14 @@ void setup()
                 (unsigned)ESP.getFreePsram(), g_nome);
 
   splashMostrar(tft);
+
+  // Religou no meio da trilha? Volta direto para ela, sem passar pelo menu.
+  sessaoCarrega(g_ses);
+  if (g_ses.ativa) {
+    membrosReinicia(g_ses.lider);
+    Serial.printf("retomando trilha: %s (%s)\n", g_ses.gNome, g_ses.lider ? "lider" : "seguidor");
+    rodaTrilha();
+  }
   desenhaInicial();
 }
 
@@ -205,17 +229,31 @@ void loop()
   // a tela inteira so para acender um botao e o que dava sensacao de lentidao.
   if (dentro(hCriar, x, y)) {
     botao(tft, hCriar, "CRIAR GRUPO", "voce vira o lider da trilha", C_SUN, true, true);
-    if (telaCriarGrupo(tft, g_nome, g_gNome, g_gCod)) {
-      Serial.printf("grupo criado: %s | codigo %s\n", g_gNome, g_gCod);
-      telaAviso(g_gNome, "Trilha aberta", "Falta o radio para os outros te acharem");
+    char gn[GRUPO_NOME_MAX] = "", gc[8] = "";
+    if (telaCriarGrupo(tft, g_nome, gn, gc)) {
+      // sala de espera: o codigo fica a vista e a lista cresce conforme chegam
+      membrosReinicia(true);
+      if (telaSalaEspera(tft, gn, gc, g_membros, g_nMembros)) {
+        g_ses.ativa = true; g_ses.lider = true;
+        strncpy(g_ses.gNome, gn, sizeof(g_ses.gNome) - 1);
+        strncpy(g_ses.gCod,  gc, sizeof(g_ses.gCod) - 1);
+        sessaoSalva(g_ses);
+        Serial.printf("trilha aberta: %s | codigo %s | %d no grupo\n", gn, gc, g_nMembros);
+        rodaTrilha();
+      }
     }
     desenhaInicial();
   } else if (dentro(hEntrar, x, y)) {
     botao(tft, hEntrar, "ENTRAR", "seguir alguem que ja saiu", C_TAN, false, true);
     int g = telaEntrarGrupo(tft);
     if (g >= 0) {
+      membrosReinicia(false);
+      g_ses.ativa = true; g_ses.lider = false;
+      strncpy(g_ses.gNome, VIZINHOS[g].nome, sizeof(g_ses.gNome) - 1);
+      strncpy(g_ses.gCod, "-----", sizeof(g_ses.gCod) - 1);
+      sessaoSalva(g_ses);
       Serial.printf("entrou em: %s\n", VIZINHOS[g].nome);
-      telaAviso(VIZINHOS[g].nome, "Codigo aceito", "Falta o radio para seguir de verdade");
+      rodaTrilha();
     }
     desenhaInicial();
   }

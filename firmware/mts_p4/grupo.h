@@ -11,9 +11,14 @@
 #pragma once
 #include "ui.h"
 #include "teclado.h"
+#include "sessao.h"
 
-#define GRUPO_NOME_MAX 24
 #define GRUPO_COD_DIG   5
+#define MAX_MEMBROS     8
+
+// Quem esta no grupo. Enquanto nao ha radio, entram sozinhos com o tempo, so para
+// a sala de espera poder ser vista funcionando.
+struct Membro { char nome[16]; uint8_t cor; bool lider; };
 
 struct GrupoVizinho {
   const char* nome;
@@ -38,6 +43,109 @@ void sinal(G& g, int x, int y, int8_t rssi)
   for (int i = 0; i < 4; i++) {
     int h = 8 + i * 6;
     g.fillRoundRect(x + i * 11, y + 26 - h, 7, h, 2, i < n ? C_SUN : C_LINE);
+  }
+}
+
+// ------------------------------------------------------- SALA DE ESPERA
+// Depois de criar, antes de abrir a trilha: o codigo em destaque para o dono
+// ditar, e a lista de quem ja entrou crescendo. Quem chega DEPOIS de abrir a
+// trilha tambem entra - abrir nao fecha o grupo, so tira o lider desta tela.
+//
+// Desenha uma vez e depois so a linha nova. Repintar a lista inteira a cada
+// chegada e o que dava sensacao de transicao de slide.
+template <typename TFT>
+bool telaSalaEspera(TFT& tft, const char* gNome, const char* gCod,
+                    Membro* membros, int& nMembros)
+{
+  Ret rSair  = { M, 596, 240, 88 };
+  Ret rAbrir = { (int16_t)(1280 - M - 380), 596, 380, 88 };
+
+  auto linhaMembro = [&](int i) -> Ret {
+    return Ret{ (int16_t)(M + 640), (int16_t)(190 + i * 62), (int16_t)(1280 - M - (M + 640)), 54 };
+  };
+  auto pintaMembro = [&](int i) {
+    Ret r = linhaMembro(i);
+    tft.fillRoundRect(r.x, r.y, r.w, r.h, 10, C_SURF);
+    tft.fillRoundRect(r.x + 16, r.y + 16, 22, 22, 5, CORES_MAPA[membros[i].cor % 6]);
+    tft.setTextDatum(middle_left);
+    tft.setFont(&fonts::FreeSansBold12pt7b);
+    tft.setTextColor(C_TAN);
+    tft.drawString(membros[i].nome, r.x + 50, r.y + r.h / 2);
+    if (membros[i].lider) {
+      tft.setTextDatum(middle_right);
+      tft.setFont(&fonts::FreeSans9pt7b);
+      tft.setTextColor(C_SUN);
+      tft.drawString("LIDER", r.x + r.w - 18, r.y + r.h / 2);
+    }
+    tft.setFont(&fonts::Font0);
+  };
+  auto pintaContagem = [&]() {
+    tft.fillRect(M + 640, 150, 1280 - M - (M + 640), 30, C_BG);
+    tft.setTextDatum(top_left);
+    tft.setFont(&fonts::FreeSans9pt7b);
+    tft.setTextColor(C_INK3);
+    char c[40]; snprintf(c, sizeof(c), "NO GRUPO  (%d)", nMembros);
+    tft.drawString(c, M + 640, 152);
+    tft.setFont(&fonts::Font0);
+  };
+
+  tft.fillScreen(C_BG);
+  cabecalho(tft, "sala de espera", false);
+  tft.drawFastHLine(0, 132, tft.width(), C_LINE);
+
+  tft.setTextDatum(top_left);
+  tft.setFont(&fonts::FreeSansBold18pt7b);
+  tft.setTextColor(C_TAN);
+  tft.drawString(gNome, M, 150);
+
+  // o codigo fica GRANDE e permanente: o dono precisa ditar isso, e nao pode
+  // depender de ter anotado em outro lugar
+  tft.fillRoundRect(M, 208, 560, 170, 14, C_SURF);
+  tft.fillRoundRect(M, 208, 5, 170, 2, C_SUN);
+  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setTextColor(C_INK3);
+  tft.drawString("CODIGO DO GRUPO", M + 30, 232);
+  tft.setTextDatum(middle_left);
+  tft.setFont(&fonts::FreeSansBold24pt7b);
+  tft.setTextColor(C_SUN);
+  int cx = M + 30;
+  for (int i = 0; i < GRUPO_COD_DIG; i++) { char s[2] = { gCod[i], 0 }; tft.drawString(s, cx, 310); cx += 56; }
+  tft.setTextDatum(top_left);
+  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setTextColor(C_INK2);
+  tft.drawString("dite este numero para quem for entrar", M + 30, 344);
+
+  tft.setTextColor(C_INK3);
+  tft.drawString("A trilha pode ser aberta a qualquer momento.", M, 412);
+  tft.drawString("Quem chegar depois tambem entra com o mesmo codigo.", M, 440);
+
+  botao(tft, rSair, "< CANCELAR", "", C_INK2, false);
+  botao(tft, rAbrir, "ABRIR TRILHA", "", C_SUN, true);
+  pintaContagem();
+  for (int i = 0; i < nMembros; i++) pintaMembro(i);
+  tft.setFont(&fonts::Font0);
+
+  // SIMULACAO: sem radio, os seguidores "chegam" sozinhos para a tela poder ser
+  // vista funcionando. Com o E22 isto vira o pacote de JOIN.
+  static const char* FALSOS[] = { "Marcao", "Ze do Pneu", "Bia", "Tuninho", "Serra" };
+  uint32_t proximo = millis() + 2600;
+  int falsoIdx = 0;
+
+  while (true) {
+    if (millis() > proximo && nMembros < MAX_MEMBROS && falsoIdx < 5) {
+      strncpy(membros[nMembros].nome, FALSOS[falsoIdx++], 15);
+      membros[nMembros].nome[15] = 0;
+      membros[nMembros].cor = (uint8_t)(nMembros + 1);
+      membros[nMembros].lider = false;
+      pintaMembro(nMembros);          // SO a linha nova
+      nMembros++;
+      pintaContagem();
+      proximo = millis() + 3200 + (esp_random() % 2600);
+    }
+    int16_t x, y;
+    if (!esperaToque(tft, x, y, 150)) continue;
+    if (dentro(rAbrir, x, y)) return true;
+    if (dentro(rSair, x, y))  return false;
   }
 }
 
@@ -104,6 +212,105 @@ bool telaCriarGrupo(TFT& tft, const char* nomeCarro, char* gNome, char* gCod)
       if (tecladoTexto(tft, "nome do grupo", tmp, sizeof(tmp)) && strlen(tmp))
         strncpy(gNome, tmp, GRUPO_NOME_MAX - 1);
       desenha();
+    }
+  }
+}
+
+// ---------------------------------------------------------------- TRILHA
+// A tela em que o aparelho VIVE durante a trilha. Aqui vai entrar o mapa; por
+// enquanto mostra o grupo, o codigo (para quem chegar depois) e quem esta dentro.
+//
+// E para ca que o aparelho volta ao religar: se a sessao estiver ativa, o menu e
+// PULADO. Numa trilha, religar e ter de remontar grupo seria o motorista mexendo
+// na tela em vez de olhar a estrada.
+//
+// Devolve true quando o usuario sai da trilha.
+template <typename TFT>
+bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
+{
+  Ret rSair = { (int16_t)(1280 - M - 300), (int16_t)(720 - 108), 300, 88 };
+
+  tft.fillScreen(C_BG);
+  cabecalho(tft, s.lider ? "voce e o lider" : "seguindo", false);
+  tft.drawFastHLine(0, 132, tft.width(), C_LINE);
+
+  tft.setTextDatum(top_left);
+  tft.setFont(&fonts::FreeSansBold24pt7b);
+  tft.setTextColor(C_TAN);
+  tft.drawString(s.gNome, M, 154);
+
+  // o codigo continua a vista: quem chegar depois ainda precisa dele
+  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setTextColor(C_INK3);
+  tft.drawString("CODIGO", M, 216);
+  tft.setFont(&fonts::FreeSansBold18pt7b);
+  tft.setTextColor(C_SUN);
+  tft.drawString(s.gCod, M + 90, 210);
+
+  // onde o mapa entra
+  tft.drawRoundRect(M, 260, 700, 330, 14, C_LINE);
+  tft.setTextDatum(middle_center);
+  tft.setFont(&fonts::FreeSans12pt7b);
+  tft.setTextColor(C_INK3);
+  tft.drawString("o mapa entra aqui", M + 350, 410);
+  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.drawString("precisa de GPS e radio", M + 350, 446);
+
+  // quem esta na trilha
+  int lx = M + 740;
+  tft.setTextDatum(top_left);
+  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setTextColor(C_INK3);
+  char c[40]; snprintf(c, sizeof(c), "NA TRILHA  (%d)", nMembros);
+  tft.drawString(c, lx, 262);
+  for (int i = 0; i < nMembros && i < 6; i++) {
+    int y = 292 + i * 58;
+    tft.fillRoundRect(lx, y, 1280 - M - lx, 50, 10, C_SURF);
+    tft.fillRoundRect(lx + 14, y + 14, 22, 22, 5, CORES_MAPA[membros[i].cor % N_CORES]);
+    tft.setTextDatum(middle_left);
+    tft.setFont(&fonts::FreeSansBold12pt7b);
+    tft.setTextColor(C_TAN);
+    tft.drawString(membros[i].nome, lx + 48, y + 25);
+    if (membros[i].lider) {
+      tft.setTextDatum(middle_right);
+      tft.setFont(&fonts::FreeSans9pt7b);
+      tft.setTextColor(C_SUN);
+      tft.drawString("LIDER", 1280 - M - 16, y + 25);
+    }
+  }
+
+  botao(tft, rSair, "SAIR DA TRILHA", "", C_INK2, false);
+  tft.setTextDatum(middle_left);
+  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setTextColor(C_INK3);
+  tft.drawString("desligar e religar volta para esta tela", M, 720 - 64);
+  tft.setFont(&fonts::Font0);
+
+  while (true) {
+    int16_t x, y;
+    if (!esperaToque(tft, x, y, 300)) continue;
+    if (dentro(rSair, x, y)) {
+      // confirmar: sair e destrutivo (perde o grupo), e o dedo escorrega
+      Ret sim = { (int16_t)(1280 / 2 - 320), 400, 300, 96 };
+      Ret nao = { (int16_t)(1280 / 2 + 20), 400, 300, 96 };
+      tft.fillScreen(C_BG);
+      cabecalho(tft, "sair da trilha", false);
+      tft.setTextDatum(middle_center);
+      tft.setFont(&fonts::FreeSansBold24pt7b);
+      tft.setTextColor(C_INK);
+      tft.drawString("Sair do grupo?", 1280 / 2, 250);
+      tft.setFont(&fonts::FreeSans12pt7b);
+      tft.setTextColor(C_INK2);
+      tft.drawString("Voce sai da trilha e volta ao menu inicial", 1280 / 2, 310);
+      botao(tft, nao, "FICAR", "", C_TAN, false);
+      botao(tft, sim, "SAIR", "", C_SUN, true);
+      tft.setFont(&fonts::Font0);
+      while (true) {
+        int16_t a, b;
+        if (!esperaToque(tft, a, b)) continue;
+        if (dentro(sim, a, b)) return true;
+        if (dentro(nao, a, b)) return telaTrilha(tft, s, membros, nMembros);
+      }
     }
   }
 }
