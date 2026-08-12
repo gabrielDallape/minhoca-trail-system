@@ -28,6 +28,7 @@
 #define C_TAN     0xDE35   // bege das letras "MTS"
 #define C_OK      0x4CCB
 #define C_WARN    0xC544
+#define C_RED     0xC1C5   // sair da trilha, alerta de carro
 
 // Margem unica. Antes havia 40, 60 e 8 misturados - era isso que fazia a tela
 // parecer torta mesmo onde nao havia sobreposicao.

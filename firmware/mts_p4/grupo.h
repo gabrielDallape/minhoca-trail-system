@@ -18,7 +18,13 @@
 
 // Quem esta no grupo. Enquanto nao ha radio, entram sozinhos com o tempo, so para
 // a sala de espera poder ser vista funcionando.
-struct Membro { char nome[16]; uint8_t cor; bool lider; };
+struct Membro {
+  char    nome[16];
+  uint8_t cor;
+  bool    lider;
+  int16_t dist;     // metros ate mim. -1 = ainda sem posicao
+  bool    alerta;   // este carro pediu socorro
+};
 
 struct GrupoVizinho {
   const char* nome;
@@ -137,6 +143,8 @@ bool telaSalaEspera(TFT& tft, const char* gNome, const char* gCod,
       membros[nMembros].nome[15] = 0;
       membros[nMembros].cor = (uint8_t)(nMembros + 1);
       membros[nMembros].lider = false;
+      membros[nMembros].dist = -1;      // ainda sem posicao
+      membros[nMembros].alerta = false;
       pintaMembro(nMembros);          // SO a linha nova
       nMembros++;
       pintaContagem();
@@ -217,99 +225,147 @@ bool telaCriarGrupo(TFT& tft, const char* nomeCarro, char* gNome, char* gCod)
 }
 
 // ---------------------------------------------------------------- TRILHA
-// A tela em que o aparelho VIVE durante a trilha. Aqui vai entrar o mapa; por
-// enquanto mostra o grupo, o codigo (para quem chegar depois) e quem esta dentro.
+// A tela em que o aparelho VIVE durante a trilha.
 //
-// E para ca que o aparelho volta ao religar: se a sessao estiver ativa, o menu e
-// PULADO. Numa trilha, religar e ter de remontar grupo seria o motorista mexendo
-// na tela em vez de olhar a estrada.
+// REGRA DE LAYOUT: o MAPA E A TELA INTEIRA. Tudo o mais flutua por cima, no canto,
+// e ocupa o minimo possivel. Numa trilha o motorista olha o caminho; nome de
+// grupo, codigo e lista de carros sao consulta rapida, nao conteudo.
+//
+// Nao aparece "MTS" aqui: nesta tela quem manda e o grupo, nao a marca.
+// Nao apareco eu na lista: eu sou o centro do mapa, minha distancia e sempre zero.
 //
 // Devolve true quando o usuario sai da trilha.
 template <typename TFT>
 bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
 {
-  Ret rSair = { (int16_t)(1280 - M - 300), (int16_t)(720 - 108), 300, 88 };
+  Ret rSair = { M, (int16_t)(720 - M - 76), 200, 76 };
 
-  tft.fillScreen(C_BG);
-  cabecalho(tft, s.lider ? "voce e o lider" : "seguindo", false);
-  tft.drawFastHLine(0, 132, tft.width(), C_LINE);
+  // faixa de cada carro, encostada no canto superior direito
+  const int cw = 290, ch = 54, cxr = 1280 - 20 - cw;
+  auto faixaCarro = [&](int i) -> Ret {
+    return Ret{ (int16_t)cxr, (int16_t)(20 + (i - 1) * (ch + 6)), (int16_t)cw, (int16_t)ch };
+  };
 
-  tft.setTextDatum(top_left);
-  tft.setFont(&fonts::FreeSansBold24pt7b);
-  tft.setTextColor(C_TAN);
-  tft.drawString(s.gNome, M, 154);
-
-  // o codigo continua a vista: quem chegar depois ainda precisa dele
-  tft.setFont(&fonts::FreeSans9pt7b);
-  tft.setTextColor(C_INK3);
-  tft.drawString("CODIGO", M, 216);
-  tft.setFont(&fonts::FreeSansBold18pt7b);
-  tft.setTextColor(C_SUN);
-  tft.drawString(s.gCod, M + 90, 210);
-
-  // onde o mapa entra
-  tft.drawRoundRect(M, 260, 700, 330, 14, C_LINE);
-  tft.setTextDatum(middle_center);
-  tft.setFont(&fonts::FreeSans12pt7b);
-  tft.setTextColor(C_INK3);
-  tft.drawString("o mapa entra aqui", M + 350, 410);
-  tft.setFont(&fonts::FreeSans9pt7b);
-  tft.drawString("precisa de GPS e radio", M + 350, 446);
-
-  // quem esta na trilha
-  int lx = M + 740;
-  tft.setTextDatum(top_left);
-  tft.setFont(&fonts::FreeSans9pt7b);
-  tft.setTextColor(C_INK3);
-  char c[40]; snprintf(c, sizeof(c), "NA TRILHA  (%d)", nMembros);
-  tft.drawString(c, lx, 262);
-  for (int i = 0; i < nMembros && i < 6; i++) {
-    int y = 292 + i * 58;
-    tft.fillRoundRect(lx, y, 1280 - M - lx, 50, 10, C_SURF);
-    tft.fillRoundRect(lx + 14, y + 14, 22, 22, 5, CORES_MAPA[membros[i].cor % N_CORES]);
+  auto pintaCarro = [&](int i) {
+    Ret r = faixaCarro(i);
+    const Membro& m = membros[i];
+    tft.fillRoundRect(r.x, r.y, r.w, r.h, 10, m.alerta ? C_RED : C_SURF);
+    tft.fillRoundRect(r.x + 12, r.y + 16, 22, 22, 5, CORES_MAPA[m.cor % N_CORES]);
     tft.setTextDatum(middle_left);
     tft.setFont(&fonts::FreeSansBold12pt7b);
+    tft.setTextColor(m.alerta ? C_INK : C_TAN);
+    tft.drawString(m.nome, r.x + 44, r.y + r.h / 2);
+    tft.setTextDatum(middle_right);
+    tft.setFont(&fonts::FreeSansBold18pt7b);
+    tft.setTextColor(m.alerta ? C_INK : (m.dist < 0 ? C_INK3 : C_INK));
+    char d[16];
+    if (m.dist < 0)         strcpy(d, "-");
+    else if (m.dist < 1000) snprintf(d, sizeof(d), "%dm", m.dist);
+    else                    snprintf(d, sizeof(d), "%.1fkm", m.dist / 1000.0f);
+    tft.drawString(d, r.x + r.w - 14, r.y + r.h / 2);
+    tft.setFont(&fonts::Font0);
+  };
+
+  auto desenhaTudo = [&]() {
+    // o mapa e o fundo: tela inteira
+    tft.fillScreen(C_BG);
+    tft.setTextDatum(middle_center);
+    tft.setFont(&fonts::FreeSans12pt7b);
+    tft.setTextColor(C_INK3);
+    tft.drawString("o mapa entra aqui", 1280 / 2, 380);
+    tft.setFont(&fonts::FreeSans9pt7b);
+    tft.drawString("precisa de GPS, cartao e radio", 1280 / 2, 414);
+
+    // canto superior esquerdo: so o nome do grupo. O codigo so para o LIDER -
+    // e ele quem dita o numero; seguidor nao tem o que fazer com ele.
+    tft.setTextDatum(top_left);
+    tft.setFont(&fonts::FreeSansBold24pt7b);
     tft.setTextColor(C_TAN);
-    tft.drawString(membros[i].nome, lx + 48, y + 25);
-    if (membros[i].lider) {
-      tft.setTextDatum(middle_right);
+    tft.drawString(s.gNome, 20, 18);
+    if (s.lider && s.gCod[0] && s.gCod[0] != '-') {
       tft.setFont(&fonts::FreeSans9pt7b);
+      tft.setTextColor(C_INK3);
+      tft.drawString("CODIGO", 20, 68);
+      tft.setFont(&fonts::FreeSansBold12pt7b);
       tft.setTextColor(C_SUN);
-      tft.drawString("LIDER", 1280 - M - 16, y + 25);
+      tft.drawString(s.gCod, 92, 64);
     }
-  }
 
-  botao(tft, rSair, "SAIR DA TRILHA", "", C_INK2, false);
-  tft.setTextDatum(middle_left);
-  tft.setFont(&fonts::FreeSans9pt7b);
-  tft.setTextColor(C_INK3);
-  tft.drawString("desligar e religar volta para esta tela", M, 720 - 64);
-  tft.setFont(&fonts::Font0);
+    // canto inferior esquerdo: sair, vermelho
+    botao(tft, rSair, "SAIR", "", C_RED, true);
 
+    for (int i = 1; i < nMembros && i <= 6; i++) pintaCarro(i);
+    tft.setFont(&fonts::Font0);
+  };
+  desenhaTudo();
+
+  // Alerta: pisca a moldura da tela inteira. E para ser visto de canto de olho com
+  // o carro andando - por isso a tela toda, nao um icone. O apito de tres toques
+  // entra quando o codec de audio (ES8311) tiver driver.
+  auto piscaAlerta = [&](int quem) {
+    for (int k = 0; k < 3; k++) {
+      tft.fillRect(0, 0, 1280, 14, C_RED); tft.fillRect(0, 706, 1280, 14, C_RED);
+      tft.fillRect(0, 0, 14, 720, C_RED);  tft.fillRect(1266, 0, 14, 720, C_RED);
+      delay(150);
+      tft.fillRect(0, 0, 1280, 14, C_BG);  tft.fillRect(0, 706, 1280, 14, C_BG);
+      tft.fillRect(0, 0, 14, 720, C_BG);   tft.fillRect(1266, 0, 14, 720, C_BG);
+      delay(150);
+    }
+    desenhaTudo();
+  };
+
+  uint32_t proximo = millis() + 1500;
   while (true) {
+    // sem GPS, as distancias andam sozinhas so para a tela poder ser vista viva.
+    // Com o radio, isto vira o pacote de posicao.
+    if (millis() > proximo) {
+      for (int i = 1; i < nMembros && i <= 6; i++) {
+        if (membros[i].dist < 0) membros[i].dist = 80 + (esp_random() % 900);
+        else {
+          int passo = (int)(esp_random() % 60) - 25;
+          membros[i].dist = (int16_t)max(20, min(4000, membros[i].dist + passo));
+        }
+        pintaCarro(i);
+      }
+      proximo = millis() + 1200;
+    }
+
     int16_t x, y;
-    if (!esperaToque(tft, x, y, 300)) continue;
+    if (!esperaToque(tft, x, y, 200)) continue;
+
+    // tocar num carro liga/desliga o alerta dele - so para ver o comportamento
+    // antes de existir o botao de alerta de verdade
+    bool tratou = false;
+    for (int i = 1; i < nMembros && i <= 6; i++) {
+      if (dentro(faixaCarro(i), x, y)) {
+        membros[i].alerta = !membros[i].alerta;
+        pintaCarro(i);
+        if (membros[i].alerta) piscaAlerta(i);
+        tratou = true; break;
+      }
+    }
+    if (tratou) continue;
+
     if (dentro(rSair, x, y)) {
-      // confirmar: sair e destrutivo (perde o grupo), e o dedo escorrega
+      // confirmar: sair e destrutivo (perde o grupo) e o dedo escorrega
       Ret sim = { (int16_t)(1280 / 2 - 320), 400, 300, 96 };
       Ret nao = { (int16_t)(1280 / 2 + 20), 400, 300, 96 };
       tft.fillScreen(C_BG);
-      cabecalho(tft, "sair da trilha", false);
       tft.setTextDatum(middle_center);
       tft.setFont(&fonts::FreeSansBold24pt7b);
       tft.setTextColor(C_INK);
-      tft.drawString("Sair do grupo?", 1280 / 2, 250);
+      tft.drawString("Sair da trilha?", 1280 / 2, 250);
       tft.setFont(&fonts::FreeSans12pt7b);
       tft.setTextColor(C_INK2);
-      tft.drawString("Voce sai da trilha e volta ao menu inicial", 1280 / 2, 310);
+      tft.drawString("Voce sai do grupo e volta ao menu inicial", 1280 / 2, 310);
       botao(tft, nao, "FICAR", "", C_TAN, false);
-      botao(tft, sim, "SAIR", "", C_SUN, true);
+      botao(tft, sim, "SAIR", "", C_RED, true);
       tft.setFont(&fonts::Font0);
       while (true) {
         int16_t a, b;
         if (!esperaToque(tft, a, b)) continue;
         if (dentro(sim, a, b)) return true;
-        if (dentro(nao, a, b)) return telaTrilha(tft, s, membros, nMembros);
+        if (dentro(nao, a, b)) { desenhaTudo(); break; }
       }
     }
   }

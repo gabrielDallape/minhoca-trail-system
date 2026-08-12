@@ -38,6 +38,8 @@ static void membrosReinicia(bool souLider) {
   strncpy(g_membros[0].nome, g_nome, 15); g_membros[0].nome[15] = 0;
   g_membros[0].cor = g_cor;
   g_membros[0].lider = souLider;
+  g_membros[0].dist = 0;          // eu sou o centro do mapa
+  g_membros[0].alerta = false;
   g_nMembros = 1;
 }
 
