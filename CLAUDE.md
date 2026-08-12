@@ -112,8 +112,16 @@ Todas verificadas neste repo ou em fonte primária. Não redescubra:
   TXEN de verdade (`PLANO_IMPLEMENTACAO_MESH.md:99`).
 - **E22: VCC em 5 V** (não 3,3) com capacitor ≥470 µF, e **antena antes de
   energizar**. Pico de TX > 600 mA reseta a placa sem o capacitor.
-- **`begin()` do SX1262 devolvendo −707** é TCXO: tente 1.8 → 1.6 →
-  `radio.XTAL = true`.
+- **`begin()` do SX1262 devolvendo −707** é TCXO: tente **2.2** → 1.8 → 1.6. O valor
+  correto e o **2,2 V** — o manual E22-M V1.2 (2026-02-06) existe justamente para
+  acrescentar a descricao do cristal, e o manual de 2018 dizia 1,8 V. O default do
+  RadioLib e 1,6 V, o pior dos tres. **NAO use `radio.XTAL = true`**: esse flag diz
+  "nao ha TCXO, e cristal passivo", e este modulo TEM TCXO no DIO3.
+- **`setCurrentLimit(140)` DEPOIS de `setOutputPower(22)`**, senao o radio entrega
+  ~19,6 dBm em vez de 29,4 — sem erro, sem aviso. O `begin()` do RadioLib deixa o OCP
+  em 60 mA e `setOutputPower()` reescreve o registrador, entao a ordem e normativa
+  (datasheet SX1261/2, tab. 5-2). O PA externo e um YP2233W de +7,25 dB: 22 + 7,25 =
+  29,3 dBm, e os "30 dBm" do nome sao arredondamento.
 - **`huge_app` não tem partição OTA** (um slot só). O binário usa 14 % de 3 MB,
   então qualquer esquema de dois slots cabe — mas trocar o esquema exige uma
   gravação **por cabo**.
@@ -156,6 +164,7 @@ O que dá para fazer **sem hardware novo**, em ordem de valor (detalhes em
 
 | Arquivo | Para quê |
 |---|---|
+| `docs/MONTAGEM.md` | **passo a passo de bancada** — soldar o E22, chicote para as telas P4, GPS/PPS, e as 5 coisas que queimam |
 | `docs/RETOMAR.md` | **comece aqui** — passo a passo, pinagem, o que medir, compras |
 | `docs/AMBIENTE_BUILD.md` | versões de core/bibliotecas, FQBN, tamanhos de binário |
 | `docs/PLANO_IMPLEMENTACAO_MESH.md` | o plano do produto final (P4, ESP-IDF, TDMA, mapa) |
