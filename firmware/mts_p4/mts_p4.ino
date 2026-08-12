@@ -1,120 +1,206 @@
 /*
  * MTS - Minhoca Trail System | tela ESP32-P4
  *
- * ESTAGIO 1: provar o painel. Nada de interface ainda - so acender, pintar e
- * escrever, para separar "o painel esta configurado certo" de "a UI tem bug".
- * Se o ILI9881C nao casar com os timings do LGFX_P4_LCD5.h, e aqui que aparece.
+ * ETAPA 2: abertura + tela inicial + configuracao.
  *
- * O log sai pela CH343 (COM), entao da para diagnosticar mesmo com a tela preta.
+ * O que JA da para testar sem periferico nenhum: a abertura, o toque, a tela
+ * inicial e a troca do nome do aparelho (que persiste na NVS).
+ * O que AINDA nao existe: criar/entrar em grupo de verdade - isso precisa de
+ * radio, e radio precisa de DOIS nos que se ouçam.
+ *
+ * Sobre a rede: as telas S3 falam LoRaMESH e o P4 vai falar SX1262. Os dois NAO se
+ * conversam. Uma rede TDMA precisa de dois E22 em duas placas P4.
  *
  *   .\tools\build.ps1 firmware\mts_p4 -Board p4 -Upload -Port COM8
  */
-// O painel da Waveshare NAO responde a leitura por DBI: o readParams(0xF4) da
-// deteccao de ID trava para sempre (medido - o rastro do init para exatamente
-// nele). Entao pulamos a deteccao e assumimos ILI9881C, que e o controlador
-// classico de 720x1280 e o mesmo que o M5Tab5 usa com este SoC.
-#define MTS_SKIP_PANEL_ID 1
-// Sobe o DPI com um Panel_DSI cru (que nao trava) e so DEPOIS manda a sequencia
-// do HX8394. E a ordem do driver oficial: quando panel_hx8394_init roda, o painel
-// DPI ja existe. Ver o cabecalho do Panel_HX8394.h.
-#define MTS_PANEL_BARE 1
+#define MTS_SKIP_PANEL_ID 1     // o painel Waveshare trava se voce ler o ID dele
 #include "LGFX_P4_LCD5.h"
+#include "splash.h"
+#include "ui.h"
+#include "teclado.h"
+#include <Preferences.h>
 
 LGFX_P4 tft;
+Preferences prefs;
 
-static void barra(int y, int h, uint16_t cor, const char* nome)
-{
-  tft.fillRect(0, y, tft.width(), h, cor);
+// Mesmo espaco e mesmas chaves do grupo_ws das telas S3, de proposito: a ideia de
+// configuracao e a mesma, so a tela mudou.
+static char  g_nome[16] = "Carro";
+static uint8_t g_tema = 0;
+
+static void carregaCfg() {
+  prefs.begin("grupo", true);
+  String n = prefs.getString("name", "Carro");
+  g_tema = prefs.getUChar("theme", 0);
+  prefs.end();
+  strncpy(g_nome, n.c_str(), sizeof(g_nome) - 1);
+  g_nome[sizeof(g_nome) - 1] = 0;
+}
+static void salvaCfg() {
+  prefs.begin("grupo", false);
+  prefs.putString("name", g_nome);
+  prefs.putUChar("theme", g_tema);
+  prefs.end();
 }
 
+// ------------------------------------------------------------- tela inicial
+static Ret hCriar, hEntrar, hEng;
+
+static void desenhaInicial()
+{
+  tft.fillScreen(C_BG);
+  hEng = cabecalho(tft, "trilha", true);
+
+  const int bw = 460, bh = 132;
+  const int gap = 40;
+  const int y = 300;
+  hCriar  = { (int16_t)(tft.width() / 2 - bw - gap / 2), (int16_t)y, (int16_t)bw, (int16_t)bh };
+  hEntrar = { (int16_t)(tft.width() / 2 + gap / 2),      (int16_t)y, (int16_t)bw, (int16_t)bh };
+
+  tft.setTextDatum(middle_center);
+  tft.setFont(&fonts::FreeSans12pt7b);
+  tft.setTextColor(C_INK2);
+  tft.drawString("Comece uma trilha ou entre na de alguem", tft.width() / 2, 210);
+
+  botao(tft, hCriar,  "CRIAR GRUPO",  C_ORANGE, true);
+  botao(tft, hEntrar, "ENTRAR", C_TAN, false);
+
+  // rodape: quem e este aparelho
+  tft.drawFastHLine(0, tft.height() - 78, tft.width(), C_LINE);
+  tft.setTextDatum(middle_left);
+  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setTextColor(C_INK3);
+  tft.drawString("ESTE APARELHO", 40, tft.height() - 46);
+  tft.setFont(&fonts::FreeSansBold12pt7b);
+  tft.setTextColor(C_TAN);
+  tft.drawString(g_nome, 40 + 150, tft.height() - 45);
+
+  tft.setTextDatum(middle_right);
+  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setTextColor(C_INK3);
+  tft.drawString("sem radio - etapa 2", tft.width() - 40, tft.height() - 46);
+  tft.setFont(&fonts::Font0);
+}
+
+// ------------------------------------------------------------- configuracao
+static void telaAviso(const char* titulo, const char* linha1, const char* linha2)
+{
+  tft.fillScreen(C_BG);
+  cabecalho(tft, titulo, false);
+  tft.setTextDatum(middle_center);
+  tft.setFont(&fonts::FreeSansBold18pt7b);
+  tft.setTextColor(C_INK);
+  tft.drawString(linha1, tft.width() / 2, 300);
+  tft.setFont(&fonts::FreeSans12pt7b);
+  tft.setTextColor(C_INK2);
+  tft.drawString(linha2, tft.width() / 2, 360);
+
+  Ret volta = { (int16_t)(tft.width() / 2 - 130), 480, 260, 96 };
+  botao(tft, volta, "VOLTAR", C_TAN, false);
+  tft.setFont(&fonts::Font0);
+  int16_t x, y;
+  while (true) { if (esperaToque(tft, x, y) && dentro(volta, x, y)) return; }
+}
+
+static void telaConfig()
+{
+  while (true) {
+    tft.fillScreen(C_BG);
+    cabecalho(tft, "configuracao", false);
+
+    const int lx = 60, lw = tft.width() - 120, lh = 110;
+    Ret rNome  = { (int16_t)lx, 150, (int16_t)lw, (int16_t)lh };
+    Ret rTema  = { (int16_t)lx, 280, (int16_t)lw, (int16_t)lh };
+    Ret rVolta = { (int16_t)(tft.width() / 2 - 130), 560, 260, 96 };
+
+    // linha: nome do aparelho
+    tft.fillRoundRect(rNome.x, rNome.y, rNome.w, rNome.h, 12, C_SURF);
+    tft.setTextDatum(middle_left);
+    tft.setFont(&fonts::FreeSans9pt7b);
+    tft.setTextColor(C_INK3);
+    tft.drawString("NOME DESTE APARELHO", rNome.x + 28, rNome.y + 34);
+    tft.setFont(&fonts::FreeSansBold18pt7b);
+    tft.setTextColor(C_TAN);
+    tft.drawString(g_nome, rNome.x + 28, rNome.y + 74);
+    tft.setTextDatum(middle_right);
+    tft.setFont(&fonts::FreeSans12pt7b);
+    tft.setTextColor(C_ORANGE);
+    tft.drawString("tocar para mudar", rNome.x + rNome.w - 28, rNome.y + rNome.h / 2);
+
+    // linha: aparencia (ainda nao)
+    tft.fillRoundRect(rTema.x, rTema.y, rTema.w, rTema.h, 12, C_SURF);
+    tft.setTextDatum(middle_left);
+    tft.setFont(&fonts::FreeSans9pt7b);
+    tft.setTextColor(C_INK3);
+    tft.drawString("APARENCIA", rTema.x + 28, rTema.y + 34);
+    tft.setFont(&fonts::FreeSansBold18pt7b);
+    tft.setTextColor(C_INK3);
+    tft.drawString("tema da trilha", rTema.x + 28, rTema.y + 74);
+    tft.setTextDatum(middle_right);
+    tft.setFont(&fonts::FreeSans12pt7b);
+    tft.setTextColor(C_INK3);
+    tft.drawString("em breve", rTema.x + rTema.w - 28, rTema.y + rTema.h / 2);
+
+    botao(tft, rVolta, "VOLTAR", C_TAN, false);
+    tft.setFont(&fonts::Font0);
+
+    int16_t x, y;
+    if (!esperaToque(tft, x, y)) continue;
+    if (dentro(rVolta, x, y)) return;
+    if (dentro(rNome, x, y)) {
+      char tmp[sizeof(g_nome)];
+      strncpy(tmp, g_nome, sizeof(tmp));
+      if (tecladoTexto(tft, "nome do aparelho", tmp, sizeof(tmp))) {
+        if (strlen(tmp) == 0) strcpy(tmp, "Carro");
+        strncpy(g_nome, tmp, sizeof(g_nome) - 1);
+        g_nome[sizeof(g_nome) - 1] = 0;
+        salvaCfg();
+        Serial.printf("nome salvo: %s\n", g_nome);
+      }
+    }
+    if (dentro(rTema, x, y)) {
+      telaAviso("aparencia", "Ainda nao", "O tema entra depois que o mapa existir");
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 void setup()
 {
   Serial.begin(115200);
   uint32_t t0 = millis();
-  while (!Serial && (millis() - t0) < 3000) delay(10);
-  delay(300);
+  while (!Serial && (millis() - t0) < 1500) delay(10);
+  Serial.println("\n=== MTS - Minhoca Trail System ===");
 
-  Serial.println("\n=== MTS | teste de painel P4 ===");
+  carregaCfg();
 
-  // A PSRAM e pre-requisito: o framebuffer de 1,8 MB nao cabe na RAM interna.
-  size_t ps = ESP.getPsramSize();
-  Serial.printf("PSRAM: %u bytes (%.1f MB)\n", (unsigned)ps, ps / 1048576.0);
-  if (ps == 0) {
-    Serial.println("ERRO: PSRAM em 0. Falta PSRAM=enabled no FQBN - a tela NAO vai subir.");
-  }
+  if (!tft.init()) { Serial.println("ERRO: painel nao inicializou."); while (true) delay(1000); }
+  // Painel nativo 720x1280 em pe; giramos para paisagem. Medido: a rotacao por
+  // software custa 0% aqui (14,9 ms a tela cheia nas duas orientacoes).
+  tft.setRotation(1);
+  Serial.printf("painel %s %dx%d | nome=%s\n", tft.panelName, tft.width(), tft.height(), g_nome);
 
-  Serial.println("chamando tft.init()...");
-  Serial.flush();
-  uint32_t ti = millis();
-  bool ok = tft.init();
-  Serial.printf("tft.init(): %s (%lu ms)\n", ok ? "OK" : "FALHOU", (unsigned long)(millis() - ti));
-  if (!ok) {
-    Serial.println("Painel nao inicializou. Suspeitos, em ordem:");
-    Serial.println("  1) timings do DPI no LGFX_P4_LCD5.h (porches/dpi_freq_mhz)");
-    Serial.println("  2) lane_mbps ou lane_num do Bus_DSI");
-    Serial.println("  3) controlador do painel nao e ILI9881C");
-    while (true) delay(1000);
-  }
-
-  Serial.printf("painel detectado: %s (%d x %d)\n", tft.panelName, tft.panelW, tft.panelH);
-  Serial.printf("resolucao util : %d x %d\n", tft.width(), tft.height());
-  Serial.printf("heap livre: %u | psram livre: %u\n",
-                (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
-
-  Serial.println("enviando sequencia do HX8394 com o DPI ja rodando...");
-  Serial.flush();
-  bool seq = tft.enviarInitHX8394();
-  Serial.printf("sequencia do painel: %s\n", seq ? "COMPLETA" : "FALHOU");
-
-  tft.setBrightness(255);
-  Serial.println("backlight ligado");
-
-  // ---- 1. barras de cor: prova a ordem dos canais e a ausencia de tearing
-  int h = tft.height() / 6;
-  barra(0 * h, h, TFT_RED,     "vermelho");
-  barra(1 * h, h, TFT_GREEN,   "verde");
-  barra(2 * h, h, TFT_BLUE,    "azul");
-  barra(3 * h, h, TFT_WHITE,   "branco");
-  barra(4 * h, h, TFT_BLACK,   "preto");
-  barra(5 * h, tft.height() - 5 * h, TFT_ORANGE, "laranja");
-  Serial.println("barras desenhadas - confira se as cores batem com os nomes");
-  delay(2500);
-
-  // ---- 2. moldura + cantos: prova que a area toda e enderecavel
-  tft.fillScreen(TFT_BLACK);
-  tft.drawRect(0, 0, tft.width(), tft.height(), TFT_ORANGE);
-  tft.drawRect(4, 4, tft.width() - 8, tft.height() - 8, 0x8410);
-  const int m = 40;
-  tft.fillCircle(m, m, 12, TFT_RED);
-  tft.fillCircle(tft.width() - m, m, 12, TFT_GREEN);
-  tft.fillCircle(m, tft.height() - m, 12, TFT_BLUE);
-  tft.fillCircle(tft.width() - m, tft.height() - m, 12, TFT_WHITE);
-
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextDatum(middle_center);
-  tft.setTextSize(3);
-  tft.drawString("MTS", tft.width() / 2, tft.height() / 2 - 60);
-  tft.setTextSize(2);
-  tft.drawString("Minhoca Trail System", tft.width() / 2, tft.height() / 2);
-  tft.setTextSize(1);
-  char buf[64];
-  snprintf(buf, sizeof(buf), "%d x %d  |  ESP32-P4", tft.width(), tft.height());
-  tft.drawString(buf, tft.width() / 2, tft.height() / 2 + 40);
-
-  Serial.println("texto desenhado. Se voce esta lendo MTS na tela, o painel esta OK.");
-  Serial.println("Confira: os 4 circulos dos cantos aparecem inteiros?");
+  splashMostrar(tft);
+  desenhaInicial();
 }
 
 void loop()
 {
-  // Pisca um ponto para provar que o refresh continua vivo (e que nao travou
-  // depois do primeiro quadro, sintoma tipico de framebuffer mal alocado).
-  static bool on = false;
-  static uint32_t t = 0;
-  if (millis() - t > 500) {
-    t = millis();
-    on = !on;
-    tft.fillCircle(tft.width() / 2, tft.height() - 80, 8, on ? TFT_ORANGE : TFT_BLACK);
+  int16_t x, y;
+  if (!esperaToque(tft, x, y, 500)) return;
+
+  if (dentro(hEng, x, y)) { telaConfig(); desenhaInicial(); return; }
+
+  if (dentro(hCriar, x, y)) {
+    botao(tft, hCriar, "CRIAR GRUPO", C_ORANGE, true, true);
+    telaAviso("criar grupo", "Precisa do radio", "Solde um E22 e ligue em duas placas");
+    desenhaInicial();
+    return;
   }
-  delay(20);
+  if (dentro(hEntrar, x, y)) {
+    botao(tft, hEntrar, "ENTRAR", C_TAN, false, true);
+    telaAviso("entrar no grupo", "Precisa do radio", "Solde um E22 e ligue em duas placas");
+    desenhaInicial();
+    return;
+  }
 }

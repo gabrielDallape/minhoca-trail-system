@@ -83,10 +83,51 @@ public:
     // Reset do painel por GPIO direto. As placas P4 da Waveshare NAO tem expansor
     // de I/O (ao contrario da S3-Touch-LCD-7B, onde ate o CS do cartao passava
     // pelo CH422G) - entao aqui e um pino comum.
-    MTS_LOG("1. reset do painel no GPIO %d", P4_LCD_RST);
+    // ---------------------------------------------------------------------
+    // 0. LIGAR O PAINEL. Este passo nao existe em nenhuma biblioteca generica e
+    // nao esta em datasheet nenhum: e um chip de habilitacao de energia no
+    // endereco I2C 0x45, no mesmo barramento do toque (GPIO 7/8).
+    //
+    // SEM ISTO o painel fica DESENERGIZADO, e ai:
+    //   - readParams (ID do painel) trava
+    //   - writeParams trava em algum ponto variavel da sequencia
+    // e o travamento nao da erro, porque panel_io_dbi_tx_param SEMPRE devolve
+    // ESP_OK: quem bloqueia sao esperas ocupadas sem timeout no HAL
+    //   while (mipi_dsi_host_ll_gen_is_write_fifo_full(hal->host));
+    // (esp_lcd/dsi/esp_lcd_panel_io_dbi.c e hal/mipi_dsi_hal.c).
+    //
+    // Transcrito de esp_lcd_new_panel_hx8394() do componente oficial da Waveshare
+    // (Waveshare-ESP32-components, display/lcd/esp_lcd_hx8394). O segundo inteiro
+    // de espera no fim e do original - nao encurte.
+    MTS_LOG("0. habilitando energia do painel (I2C 0x45)");
+    lgfx::i2c::init(1, P4_TP_SDA, P4_TP_SCL);
+    lgfx::i2c::writeRegister8(1, 0x45, 0x95, 0x11, 0, 100000);
+    lgfx::i2c::writeRegister8(1, 0x45, 0x95, 0x17, 0, 100000);
+    lgfx::i2c::writeRegister8(1, 0x45, 0x96, 0x00, 0, 100000);
+    lgfx::delay(100);
+    lgfx::i2c::writeRegister8(1, 0x45, 0x96, 0xFF, 0, 100000);
+    lgfx::delay(1000);
+    MTS_LOG("   painel energizado");
+
+    // O RESET DESTA PLACA E ATIVO-ALTO. Isto nao e detalhe: e a causa do bug que
+    // custou a tarde inteira. O BSP da Waveshare traz .flags.reset_active_high = 1
+    // e o porte independente da mesma placa no xiaozhi-esp32 concorda.
+    //
+    // A LovyanGFX assume o contrario (ativo-baixo, repouso em HIGH): o
+    // Panel_Device::init termina com rst_control(true) -> gpio_hi, ou seja, deixa
+    // o painel PRESO EM RESET nesta placa. Por isso pin_rst fica em GPIO_NUM_NC na
+    // config do painel: o reset e feito aqui, com a polaridade certa.
+    //
+    // Com o painel em reset ele fica MUDO, e ai o modo de falha e cruel: o
+    // esp_lcd_new_panel_io_dbi liga ACK por comando (fixo, sem opcao), entao o
+    // host faz bus turn-around e ESPERA resposta a cada comando. Sem resposta, a
+    // FIFO enche e o HAL gira para sempre num while() sem timeout. O comando em
+    // que trava MUDA conforme o codigo em volta - e a FIFO saturando em pontos
+    // diferentes, nao um comando "venenoso" (esp-idf issues #15137, #15358, #18194).
+    MTS_LOG("1. reset do painel no GPIO %d (ATIVO-ALTO)", P4_LCD_RST);
     lgfx::pinMode(P4_LCD_RST, lgfx::pin_mode_t::output);
-    lgfx::gpio_lo(P4_LCD_RST); lgfx::delay(20);
-    lgfx::gpio_hi(P4_LCD_RST); lgfx::delay(120);
+    lgfx::gpio_hi(P4_LCD_RST); lgfx::delay(20);   // assert
+    lgfx::gpio_lo(P4_LCD_RST); lgfx::delay(120);  // release -> estado de operacao
 
     {
       auto cfg = _dsi.config();
