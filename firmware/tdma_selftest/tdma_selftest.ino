@@ -251,6 +251,57 @@ void testPacket(){
   check(b.heading >= 328.0f && b.heading <= 332.0f, "heading -30 normalizado para ~330");
 }
 
+// ---------------------------------------------------------------------------
+// Grade de tempo: GPS e UTC diferem 18s INTEIROS. A borda do pulso e a mesma nas
+// duas, mas o ROTULO nao - e tdmaUsInFrame() usa (anchorSec % frameSecs). Se um
+// no rotular em UTC e outro em GPS, os frames se deslocam de (18 % frameSecs).
+// Este teste trava o contrato: quais frames sao imunes, e a prova de que 4 e 5
+// (os que 25-50 nos exigem em SF7) NAO sao.
+void testTimeGrid(){
+  Serial.println("\n[11] grade de tempo GPS x UTC (18s) e frameSecs sensivel");
+
+  check( tdmaFrameSecsGridSafe(1),  "frameSecs 1 e imune");
+  check( tdmaFrameSecsGridSafe(2),  "frameSecs 2 e imune");
+  check( tdmaFrameSecsGridSafe(3),  "frameSecs 3 e imune");
+  check(!tdmaFrameSecsGridSafe(4),  "frameSecs 4 e SENSIVEL a grade");
+  check(!tdmaFrameSecsGridSafe(5),  "frameSecs 5 e SENSIVEL a grade");
+  check( tdmaFrameSecsGridSafe(6),  "frameSecs 6 e imune");
+  check( tdmaFrameSecsGridSafe(9),  "frameSecs 9 e imune");
+  check( tdmaFrameSecsGridSafe(18), "frameSecs 18 e imune");
+
+  // o flag chega no struct, que e por onde o sketch avisa no boot
+  Tdma a; tdmaInit(a, 0, 8, 1, 15000);
+  check(!a.gridSensitive, "frame de 1s nao levanta gridSensitive");
+  Tdma b; tdmaInit(b, 0, 50, 4, 20000);
+  check(b.gridSensitive, "frame de 4s (50 nos em SF7) levanta gridSensitive");
+
+  // A PROVA do estrago: dois nos identicos, mesma borda de PPS, mas um rotulando
+  // em UTC e outro na grade GPS (+18). Com frameSecs=4 eles discordam do frame.
+  const uint32_t utcSec = 1000;
+  const uint32_t gpsSec = utcSec + TDMA_GRID_OFFSET_SEC;   // 1018
+
+  Tdma u4; tdmaInit(u4, 0, 8, 4, 15000);
+  Tdma g4; tdmaInit(g4, 0, 8, 4, 15000);
+  tdmaTestNowUs = 5000000ULL;
+  tdmaOnPps(u4, tdmaTestNowUs, utcSec);
+  tdmaOnPps(g4, tdmaTestNowUs, gpsSec);
+  uint32_t uu, ug, fu, fg;
+  tdmaUsInFrame(u4, uu, fu);
+  tdmaUsInFrame(g4, ug, fg);
+  checkEqU(ug > uu ? ug - uu : uu - ug, 2000000UL,
+           "frame 4s: nos em grades diferentes ficam 2s deslocados");
+
+  // e a imunidade, com o mesmo cenario e frameSecs que divide 18
+  Tdma u6; tdmaInit(u6, 0, 8, 6, 15000);
+  Tdma g6; tdmaInit(g6, 0, 8, 6, 15000);
+  tdmaOnPps(u6, tdmaTestNowUs, utcSec);
+  tdmaOnPps(g6, tdmaTestNowUs, gpsSec);
+  tdmaUsInFrame(u6, uu, fu);
+  tdmaUsInFrame(g6, ug, fg);
+  checkEqU(ug > uu ? ug - uu : uu - ug, 0UL,
+           "frame 6s: mesmas grades diferentes, ZERO deslocamento");
+}
+
 void setup(){
   Serial.begin(115200);
   delay(600);
@@ -268,6 +319,7 @@ void setup(){
   testPps();
   testNoOverlap();
   testPacket();
+  testTimeGrid();
 
   Serial.printf("\n=========================================\n");
   Serial.printf(" RESULTADO: %d PASS, %d FAIL\n", gPass, gFail);

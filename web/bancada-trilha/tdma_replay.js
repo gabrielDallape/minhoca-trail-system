@@ -26,7 +26,8 @@ global.document={querySelector:()=>mkEl(),querySelectorAll:()=>[],createElement:
 global.window=global; global.requestAnimationFrame=()=>1; global.getComputedStyle=()=>({getPropertyValue:()=>""});
 src+=`;module.exports={tdmaInit,tdmaOnBeacon,tdmaOnPps,tdmaTick,tdmaShouldTx,tdmaUsInFrame,
   tdmaSlotAt,tdmaSlotStartUs,tdmaGuardNow,tdmaHeadroomUs,tdmaFits,tdmaMaxNodes,
-  tdmaPack,tdmaUnpack,TDMA_PKT_N,TDMA_FL_FIX,TDMA_FL_ALERT,TDMA_FL_LEADER,sim};`;
+  tdmaPack,tdmaUnpack,TDMA_PKT_N,TDMA_FL_FIX,TDMA_FL_ALERT,TDMA_FL_LEADER,
+  tdmaFrameSecsGridSafe,TDMA_GRID_OFFSET_SEC,sim};`;
 const mod={exports:{}};
 new Function("module","exports","require",src)(mod,mod.exports,require);
 const S=mod.exports;
@@ -211,6 +212,34 @@ sec("[10] correcoes: frameBase, recuo do air-time, ancora sem holdover");
   NOW=0; S.tdmaOnBeacon(seg,0);
   NOW=10000000; tick(seg);
   check(seg.holdover,"um seguidor sem ancora ainda entra em holdover");
+}
+
+sec("[11] grade de tempo GPS x UTC (18s) e frameSecs sensivel");
+{
+  check( S.tdmaFrameSecsGridSafe(1), "frameSecs 1 e imune");
+  check( S.tdmaFrameSecsGridSafe(3), "frameSecs 3 e imune");
+  check(!S.tdmaFrameSecsGridSafe(4), "frameSecs 4 e SENSIVEL a grade");
+  check(!S.tdmaFrameSecsGridSafe(5), "frameSecs 5 e SENSIVEL a grade");
+  check( S.tdmaFrameSecsGridSafe(6), "frameSecs 6 e imune");
+
+  const a=S.tdmaInit(0,8,1,15000);
+  check(!a.gridSensitive,"frame de 1s nao levanta gridSensitive");
+  const b=S.tdmaInit(0,50,4,20000);
+  check(b.gridSensitive,"frame de 4s (50 nos em SF7) levanta gridSensitive");
+
+  // a prova do estrago: mesma borda de PPS, um no rotulando em UTC e outro na
+  // grade GPS (+18). Com frameSecs=4 eles discordam de 2s.
+  const utc=1000, gps=1000+S.TDMA_GRID_OFFSET_SEC;
+  NOW=5000000;
+  const u4=S.tdmaInit(0,8,4,15000), g4=S.tdmaInit(0,8,4,15000);
+  S.tdmaOnPps(u4,NOW,utc); S.tdmaOnPps(g4,NOW,gps);
+  checkEq(Math.abs(usInFrame(g4).usInFrame-usInFrame(u4).usInFrame),2000000,
+    "frame 4s: nos em grades diferentes ficam 2s deslocados");
+
+  const u6=S.tdmaInit(0,8,6,15000), g6=S.tdmaInit(0,8,6,15000);
+  S.tdmaOnPps(u6,NOW,utc); S.tdmaOnPps(g6,NOW,gps);
+  checkEq(Math.abs(usInFrame(g6).usInFrame-usInFrame(u6).usInFrame),0,
+    "frame 6s: mesmas grades diferentes, ZERO deslocamento");
 }
 
 console.log(`\n${pass} PASS, ${fail} FAIL`);

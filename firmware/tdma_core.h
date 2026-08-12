@@ -43,10 +43,46 @@
 enum TdmaSync : uint8_t { TDMA_SYNC_NONE = 0, TDMA_SYNC_BEACON = 1, TDMA_SYNC_PPS = 2 };
 
 // Sem ancora ha mais de 1,5s consideramos HOLDOVER: o relogio interno continua
-// contando (drift do ESP32 ~2ms/dia, irrelevante em minutos), mas alargamos a
-// guarda porque a confianca no alinhamento caiu.
+// contando, mas alargamos a guarda porque a confianca no alinhamento caiu.
+//
+// CUIDADO: o drift NAO e desprezivel. Uma versao anterior deste comentario dizia
+// "~2ms/dia", numero que estava errado por ~3 ordens de grandeza (2ms/dia sao
+// 0,023 ppm, classe OCXO de laboratorio). A Espressif NAO especifica o ppm do
+// cristal - e escolha do fabricante da placa. Um cristal comum de 10 ppm derrete
+// uma guarda de 110ms em ~3 minutos de holdover:
+//
+//   guarda_disponivel_us / (ppm * 1e-6)  =  110000 / 1e-5  =  11e9 us = 3,05 min
+//
+// Portanto TDMA_HOLDOVER_GUARD cobre segundos, nao minutos. Meca o ppm de cada
+// placa contando esp_timer_get_time() entre N bordas de PPS e grave na NVS:
+//   ppm = (dt_medido - N*1e6) / (N*1e6) * 1e6      (N=300 resolve <1 ppm)
 static const uint32_t TDMA_ANCHOR_TTL_US  = 1500000UL;
 static const uint32_t TDMA_HOLDOVER_GUARD = 3;          // multiplicador da guarda
+
+// ---------------------------------------------------- grade de tempo (GPS x UTC)
+// O rotulo do segundo que entra em tdmaOnPps() pode vir de DUAS grades:
+//   - UTC  : o que o NMEA reporta (e o que o ATGM336H alinha por hardware)
+//   - GPS  : o que UBX-TIM-TP reporta, e o DEFAULT de fabrica do u-blox no CFG-TP5
+// As duas diferem por um numero INTEIRO de segundos (18 em 2026), entao a BORDA
+// do pulso e a mesma nas duas - o que muda e so o rotulo.
+//
+// Isso importa porque tdmaUsInFrame() faz (anchorSec % frameSecs). Se um no
+// rotular em UTC e outro em GPS, os dois calculam frames deslocados de
+// (18 % frameSecs) segundos -> colisao total e SILENCIOSA, so em rede mista.
+//
+//   frameSecs 1,2,3,6,9,18 -> 18%f == 0 -> imune
+//   frameSecs 4            -> desloca 2s
+//   frameSecs 5            -> desloca 3s   <- e 4 e 5 sao justamente os frames
+//                                             que 25-50 nos exigem em SF7.
+//
+// REGRA DO PROJETO: anchorSec e SEMPRE UTC. Em no u-blox, mande CFG-TP5 com
+// gridUtcGps=0. O flag gridSensitive abaixo existe para o sketch avisar quando a
+// configuracao escolhida depende dessa regra ser respeitada.
+static const uint32_t TDMA_GRID_OFFSET_SEC = 18;   // GPS - UTC, IERS Bulletin C 72
+
+inline bool tdmaFrameSecsGridSafe(uint32_t frameSecs){
+  return frameSecs && (TDMA_GRID_OFFSET_SEC % frameSecs) == 0;
+}
 
 struct Tdma {
   uint8_t  nodeId;      // 0..nSlots-1, unico por carro. 0 = ancora na fase 2
@@ -80,6 +116,12 @@ struct Tdma {
   // sincronize, entao nao pode ser marcado em holdover por falta de ancora.
   bool isAnchor;
 
+  // true quando (18 % frameSecs) != 0, ou seja: com este frame, misturar nos que
+  // rotulam anchorSec em UTC com nos que rotulam em GPS desalinha a rede inteira
+  // sem dar erro. Nao impede nada - a config e valida SE todos usarem UTC. Serve
+  // para o sketch avisar no boot. Ver o bloco da grade de tempo la em cima.
+  bool gridSensitive;
+
   uint32_t txFrameDone; // ultimo frame em que ja transmiti -> 1 TX por frame
   bool     haveTxFrame;
 
@@ -101,6 +143,7 @@ inline void tdmaInit(Tdma& t, uint8_t nodeId, uint8_t nSlots, uint32_t frameSecs
   t.frameBase = 0;
   t.airtimeUs = 0;
   t.isAnchor = (nodeId == 0);
+  t.gridSensitive = !tdmaFrameSecsGridSafe(t.frameSecs);
   t.txFrameDone = 0; t.haveTxFrame = false;
   t.anchorCount = 0; t.txCount = 0; t.missedTx = 0;
 }
@@ -165,6 +208,15 @@ inline void tdmaOnBeacon(Tdma& t, uint64_t rxUs){
 //   utcSec = segundo UTC daquela borda. O NMEA diz QUAL segundo e; o PPS da a
 //            borda. Cuidado: a sentenca NMEA chega DEPOIS do pulso, entao o
 //            segundo a casar com a borda e (ss do ultimo NMEA) + 1.
+//
+// OBRIGATORIO: utcSec e UTC, nunca a semana/TOW de GPS. Se voce trocar o parser
+// por UBX-TIM-TP (que reporta na grade GPS), SUBTRAIA TDMA_GRID_OFFSET_SEC antes
+// de chamar aqui. Misturar as duas grades na mesma rede desalinha os frames em
+// silencio quando frameSecs nao divide 18 - ver o bloco da grade la em cima.
+//
+// No P4 o ppsUs nao precisa vir de ISR: GPIO -> ETM -> GPTIMER_ETM_TASK_CAPTURE
+// carimba a borda em hardware (12,5 ns) e voce le com gptimer_get_captured_count().
+// A interface aqui nao muda; so melhora a procedencia do numero.
 inline void tdmaOnPps(Tdma& t, uint64_t ppsUs, uint32_t utcSec){
   t.sync = TDMA_SYNC_PPS;
   t.anchorUs = ppsUs; t.anchorSec = utcSec;

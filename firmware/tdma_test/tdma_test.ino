@@ -126,6 +126,17 @@ void setup(){
     Serial.printf("[tdma] ERRO: nodeId %u >= N_SLOTS %u\n", nodeId, (unsigned)N_SLOTS);
     while (true) delay(1000);
   }
+  // Nao e erro - a config e valida se TODOS os nos rotularem anchorSec em UTC.
+  // Mas com este frame um unico no rotulando na grade GPS desalinha a rede
+  // inteira em silencio, entao o aviso fica visivel no boot. Ver tdma_core.h.
+  if (tdma.gridSensitive) {
+    Serial.printf("[tdma] AVISO: frame de %lus e SENSIVEL a grade de tempo "
+                  "(18 %% %lu = %lu).\n",
+      (unsigned long)FRAME_SECS, (unsigned long)FRAME_SECS,
+      (unsigned long)(TDMA_GRID_OFFSET_SEC % FRAME_SECS));
+    Serial.println("[tdma]        Todo no TEM de alimentar tdmaOnPps com segundo UTC.");
+    Serial.println("[tdma]        Em u-blox: CFG-TP5 com gridUtcGps=0. Frames imunes: 1,2,3,6,9,18.");
+  }
 
   // O no 0 e a ancora: comeca o relogio nele mesmo, sem esperar ninguem.
   if (nodeId == 0) { tdmaOnBeacon(tdma, tdmaNowUs()); Serial.println("[tdma] sou a ANCORA (no 0)"); }

@@ -948,12 +948,19 @@ const TDMA_ANCHOR_TTL_US=1500000, TDMA_HOLDOVER_GUARD=3;
 const TDMA_SF=7, TDMA_BW_KHZ=125, TDMA_PRE=8;
 const TDMA_SYNC_NONE=0, TDMA_SYNC_BEACON=1, TDMA_SYNC_PPS=2;
 
+// GPS e UTC diferem 18s INTEIROS: a borda do PPS e a mesma, o ROTULO nao. Como
+// tdmaUsInFrame usa (anchorSec % frameSecs), uma rede que mistura as duas grades
+// desalinha de (18 % frameSecs) - em silencio. Ver tdma_core.h.
+const TDMA_GRID_OFFSET_SEC=18;
+const tdmaFrameSecsGridSafe=(f)=>!!f && (TDMA_GRID_OFFSET_SEC%f)===0;
+
 function tdmaInit(nodeId,nSlots,frameSecs,guardUs){
   const t={nodeId, nSlots:nSlots||1, frameSecs:frameSecs||1, guardUs};
   t.frameUs=t.frameSecs*1000000; t.slotUs=Math.floor(t.frameUs/t.nSlots);
   t.sync=TDMA_SYNC_NONE; t.anchorUs=0; t.anchorSec=0;
   t.haveAnchor=false; t.holdover=false; t.frameBase=0;
   t.airtimeUs=0; t.isAnchor=(nodeId===0); t.txFrameDone=0; t.haveTxFrame=false;
+  t.gridSensitive=!tdmaFrameSecsGridSafe(t.frameSecs);
   t.anchorCount=0; t.txCount=0; t.missedTx=0;
   return t;
 }

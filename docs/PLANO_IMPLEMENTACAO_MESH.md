@@ -144,7 +144,17 @@ radio.startTransmit((uint8_t*)&pkt, sizeof(pkt));   // non-blocking
 4. O tempo vira **frames e slots**. O **ID do nó → offset do slot**.
 5. Cada nó transmite quando `agora ≈ borda + offset_do_meu_slot`; escuta o resto.
 6. **Guard time** (10–30 ms no ESP32) absorve jitter/setup/drift.
-7. **Holdover:** se o fix cai, continua contando com o relógio interno (~2 ms/dia de drift) por minutos até o PPS voltar.
+7. **Holdover:** se o fix cai, continua contando com o relógio interno até o PPS voltar — mas por **segundos, não minutos**. ⚠️ Uma versão anterior deste item dizia "~2 ms/dia de drift"; **estava errado por ~3 ordens de grandeza** (2 ms/dia = 0,023 ppm, classe OCXO de laboratório). A Espressif **não especifica** o ppm do cristal — é escolha do fabricante da placa. Com um cristal comum de 10 ppm, a guarda de 110 ms evapora em `110000 µs ÷ 10⁻⁵ ≈ 3 minutos`:
+
+   | Deriva | µs/s | Gasta 110 ms de guarda em |
+   |---|---|---|
+   | 0,5 ppm (TCXO bom) | 0,5 | 3,7 min |
+   | **10 ppm (cristal típico)** | **10** | **3,1 min** |
+   | 20 ppm (barato ou quente) | 20 | 1,5 min |
+
+   **Meça, não estime.** Conte `esp_timer_get_time()` entre N bordas de PPS: `ppm = (Δt − N·10⁶)/(N·10⁶) × 10⁶`. Com N = 300 (5 min) você resolve abaixo de 1 ppm. Grave o valor por placa na NVS e use para (a) dimensionar `TDMA_HOLDOVER_GUARD` de verdade e (b) corrigir a deriva em software durante o holdover.
+
+8. **Grade de tempo:** o rótulo do segundo tem de ser **UTC em todos os nós**. O default de fábrica do u-blox no `CFG-TP5` é grade **GPS**, que difere 18 s; o ATGM336H alinha em UTC. As bordas coincidem (a diferença é inteira), mas `anchorSec % frameSecs` usa o rótulo — então uma rede mista desalinha em `18 % frameSecs` segundos, em silêncio. Frames imunes: 1, 2, 3, 6, 9, 18. **4 e 5 não são**, e são justamente os que 25–50 nós exigem em SF7. Mande `gridUtcGps=0` em todo nó u-blox; o `tdma_core.h` avisa pelo flag `gridSensitive`.
 
 ```cpp
 const uint32_t NODE_ID = 3;         // 0..N-1, único por carro (0 = líder)
