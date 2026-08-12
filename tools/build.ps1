@@ -14,7 +14,8 @@ param(
 
   # ws7b   = Waveshare ESP32-S3-Touch-LCD-7B (telas em producao, PSRAM OPI 16M)
   # devkit = ESP32-S3-DevKitC-1 (bancada de radio/TDMA, sem display)
-  [ValidateSet('ws7b', 'devkit')]
+  # p4     = Waveshare ESP32-P4-WIFI6-Touch-LCD-5/7/7B (alvo da fase 4)
+  [ValidateSet('ws7b', 'devkit', 'p4')]
   [string]$Board = 'ws7b',
 
   [switch]$Upload,
@@ -32,6 +33,19 @@ if (-not (Test-Path $CLI)) { throw "arduino-cli nao encontrado em $CLI" }
 $FQBN = switch ($Board) {
   'ws7b'   { "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=huge_app,CDCOnBoot=cdc" }
   'devkit' { "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=8M,PartitionScheme=huge_app,CDCOnBoot=cdc" }
+  # P4: a PSRAM e INTERNA ao encapsulamento (datasheet sec. 2.7, "not pinned out"),
+  # ao contrario do S3 onde a PSRAM octal externa custava 12 GPIOs. MAS ser interna
+  # NAO quer dizer que venha ligada: o padrao do core Arduino e PSRAM=disabled, e
+  # sem PSRAM=enabled o ESP.getPsramSize() devolve 0. Descoberto gravando o
+  # p4_hello, que compara o medido com o que a pesquisa dizia. Flash externa de
+  # 32M (GD25Q256 nas placas Waveshare).
+  #
+  # CDCOnBoot=default (desligado) e proposital: manda o Serial para o UART0, que na
+  # placa vai para a ponte CH343P e aparece como "USB-Enhanced-SERIAL CH343" (VID
+  # 1A86). E por ali que a placa enumera quando voce liga na USB-C de gravacao.
+  # Se trocar para CDCOnBoot=cdc, o log passa a sair pelo USB Serial/JTAG nativo
+  # (GPIO24/25) e a COM da CH343 fica MUDA - o sintoma e "gravou e nao imprime nada".
+  'p4'     { "esp32:esp32:esp32p4:PSRAM=enabled,FlashSize=32M,PartitionScheme=huge_app,USBMode=default,CDCOnBoot=default" }
 }
 
 if ($ListPorts) {

@@ -23,6 +23,30 @@ do rádio de 1 W ao lado.
 
 ---
 
+## Passo 0 — A placa de 5" já foi testada ✅
+
+Em 2026-08-12 a tela de 5" rodou os dois sketches sem periférico nenhum, só o cabo
+USB. **7 de 7 conferências bateram** com o que a pesquisa prometia, e o
+`tdma_selftest` deu **61 PASS, 0 FAIL** no chip alvo.
+
+```powershell
+.\tools\build.ps1 firmware\p4_hello      -Board p4 -Upload -Port COM8
+.\tools\build.ps1 firmware\tdma_selftest -Board p4 -Upload -Port COM8
+```
+
+Medido: ESP32-P4 rev 103, 2 núcleos a 360 MHz, **32 MB de PSRAM**, 32 MB de flash,
+55 GPIOs sem lacuna, nenhum só-entrada, e os **12 pinos deste guia todos válidos** —
+nenhum strapping, nenhum no banco do LDO.
+
+**Duas armadilhas que custaram tempo:**
+
+- **Cabo USB-C só de carga.** A tela acende, o LED de power acende, e o PC não vê
+  nada. Se der isso, é o cabo — use o de passar arquivo do celular.
+- **`PSRAM=enabled` no FQBN.** O padrão do core é *disabled*, e sem essa opção a
+  PSRAM vem como **0 bytes**, sem erro nenhum. O `build.ps1 -Board p4` já corrige.
+
+---
+
 ## Passo 1 — Descubra qual tela é qual
 
 Sem ferramenta, só olhando:

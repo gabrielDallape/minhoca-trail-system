@@ -64,6 +64,8 @@ Medido com `PartitionScheme=huge_app` (limite de 3.145.728 bytes):
 |---|---|---|---|
 | `firmware/grupo_ws` | **449.111 B** (439 KB) | 14 % | 46.164 B (14 %) |
 | `firmware/e22_ping` | **353.287 B** (345 KB) | 11 % | 24.524 B (7 %) |
+| `firmware/p4_hello` (P4) | **328.198 B** (321 KB) | 10 % | 23.592 B (7 %) |
+| `firmware/tdma_selftest` (P4) | **332.918 B** (325 KB) | 10 % | 23.600 B (7 %) |
 
 **Consequencia para OTA (futuro):** o app esta muito longe do limite, entao **nao
 e preciso `partitions.csv` customizado** — qualquer esquema com dois slots serve
@@ -79,7 +81,29 @@ esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=huge_app,CDCOnBoot=c
 
 # bancada de radio (ESP32-S3-DevKitC-1, N8R8)
 esp32:esp32:esp32s3:PSRAM=opi,FlashSize=8M,PartitionScheme=huge_app,CDCOnBoot=cdc
+
+# telas da fase 4 (Waveshare ESP32-P4-WIFI6-Touch-LCD-5/7/7B, ESP32-P4NRW32)
+esp32:esp32:esp32p4:PSRAM=enabled,FlashSize=32M,PartitionScheme=huge_app,USBMode=default,CDCOnBoot=default
 ```
+
+### P4: duas armadilhas, as duas medidas em placa
+
+**`PSRAM=enabled` nao e opcional.** A PSRAM do P4 e interna ao encapsulamento
+(datasheet §2.7: *"PSRAM is not pinned out"*) — o que **nao** significa que venha
+ligada. O padrao do core e `PSRAM=disabled`, e sem a opcao o
+`ESP.getPsramSize()` devolve **0** e o mapa nao tem onde caber. Nada avisa: nao ha
+erro de compilacao nem de boot. Descoberto gravando o `p4_hello`, que compara o
+medido com o que o datasheet promete.
+
+**`CDCOnBoot=default` (desligado) e proposital aqui**, ao contrario do S3. Manda o
+`Serial` para o UART0, que na placa vai para a ponte CH343P e aparece como
+`USB-Enhanced-SERIAL CH343` (VID **1A86**). Com `CDCOnBoot=cdc` o log sai pelo USB
+Serial/JTAG nativo (GPIO 24/25) e **a COM da CH343 fica muda** — o sintoma e
+"gravou, verificou o hash e nao imprime nada".
+
+Medido na placa de 5" (2026-08-12): ESP32-P4 rev **103** (v1.3), 2 nucleos a
+360 MHz, SDK v5.5.5, PSRAM 32 MB, flash 32 MB, `SOC_GPIO_PIN_COUNT` = 55, nenhum
+GPIO so-entrada, `esp_timer` com passo observado de 2 us.
 
 `CDCOnBoot=cdc` manda o `Serial` pela USB nativa e **libera GPIO 43/44** (UART0)
 para uso como GPIO. O cabecalho de `grupo_ws.ino:7` diz `CDCOnBoot=default`, o
