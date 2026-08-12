@@ -43,10 +43,16 @@ static void membrosReinicia(bool souLider) {
   g_nMembros = 1;
 }
 
+// chamada pelas telas de grupo quando o usuario troca dia/noite la dentro
+void salvaTema() {
+  Preferences p; p.begin("grupo", false); p.putUChar("theme", g_tema); p.end();
+}
+
 static void carregaCfg() {
   prefs.begin("grupo", true);
   String n = prefs.getString("name", "Carro");
   g_cor = prefs.getUChar("color", 0);
+  aplicaTema(prefs.getUChar("theme", 1));
   prefs.end();
   if (g_cor >= N_CORES) g_cor = 0;
   strncpy(g_nome, n.c_str(), sizeof(g_nome) - 1);
@@ -56,6 +62,7 @@ static void salvaCfg() {
   prefs.begin("grupo", false);
   prefs.putString("name", g_nome);
   prefs.putUChar("color", g_cor);
+  prefs.putUChar("theme", g_tema);
   prefs.end();
 }
 
@@ -130,8 +137,9 @@ static void telaConfig()
   const int lw = 1280 - 2 * M, lh = 118;
   Ret rNome  = { M, 172, (int16_t)lw, (int16_t)lh };
   Ret rCor   = { M, 306, (int16_t)lw, (int16_t)lh };
-  Ret rTema  = { M, 440, (int16_t)lw, (int16_t)lh };
-  Ret rVolta = { M, 596, 280, 88 };
+  Ret rModo  = { M, 440, (int16_t)lw, (int16_t)lh };
+  Ret rTema  = { M, 560, (int16_t)lw, 96 };
+  Ret rVolta = { M, 672, 280, 76 };
 
   // desenho completo, UMA vez. Depois so as linhas que mudam - redesenhar a tela
   // inteira a cada toque e o que fazia isto parecer transicao de slide.
@@ -141,6 +149,10 @@ static void telaConfig()
     tft.drawFastHLine(0, 132, tft.width(), C_LINE);
     linhaCfg(tft, rNome, "NOME DESTE APARELHO", g_nome, "tocar para mudar >", true);
     linhaCfg(tft, rCor,  "COR NO MAPA", CORES_NOME[g_cor], "tocar para mudar >", true, CORES_MAPA[g_cor]);
+    linhaCfg(tft, rModo, g_tema ? "MODO NOITE" : "MODO DIA",
+             g_tema ? "fundo escuro, feicoes claras" : "fundo claro, feicoes escuras",
+             "tocar para trocar >", true);
+    iconeTema(tft, rModo.x + rModo.w - 220, rModo.y + rModo.h / 2, 22, C_SUN, g_tema == 0);
     linhaCfg(tft, rTema, "APARENCIA", "tema da trilha", "depois do mapa", false);
     botao(tft, rVolta, "< VOLTAR", "", C_INK2, false);
     tft.setTextDatum(top_right);
@@ -175,6 +187,12 @@ static void telaConfig()
       salvaCfg();
       // SO a linha da cor. Direto na tela, sem sprite de tela cheia.
       linhaCfg(tft, rCor, "COR NO MAPA", CORES_NOME[g_cor], "tocar para mudar >", true, CORES_MAPA[g_cor]);
+      continue;
+    }
+    if (dentro(rModo, x, y)) {
+      aplicaTema(g_tema ? 0 : 1);
+      salvaCfg();
+      desenhaTudo();          // o tema muda TUDO: aqui o redesenho inteiro e o certo
       continue;
     }
     if (dentro(rTema, x, y)) {

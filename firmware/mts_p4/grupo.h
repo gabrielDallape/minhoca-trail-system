@@ -13,6 +13,9 @@
 #include "teclado.h"
 #include "sessao.h"
 
+// definido no sketch: grava o tema escolhido na NVS
+void salvaTema();
+
 #define GRUPO_COD_DIG   5
 #define MAX_MEMBROS     8
 
@@ -239,6 +242,9 @@ template <typename TFT>
 bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
 {
   Ret rSair = { M, (int16_t)(720 - M - 76), 200, 76 };
+  // Botao de dia/noite DENTRO do mapa, nao so na configuracao: e usado com uma
+  // mao so e o carro andando. Mostra o modo para o qual VAI (convencao do OsmAnd).
+  Ret rModo = { (int16_t)(1280 - 20 - 76), (int16_t)(720 - 20 - 76), 76, 76 };
 
   // faixa de cada carro, encostada no canto superior direito
   const int cw = 290, ch = 54, cxr = 1280 - 20 - cw;
@@ -294,6 +300,11 @@ bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
     // canto inferior esquerdo: sair, vermelho
     botao(tft, rSair, "SAIR", "", C_RED, true);
 
+    // canto inferior direito: dia/noite
+    tft.fillRoundRect(rModo.x, rModo.y, rModo.w, rModo.h, 14, C_SURF);
+    tft.drawRoundRect(rModo.x, rModo.y, rModo.w, rModo.h, 14, C_LINE);
+    iconeTema(tft, rModo.x + 38, rModo.y + 38, 20, C_INK2, g_tema == 0);
+
     for (int i = 1; i < nMembros && i <= 6; i++) pintaCarro(i);
     tft.setFont(&fonts::Font0);
   };
@@ -345,6 +356,13 @@ bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
       }
     }
     if (tratou) continue;
+
+    if (dentro(rModo, x, y)) {
+      aplicaTema(g_tema ? 0 : 1);
+      salvaTema();
+      desenhaTudo();
+      continue;
+    }
 
     if (dentro(rSair, x, y)) {
       // confirmar: sair e destrutivo (perde o grupo) e o dedo escorrega

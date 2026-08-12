@@ -16,29 +16,89 @@
 #include <stdint.h>
 
 // ------------------------------------------------------------------ paleta
-#define C_BG      0x0861   // (12,12,12) - o mesmo fundo da arte
-#define C_SURF    0x18E3   // linhas de configuracao
-#define C_SURF2   0x2103   // teclas
-#define C_LINE    0x3987   // horizonte, contorno quieto
-#define C_INK     0xF77C
-#define C_INK2    0xA4D1
-#define C_INK3    0x6B0A
-#define C_SUN     0xD243   // laranja do sol da arte
-#define C_SUN_DK  0x7942   // borda do degrade do sol
-#define C_TAN     0xDE35   // bege das letras "MTS"
-#define C_OK      0x4CCB
-#define C_WARN    0xC544
-#define C_RED     0xC1C5   // sair da trilha, alerta de carro
+// DOIS TEMAS, e a escolha nao e estetica - e norma.
+//
+// IHO S-52 sec. 2.2.1 (cartas nauticas) exige "imagem negativa da carta a noite,
+// para nao prejudicar a visao noturna". O Organic Maps mantem os MESMOS 210 nomes
+// de cor em dois arquivos e a regra que sai deles e: a MATIZ nunca muda; o que
+// inverte e a luminancia em relacao ao fundo.
+//   DIA   = fundo claro, feicoes escuras  (sob sol so a diferenca de luminancia
+//           sobrevive; matiz nao contribui nada)
+//   NOITE = fundo escuro, feicoes claras  (a vista leva 30-40 min para se adaptar
+//           ao escuro e uma tela clara destroi isso)
+//
+// Contra a intuicao: a ISO 15008 sec. 4.3.2.1 exige MAIS contraste a noite (5:1)
+// do que sob sol direto (2:1).
+//
+// ARMADILHA DO RGB565: cinza quase-preto nao cai na grade e ganha dominante VERDE
+// (#050505 vira #000400). Por isso o preto daqui e #080808, nao #050505.
+//
+// NAO existe modo noturno vermelho aqui de proposito: a evidencia (NSMRL Rep.1036)
+// diz que luz branca fraca e melhor, e o vermelho custa justamente a codificacao
+// POR COR - que e como distinguimos os carros. Vermelho fica so no alerta.
+
+static uint16_t C_BG, C_SURF, C_SURF2, C_LINE, C_INK, C_INK2, C_INK3;
+static uint16_t C_SUN, C_TAN, C_RED, C_OK, C_WARN;
+static uint8_t  g_tema = 1;          // 0 = dia, 1 = noite
+
+// Contorno dos marcadores. FIXO nos dois temas: e ele que carrega o contraste de
+// dia (14:1 contra o fundo claro); a noite o preenchimento contrasta o fundo
+// direto. Mesma tecnica do nav_arrow + nav_arrow_stroke do OsmAnd.
+#define C_CASING  0x1082    // #101010
+
+// Cores dos carros: paleta Tol "bright", a unica projetada com o criterio
+// "distintas de preto e branco". Com o contorno acima, 7 de 7 passam 3:1 nos DOIS
+// fundos - o que nenhuma paleta consegue sozinha (o teto matematico e 3,94:1).
+// Acima de ~8 carros nao se acrescenta cor: usa-se numero do slot.
+static const uint16_t CORES_MAPA[] = {
+  0x43B5,  // #4477AA azul
+  0xEB2E,  // #EE6677 vermelho
+  0x2446,  // #228833 verde
+  0xCDC8,  // #CCBB44 amarelo
+  0x667D,  // #66CCEE ciano
+  0xA98E,  // #AA3377 roxo
+  0xEBA6,  // #EE7733 laranja
+  0xBDD7,  // #BBBBBB cinza
+};
+static const char* CORES_NOME[] = { "azul","vermelho","verde","amarelo","ciano","roxo","laranja","cinza" };
+#define N_CORES 8
+
+inline void aplicaTema(uint8_t t)
+{
+  g_tema = t ? 1 : 0;
+  if (g_tema == 0) {           // ---- DIA: fundo claro, feicoes escuras
+    C_BG    = 0xE71A;  // #E3E1D2  bege do estilo "vehicle/light" do Organic Maps
+    C_SURF  = 0xD618;  // #D3D1C2
+    C_SURF2 = 0xC618;  // #C8C6B8
+    C_LINE  = 0xA534;  // #A8A69A
+    C_INK   = 0x10A2;  // #141414  14:1 sobre o fundo
+    C_INK2  = 0x5ACA;  // #5A5A52
+    C_INK3  = 0x8C50;  // #8A8A82
+    C_SUN   = 0xB1C1;  // #B03A0F  laranja escurecido para contrastar no claro
+    C_TAN   = 0x6A45;  // #6B4A2F  o bege da arte nao serve no claro; vira marrom
+    C_RED   = 0xC8E3;  // #C81E1E
+    C_OK    = 0x2446;
+    C_WARN  = 0x9260;
+  } else {                     // ---- NOITE: fundo escuro, feicoes claras
+    C_BG    = 0x0841;  // #080808  (nao #050505: viraria esverdeado no RGB565)
+    C_SURF  = 0x18E3;  // #1A1714
+    C_SURF2 = 0x2103;  // #241F1A
+    C_LINE  = 0x3987;  // #3A332C
+    C_INK   = 0xCE59;  // #C8C8C8
+    C_INK2  = 0x8C51;  // #8A8A8A
+    C_INK3  = 0x5AEB;  // #5A5A5A
+    C_SUN   = 0xD243;  // #D2481E  o laranja do sol da arte
+    C_TAN   = 0xDE35;  // #D8C7A8  o bege das letras da arte
+    C_RED   = 0xFA27;  // #FF453A
+    C_OK    = 0x4CCB;
+    C_WARN  = 0xC544;
+  }
+}
 
 // Margem unica. Antes havia 40, 60 e 8 misturados - era isso que fazia a tela
 // parecer torta mesmo onde nao havia sobreposicao.
 #define M 48
 
-// Cores dos carros no mapa. Escolhidas para se distinguirem sobre o fundo escuro
-// E entre si - e o que separa um carro do outro quando forem 25.
-static const uint16_t CORES_MAPA[] = { C_SUN, 0x2D7F, 0x4CCB, 0xFD20, 0xF81F, 0x07FF };
-static const char*    CORES_NOME[] = { "laranja", "azul", "verde", "amarelo", "rosa", "ciano" };
-#define N_CORES 6
 
 struct Ret { int16_t x, y, w, h; };
 inline bool dentro(const Ret& r, int16_t px, int16_t py) {
@@ -48,6 +108,26 @@ inline bool dentro(const Ret& r, int16_t px, int16_t py) {
 // Havia um "sol" (circulos concentricos laranja) atras do botao principal, como
 // eco da arte do logo. Saiu a pedido: numa tela de acao ele disputava com o texto
 // do botao em vez de guiar o olho. Fundo liso.
+
+// Sol ou lua, desenhado em vetor. Mostra o modo para o qual VAI ao ser tocado -
+// e a convencao do botao de dia/noite do OsmAnd.
+template <typename G>
+void iconeTema(G& g, int cx, int cy, int r, uint16_t cor, bool desenhaLua)
+{
+  if (desenhaLua) {                      // lua: circulo com uma mordida
+    g.fillCircle(cx, cy, r, cor);
+    g.fillCircle(cx + r / 2, cy - r / 3, r * 0.85f, C_BG);
+  } else {                               // sol: disco com oito raios
+    g.fillCircle(cx, cy, r * 0.58f, cor);
+    for (int i = 0; i < 8; i++) {
+      float a = i * 0.7853982f;
+      int x0 = cx + (int)(cosf(a) * r * 0.78f), y0 = cy + (int)(sinf(a) * r * 0.78f);
+      int x1 = cx + (int)(cosf(a) * r * 1.15f), y1 = cy + (int)(sinf(a) * r * 1.15f);
+      g.drawLine(x0, y0, x1, y1, cor);
+      g.drawLine(x0 + 1, y0, x1 + 1, y1, cor);
+    }
+  }
+}
 
 // -------------------------------------------------------------- cabecalho
 // O subtitulo vai EMBAIXO do "MTS", nao ao lado. Isso conserta um bug real: a
