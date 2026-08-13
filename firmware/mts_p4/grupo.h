@@ -252,12 +252,10 @@ bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
   static const double ZOOMS[] = { 0.4, 0.9, 2.0, 5.0, 12.0 };
   int zi = 1;
 
-  LGFX_Sprite cv(&tft);
-  cv.setPsram(true); cv.setColorDepth(16);
-  bool temBuffer = cv.createSprite(1280, 720);
-
+  // SEM sprite de tela cheia: medido nesta placa, pushSprite de 1280x720 custa
+  // 719 ms contra 16 ms de desenho direto. Era ele a sensacao de arrasto.
   auto pinta = [&]() {
-    auto& g = temBuffer ? (LovyanGFX&)cv : (LovyanGFX&)tft;
+    auto& g = (LovyanGFX&)tft;
 
     mapaDesenha(g, 1280, 720, ZOOMS[zi]);
 
@@ -312,7 +310,6 @@ bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
     g.drawString("+/-", rZoom.x + 38, rZoom.y + 38);
     g.setFont(&fonts::Font0);
 
-    if (temBuffer) cv.pushSprite(0, 0);
   };
 
   uint32_t ultimo = 0;
@@ -372,7 +369,7 @@ bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
       while (true) {
         int16_t a, b;
         if (!esperaToque(tft, a, b)) continue;
-        if (dentro(sim, a, b)) { if (temBuffer) cv.deleteSprite(); return true; }
+        if (dentro(sim, a, b)) return true;
         if (dentro(nao, a, b)) { pinta(); break; }
       }
     }

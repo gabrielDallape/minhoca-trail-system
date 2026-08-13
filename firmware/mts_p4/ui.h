@@ -109,23 +109,24 @@ inline void aplicaTema(uint8_t t)
   }
 }
 
-// TROCA DE TEMA INSTANTANEA.
+// TROCA DE TEMA: so repinta, direto na tela.
 //
-// Trocar dia/noite repinta a tela inteira, e num painel de framebuffer isso
-// APARECE: o video le o mesmo endereco que a gente escreve, entao da para ver a
-// tela sendo pintada de cima para baixo. Parece transicao suave - e nao e, e
-// lentidao visivel.
+// MEDIDO nesta placa, e o numero muda tudo:
+//   fillScreen direto ....... 16 ms
+//   desenhar dentro do sprite 14 ms
+//   pushSprite de 1280x720 .. 719 ms   <-- 45x mais lento
 //
-// O unico jeito de ficar instantaneo e apagar a luz, repintar no escuro e
-// acender. O usuario ve o quadro novo pronto, nunca o meio do caminho. E o mesmo
-// truque da abertura, e custa os ~15 ms do redesenho.
+// O pushSprite copia PSRAM para PSRAM pixel a pixel, sem caminho rapido. Era ELE
+// a "transicao de PowerPoint": todo quadro do mapa custava 0,7 s.
+//
+// Logo: NUNCA use sprite de tela cheia neste painel. Desenhar direto e o caminho
+// mais rapido que existe aqui, e 16 ms nao da tempo de ser visto. Tambem nao
+// apague o backlight para esconder o redesenho - isso e que virava piscada preta.
 template <typename TFT, typename FN>
 void trocaTema(TFT& tft, uint8_t novo, FN repinta)
 {
-  tft.setBrightness(0);
   aplicaTema(novo);
   repinta();
-  tft.setBrightness(255);
 }
 
 // Margem unica. Antes havia 40, 60 e 8 misturados - era isso que fazia a tela
