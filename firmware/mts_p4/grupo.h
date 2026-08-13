@@ -229,15 +229,35 @@ bool telaCriarGrupo(TFT& tft, const char* nomeCarro, char* gNome, char* gCod)
 }
 
 // ---------------------------------------------------------------- TRILHA
-// A tela em que o aparelho VIVE. O MAPA E A TELA INTEIRA; o resto flutua no canto
-// ocupando o minimo. Numa trilha o motorista olha o caminho - nome de grupo,
-// codigo e lista de carros sao consulta rapida, nao conteudo.
+// A tela em que o aparelho VIVE. O mapa e a tela inteira; o resto flutua no canto.
 //
-// AQUI o sprite de tela cheia se justifica, ao contrario das outras telas: o mapa
-// redesenha varias vezes por segundo e sem buffer de tras a tela piscaria. Nas
-// telas que so mudam ao toque ele era desperdicio e dava sensacao de slide.
+// ---------------------------------------------------------------------------
+// POR QUE ESTA TELA DESENHA DIFERENTE DE TODAS AS OUTRAS
 //
-// Devolve true quando o usuario sai da trilha.
+// Todo redesenho de tela cheia LIMPA para o fundo antes de pintar, e esse instante
+// em branco aparece: e a piscada. Um blit nao passa por ele - escreve o novo por
+// cima do velho, sem estado intermediario.
+//
+// MEDIDO nesta placa (nao estimado):
+//   fillScreen direto ...............  16 ms   mas pisca
+//   quadro completo direto ..........  33 ms   pisca
+//   pushSprite COM o painel girado .. 719 ms   inutilizavel
+//   pushSprite SEM rotacao do painel .  73 ms  e nao pisca      <-- este
+//
+// Os 719 ms vinham da rotacao: girado, a copia transpoe pixel a pixel. Entao aqui
+// o PAINEL fica na orientacao nativa (720x1280) e quem gira e o SPRITE. Medido:
+// com setRotation(1) o sprite reporta 1280x720 e o push cai para 73 ms. Desenha-se
+// em paisagem normalmente.
+//
+// O TOQUE precisa ser convertido a mao, porque o painel esta em 0 e a interface em
+// 1. A formula saiu de LER Panel_Device::convertRawXY da LovyanGFX: para r=1 ela
+// faz swap(x,y) e depois y = (altura-1) - y. Indo de bruto para paisagem:
+//        X = y_bruto        Y = 719 - x_bruto
+//
+// SAIDA DE EMERGENCIA: o SAIR e testado nos DOIS sistemas de coordenada. Numa
+// tentativa anterior um erro nesta conversao trancou o usuario dentro da tela,
+// porque nem o botao de sair respondia. Nao pode acontecer de novo.
+// ---------------------------------------------------------------------------
 template <typename TFT>
 bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
 {
@@ -248,19 +268,21 @@ bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
   auto faixaCarro = [&](int i) -> Ret {
     return Ret{ (int16_t)cxr, (int16_t)(20 + (i - 1) * (ch + 6)), (int16_t)cw, (int16_t)ch };
   };
-
   static const double ZOOMS[] = { 0.4, 0.9, 2.0, 5.0, 12.0 };
   int zi = 1;
 
-  // SEM sprite de tela cheia: medido nesta placa, pushSprite de 1280x720 custa
-  // 719 ms contra 16 ms de desenho direto. Era ele a sensacao de arrasto.
-  auto pinta = [&]() {
-    auto& g = (LovyanGFX&)tft;
+  LGFX_Sprite cv(&tft);
+  cv.setPsram(true);
+  cv.setColorDepth(16);
+  bool buf = cv.createSprite(720, 1280);                 // NATIVO
+  if (buf) { cv.setRotation(1); tft.setRotation(0); }    // sprite paisagem, painel nativo
 
+  auto restaura = [&]() { if (buf) { cv.deleteSprite(); buf = false; } tft.setRotation(1); };
+
+  auto pinta = [&]() {
+    auto& g = buf ? (LovyanGFX&)cv : (LovyanGFX&)tft;
     mapaDesenha(g, 1280, 720, ZOOMS[zi]);
 
-    // canto superior esquerdo: nome do grupo. Codigo so para o LIDER - e ele quem
-    // dita o numero; seguidor nao tem o que fazer com ele.
     g.setTextDatum(top_left);
     g.setFont(&fonts::FreeSansBold24pt7b);
     g.setTextColor(C_TAN);
@@ -274,8 +296,6 @@ bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
       g.drawString(s.gCod, 92, 64);
     }
 
-    // canto superior direito: os OUTROS carros, com distancia. Eu nao apareco -
-    // sou o centro do mapa.
     for (int i = 1; i < nMembros && i <= 6; i++) {
       Ret r = faixaCarro(i);
       const Membro& m = membros[i];
@@ -290,9 +310,9 @@ bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
       g.setFont(&fonts::FreeSansBold18pt7b);
       g.setTextColor(m.alerta ? C_INK : (d < 0 ? C_INK3 : C_INK));
       char t[16];
-      if (d < 0)          strcpy(t, "-");
-      else if (d < 1000)  snprintf(t, sizeof(t), "%dm", d);
-      else                snprintf(t, sizeof(t), "%.1fkm", d / 1000.0f);
+      if (d < 0)         strcpy(t, "-");
+      else if (d < 1000) snprintf(t, sizeof(t), "%dm", d);
+      else               snprintf(t, sizeof(t), "%.1fkm", d / 1000.0f);
       g.drawString(t, r.x + r.w - 14, r.y + r.h / 2);
     }
 
@@ -310,49 +330,43 @@ bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
     g.drawString("+/-", rZoom.x + 38, rZoom.y + 38);
     g.setFont(&fonts::Font0);
 
+    if (buf) cv.pushSprite(0, 0);
   };
 
-  uint32_t ultimo = 0;
+  // repinta so quando algo mudou de fato
+  double  uLat = 1e9, uLon = 1e9;
+  int     uZi = -1, uTema = -1, uN = -1;
+  uint8_t uAl = 0;
+  auto mudou = [&]() -> bool {
+    uint8_t al = 0;
+    for (int i = 0; i < MUNDO_MAX_CARROS && i < 8; i++) if (g_carros[i].alerta) al |= (1 << i);
+    int n = mundoQuantos();
+    if (zi != uZi || g_tema != uTema || n != uN || al != uAl) {
+      uZi = zi; uTema = g_tema; uN = n; uAl = al; uLat = g_meuLat; uLon = g_meuLon; return true;
+    }
+    if (uLat > 1e8) { uLat = g_meuLat; uLon = g_meuLon; return true; }
+    if (haversine(uLat, uLon, g_meuLat, g_meuLon) >= ZOOMS[zi] * 20.0) {
+      uLat = g_meuLat; uLon = g_meuLon; return true;
+    }
+    return false;
+  };
+
   while (true) {
     mundoAtualiza();
-    if (millis() - ultimo > 180) { pinta(); ultimo = millis(); }
+    if (mudou()) pinta();
 
-    int16_t x, y;
-    if (!tft.getTouch(&x, &y)) { delay(8); continue; }
-    int16_t ux = x, uy = y, tx, ty;
-    while (tft.getTouch(&tx, &ty)) { ux = tx; uy = ty; delay(8); }
+    int16_t bx, by;
+    if (!tft.getTouch(&bx, &by)) { delay(8); continue; }
+    int16_t lx = bx, ly = by, tx, ty;
+    while (tft.getTouch(&tx, &ty)) { lx = tx; ly = ty; delay(8); }
 
-    if (dentro(rModo, ux, uy)) {
-      // instantaneo: apaga, repinta no escuro, acende. Sem isso da para ver a
-      // tela virando de cima para baixo.
-      trocaTema(tft, g_tema ? 0 : 1, pinta);
-      salvaTema();
-      ultimo = millis();
-      continue;
-    }
-    if (dentro(rZoom, ux, uy)) { zi = (zi + 1) % 5; continue; }
+    // (ux,uy) = coordenada da interface; (lx,ly) = bruta do painel
+    int16_t ux = buf ? ly : lx;
+    int16_t uy = buf ? (int16_t)(719 - lx) : ly;
 
-    bool tratou = false;
-    for (int i = 1; i < nMembros && i <= 6; i++)
-      if (dentro(faixaCarro(i), ux, uy)) {
-        membros[i].alerta = !membros[i].alerta;
-        g_carros[i].alerta = membros[i].alerta;
-        if (membros[i].alerta) {
-          // ALERTA: pisca a moldura da tela inteira. E para ser visto de canto de
-          // olho com o carro andando - por isso a tela toda, nao um icone.
-          // O apito de tres toques entra quando o codec ES8311 tiver driver.
-          for (int k = 0; k < 3; k++) {
-            tft.fillRect(0, 0, 1280, 14, C_RED); tft.fillRect(0, 706, 1280, 14, C_RED);
-            tft.fillRect(0, 0, 14, 720, C_RED);  tft.fillRect(1266, 0, 14, 720, C_RED);
-            delay(150);
-            pinta(); delay(120);
-          }
-        }
-        tratou = true; break;
-      }
-    if (tratou) continue;
-
-    if (dentro(rSair, ux, uy)) {
+    // SAIR aceita as DUAS convencoes: nunca ficar preso aqui dentro
+    if (dentro(rSair, ux, uy) || (buf && dentro(rSair, lx, ly))) {
+      restaura();
       Ret sim = { (int16_t)(1280 / 2 - 320), 400, 300, 96 };
       Ret nao = { (int16_t)(1280 / 2 + 20), 400, 300, 96 };
       tft.fillScreen(C_BG);
@@ -370,8 +384,30 @@ bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
         int16_t a, b;
         if (!esperaToque(tft, a, b)) continue;
         if (dentro(sim, a, b)) return true;
-        if (dentro(nao, a, b)) { pinta(); break; }
+        if (dentro(nao, a, b)) return telaTrilha(tft, s, membros, nMembros);
       }
+    }
+
+    if (dentro(rModo, ux, uy)) { aplicaTema(g_tema ? 0 : 1); salvaTema(); continue; }
+    if (dentro(rZoom, ux, uy)) { zi = (zi + 1) % 5; continue; }
+
+    for (int i = 1; i < nMembros && i <= 6; i++) {
+      if (!dentro(faixaCarro(i), ux, uy)) continue;
+      membros[i].alerta = !membros[i].alerta;
+      g_carros[i].alerta = membros[i].alerta;
+      if (membros[i].alerta) {
+        // moldura piscando, DIRETO no painel: usa width/height atuais, que
+        // acompanham a rotacao em que o painel esta agora
+        for (int k = 0; k < 3; k++) {
+          int W = tft.width(), H = tft.height();
+          tft.fillRect(0, 0, W, 14, C_RED);   tft.fillRect(0, H - 14, W, 14, C_RED);
+          tft.fillRect(0, 0, 14, H, C_RED);   tft.fillRect(W - 14, 0, 14, H, C_RED);
+          delay(150);
+          pinta();
+          delay(120);
+        }
+      }
+      break;
     }
   }
 }

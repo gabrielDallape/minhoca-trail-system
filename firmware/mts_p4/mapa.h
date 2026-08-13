@@ -33,18 +33,24 @@
 #include "mundo.h"
 
 // trecho de "estrada": contorno + nucleo
+// Engrossa NA PERPENDICULAR da reta, nao nos dois eixos. A versao anterior
+// desenhava 2*(wCont+wNucleo+2) linhas por trecho - umas 24 - e com 1200 pontos
+// no rastro isso era o custo do quadro inteiro. Esta faz metade e fica mais
+// regular, porque a espessura passa a ser perpendicular de verdade.
 template <typename G>
 void trecho(G& g, int x0, int y0, int x1, int y1,
             uint16_t cCont, uint16_t cNucleo, int wCont, int wNucleo)
 {
-  for (int d = -wCont / 2; d <= wCont / 2; d++) {
-    g.drawLine(x0 + d, y0, x1 + d, y1, cCont);
-    g.drawLine(x0, y0 + d, x1, y1 + d, cCont);
-  }
-  for (int d = -wNucleo / 2; d <= wNucleo / 2; d++) {
-    g.drawLine(x0 + d, y0, x1 + d, y1, cNucleo);
-    g.drawLine(x0, y0 + d, x1, y1 + d, cNucleo);
-  }
+  int dx = x1 - x0, dy = y1 - y0;
+  float L = sqrtf((float)(dx * dx + dy * dy));
+  if (L < 0.5f) L = 0.5f;
+  float nx = -dy / L, ny = dx / L;          // normal unitaria
+  for (int d = -wCont / 2; d <= wCont / 2; d++)
+    g.drawLine(x0 + (int)(nx * d), y0 + (int)(ny * d),
+               x1 + (int)(nx * d), y1 + (int)(ny * d), cCont);
+  for (int d = -wNucleo / 2; d <= wNucleo / 2; d++)
+    g.drawLine(x0 + (int)(nx * d), y0 + (int)(ny * d),
+               x1 + (int)(nx * d), y1 + (int)(ny * d), cNucleo);
 }
 
 // ponte sobre o vao: tracejado. Nunca some, e nao mente sobre o caminho.
@@ -86,12 +92,21 @@ void marcaDisco(G& g, int x, int y, uint16_t cor, int r, int slot)
 
 // Qual ponto do trajeto esta mais perto de (lat,lon). Serve para saber onde eu
 // estou no caminho: o que vem depois disso e "falta andar".
+// ERA O GARGALO: isto roda a cada quadro, para cada carro em alerta, e a versao
+// anterior chamava haversine em TODOS os pontos do rastro - quatro senos, um
+// atan2 e uma raiz por ponto, 1200 vezes. Era o custo crescendo com o historico.
+//
+// Aqui basta ORDENAR distancias, nao medir: distancia ao quadrado em graus, com o
+// cosseno da latitude calculado UMA vez, da a mesma resposta sem trigonometria
+// por ponto.
 inline int trechoMaisPerto(double lat, double lon)
 {
   int melhor = -1; double d = 1e18;
+  const double kx = cos(lat * M_PI / 180.0);
   for (int i = 0; i < g_trajN; i++) {
     const Ponto& p = trajetoEm(i);
-    double dd = haversine(lat, lon, p.lat, p.lon);
+    double a = (p.lat - lat), b = (p.lon - lon) * kx;
+    double dd = a * a + b * b;
     if (dd < d) { d = dd; melhor = i; }
   }
   return melhor;
@@ -131,10 +146,16 @@ void mapaDesenha(G& g, int w, int h, double mPorPx)
     break;
   }
 
+  // O custo do quadro crescia com o tamanho do rastro (medido: 33 ms subindo para
+  // 47 ms em 40 s). Pulando pontos que caem no MESMO lugar da tela, o custo passa
+  // a depender do tamanho da TELA, nao do historico - e nada se perde, porque
+  // eles seriam desenhados um por cima do outro de qualquer jeito.
   int px = -1, py = 0; double plat = 0, plon = 0; bool temAnt = false;
   for (int i = 0; i < g_trajN; i++) {
     const Ponto& p = trajetoEm(i);
     int x, y; paraTela(p.lat, p.lon, cx, cy, mPorPx, x, y);
+    bool ultimo = (i == g_trajN - 1);
+    if (px >= 0 && !ultimo && abs(x - px) < 3 && abs(y - py) < 3) continue;
     bool vis = (x > -30 && x < w + 30 && y > -30 && y < h + 30);
     if (vis && px >= 0) {
       bool vao = temAnt && haversine(plat, plon, p.lat, p.lon) > 40.0;

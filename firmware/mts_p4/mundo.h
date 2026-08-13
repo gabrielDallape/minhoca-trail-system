@@ -118,13 +118,15 @@ inline void mundoAtualiza()
   // alimentar tdmaOnPps(). Ver docs/MONTAGEM.md passo 8.
 #else
   // simulador: eu ando numa curva suave e os outros me seguem atrasados
+  // 1 Hz: a taxa de um GPS de verdade. Antes corria a 5 Hz e obrigava o mapa a
+  // repintar cinco vezes por segundo - metade da piscada vinha daqui.
   static uint32_t t0 = 0;
   static double ang = 0;
-  if (millis() - t0 < 200) return;
+  if (millis() - t0 < 1000) return;
   t0 = millis();
-  ang += 0.014;
-  g_meuLat += cos(ang) * 0.000018;
-  g_meuLon += sin(ang * 0.7) * 0.000022;
+  ang += 0.07;
+  g_meuLat += cos(ang) * 0.00007;
+  g_meuLon += sin(ang * 0.7) * 0.00009;
   g_meuFix = true;
 #endif
 
