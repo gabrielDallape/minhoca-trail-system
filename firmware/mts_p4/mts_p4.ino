@@ -17,6 +17,8 @@
 #include "ui.h"
 #include "splash.h"
 #include "teclado.h"
+#include "hardware.h"
+#include "mundo.h"
 #include "grupo.h"
 #include "sessao.h"
 #include <Preferences.h>
@@ -204,6 +206,8 @@ static void telaConfig()
 
 // Fica na trilha ate o usuario sair. So SAIR DA TRILHA encerra a sessao.
 static void rodaTrilha() {
+  mundoInicia(g_nome, g_cor, g_ses.lider);
+  for (int i = 1; i < g_nMembros; i++) mundoEntra(g_membros[i].nome, g_membros[i].cor);
   if (telaTrilha(tft, g_ses, g_membros, g_nMembros)) {
     sessaoEncerra(g_ses);
     Serial.println("saiu da trilha");
