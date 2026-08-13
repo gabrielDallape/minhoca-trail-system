@@ -1,52 +1,79 @@
 // O MAPA.
 //
-// Desenha o mundo (mundo.h) na tela inteira. Hoje o fundo e liso; quando o cartao
-// entrar, os tiles vao por baixo e NADA MAIS muda aqui - o trajeto e os carros ja
-// desenham por cima.
+// Reescrito depois de estudar o desenho do grupo_ws (telas S3), que ficou melhor
+// que a minha primeira tentativa. O que veio de la, e por que cada coisa existe:
 //
-// DUAS REGRAS QUE VEM DA PESQUISA, e nao do gosto:
+//   ESTRADA, nao linha. Cada trecho e contorno grosso escuro + nucleo por cima
+//   (roadSeg). E o que permite a mesma cor sobreviver a fundo claro e escuro, e e
+//   como todo estilo de mapa desenha via.
 //
-// 1. CONTORNO EM TUDO (casing). Cada linha e cada marcador leva uma borda escura
-//    por baixo. E o que permite a mesma cor funcionar sobre fundo claro e escuro -
-//    sem isso, paleta unica para os dois temas e matematicamente impossivel acima
-//    de 3,94:1. E a tecnica do nav_arrow+stroke do OsmAnd e das vias de todo
-//    estilo de mapa (casing largo escuro + nucleo claro por cima).
+//   TRES ESTADOS DO TRAJETO, com ESPESSURA diferente - nao so cor. Codificacao
+//   redundante sobrevive ao sol e ao daltonismo:
+//     falta andar (roxo)      11/5 px   <- o mais grosso: e para onde voce vai
+//     ja percorrido (azul)     8/3 px   <- fino: e memoria, nao instrucao
+//     trecho em alerta (verm) 13/7 px   <- o mais grosso de todos
 //
-// 2. NORTH-UP, so o icone gira. Girar tiles por software mata o FPS e o
-//    acelerador do P4 so rotaciona 90 graus.
+//   VAO VIRA PONTE TRACEJADA. Se dois pontos seguidos estao a mais de 40 m, houve
+//   perda de sinal. Ligar com linha cheia MENTIRIA sobre o caminho; nao ligar
+//   faria o trajeto sumir. Tracejado diz "por aqui, mas nao sei exatamente".
+//
+//   ANEIS DE DISTANCIA em volta de mim: dao escala sem precisar ler numero.
+//
+//   ROTULOS QUE NAO SE EMPILHAM. Numa fila de trilha lenta os carros ficam a 30 m
+//   um do outro - a 2 m/px isso e 15 px, e os nomes viram mancha. Cada rotulo
+//   desce ate achar lugar.
+//
+//   MARCADORES POR FORMA: lider = triangulo, seguidor = disco. Forma alem de cor,
+//   pelo mesmo motivo da espessura.
+//
+// NORTH-UP: o mapa nao gira, so o icone. Girar tiles por software mata o FPS e o
+// acelerador do P4 so faz 90 graus.
 #pragma once
 #include "ui.h"
 #include "mundo.h"
 
-#define MAPA_M_POR_PX_PADRAO  0.9
-
-// linha com contorno: primeiro a borda grossa escura, depois o nucleo
+// trecho de "estrada": contorno + nucleo
 template <typename G>
-void linhaContornada(G& g, int x0, int y0, int x1, int y1, uint16_t cor, int esp)
+void trecho(G& g, int x0, int y0, int x1, int y1,
+            uint16_t cCont, uint16_t cNucleo, int wCont, int wNucleo)
 {
-  for (int d = -(esp + 1); d <= (esp + 1); d++) {
-    g.drawLine(x0 + d, y0, x1 + d, y1, C_CASING);
-    g.drawLine(x0, y0 + d, x1, y1 + d, C_CASING);
+  for (int d = -wCont / 2; d <= wCont / 2; d++) {
+    g.drawLine(x0 + d, y0, x1 + d, y1, cCont);
+    g.drawLine(x0, y0 + d, x1, y1 + d, cCont);
   }
-  for (int d = -esp / 2; d <= esp / 2; d++) {
-    g.drawLine(x0 + d, y0, x1 + d, y1, cor);
-    g.drawLine(x0, y0 + d, x1, y1 + d, cor);
+  for (int d = -wNucleo / 2; d <= wNucleo / 2; d++) {
+    g.drawLine(x0 + d, y0, x1 + d, y1, cNucleo);
+    g.drawLine(x0, y0 + d, x1, y1 + d, cNucleo);
   }
 }
 
-// marcador de carro: contorno preto, preenchimento na cor, e o numero do slot -
-// acima de ~8 carros nao se acrescenta cor, se usa numero (nenhuma fonte manda
-// distinguir 25 categorias por cor; a recomendacao e rotulo direto)
+// ponte sobre o vao: tracejado. Nunca some, e nao mente sobre o caminho.
 template <typename G>
-void marcadorCarro(G& g, int x, int y, uint16_t cor, int slot, bool lider, bool alerta)
+void tracejado(G& g, int x0, int y0, int x1, int y1, uint16_t cor)
 {
-  int r = lider ? 17 : 14;
-  g.fillCircle(x, y, r + 3, C_CASING);
-  g.fillCircle(x, y, r, alerta ? C_RED : cor);
-  if (lider) {                       // o lider ganha um anel, nao so tamanho:
-    g.drawCircle(x, y, r + 5, cor);  // codificacao redundante, para sobreviver
-    g.drawCircle(x, y, r + 6, cor);  // ao sol e ao daltonismo
+  int dx = x1 - x0, dy = y1 - y0;
+  int n = (int)(sqrtf((float)(dx * dx + dy * dy)) / 12.0f);
+  if (n < 1) n = 1;
+  for (int i = 0; i < n; i += 2) {
+    int ax = x0 + dx * i / n,       ay = y0 + dy * i / n;
+    int bx = x0 + dx * (i + 1) / n, by = y0 + dy * (i + 1) / n;
+    g.drawLine(ax, ay, bx, by, cor);
+    g.drawLine(ax, ay + 1, bx, by + 1, cor);
   }
+}
+
+template <typename G>
+void marcaTriangulo(G& g, int x, int y, uint16_t cor, int r)
+{
+  g.fillTriangle(x, y - r - 2, x - r - 2, y + r + 1, x + r + 2, y + r + 1, C_CASING);
+  g.fillTriangle(x, y - r,     x - r,     y + r,     x + r,     y + r,     cor);
+}
+
+template <typename G>
+void marcaDisco(G& g, int x, int y, uint16_t cor, int r, int slot)
+{
+  g.fillCircle(x, y, r + 3, C_CASING);
+  g.fillCircle(x, y, r, cor);
   if (slot > 0) {
     g.setTextDatum(middle_center);
     g.setFont(&fonts::FreeSansBold12pt7b);
@@ -57,52 +84,107 @@ void marcadorCarro(G& g, int x, int y, uint16_t cor, int slot, bool lider, bool 
   }
 }
 
-// Desenha o mapa inteiro na area dada. mPorPx = metros por pixel (zoom).
-template <typename G>
-void mapaDesenha(G& g, int x0, int y0, int w, int h, double mPorPx)
+// Qual ponto do trajeto esta mais perto de (lat,lon). Serve para saber onde eu
+// estou no caminho: o que vem depois disso e "falta andar".
+inline int trechoMaisPerto(double lat, double lon)
 {
-  const int cx = x0 + w / 2, cy = y0 + h / 2;
+  int melhor = -1; double d = 1e18;
+  for (int i = 0; i < g_trajN; i++) {
+    const Ponto& p = trajetoEm(i);
+    double dd = haversine(lat, lon, p.lat, p.lon);
+    if (dd < d) { d = dd; melhor = i; }
+  }
+  return melhor;
+}
 
-  // fundo. Quando o cartao entrar, aqui vao os tiles - e so isto muda.
-  g.fillRect(x0, y0, w, h, C_BG);
-#if !MTS_TEM_SD
-  // enquanto nao ha tiles, uma grade discreta da nocao de movimento e escala
-  for (int gx = cx % 120; gx < w; gx += 120) g.drawFastVLine(x0 + gx, y0, h, C_SURF);
-  for (int gy = cy % 120; gy < h; gy += 120) g.drawFastHLine(x0, y0 + gy, w, C_SURF);
-#endif
+template <typename G>
+void mapaDesenha(G& g, int w, int h, double mPorPx)
+{
+  const int cx = w / 2, cy = h / 2;
+  g.fillRect(0, 0, w, h, C_BG);
+  // Quando o cartao entrar, os tiles vao AQUI e nada mais muda.
 
-  // trajeto ja percorrido: do mais antigo para o mais novo
-  int px = 0, py = 0;
+  if (!g_meuFix) {
+    g.setTextDatum(middle_center);
+    g.setFont(&fonts::FreeSansBold24pt7b);
+    g.setTextColor(C_WARN);
+    g.drawString("PROCURANDO GPS", cx, cy);
+    g.setFont(&fonts::Font0);
+    return;
+  }
+
+  // aneis de distancia: escala sem precisar ler numero
+  for (int r = 90; r < (h / 2 + 120); r += 90) g.drawCircle(cx, cy, r, C_SURF);
+  g.setTextDatum(top_center);
+  g.setFont(&fonts::FreeSans9pt7b);
+  g.setTextColor(C_INK3);
+  g.drawString("N", cx, 8);
+  g.fillTriangle(cx, 26, cx - 6, 36, cx + 6, 36, C_INK2);
+
+  // onde eu estou no caminho, e o trecho em alerta
+  int meu = trechoMaisPerto(g_meuLat, g_meuLon);
+  int aLo = -1, aHi = -2;
+  for (int k = 1; k < MUNDO_MAX_CARROS; k++) {
+    if (!g_carros[k].ativo || !g_carros[k].alerta || !g_carros[k].fix) continue;
+    int pi = trechoMaisPerto(g_carros[k].lat, g_carros[k].lon);
+    if (pi >= 0 && meu >= 0) { aLo = min(meu, pi); aHi = max(meu, pi); }
+    break;
+  }
+
+  int px = -1, py = 0; double plat = 0, plon = 0; bool temAnt = false;
   for (int i = 0; i < g_trajN; i++) {
     const Ponto& p = trajetoEm(i);
     int x, y; paraTela(p.lat, p.lon, cx, cy, mPorPx, x, y);
-    if (i > 0 && (x >= x0 && x < x0 + w && y >= y0 && y < y0 + h))
-      linhaContornada(g, px, py, x, y, CORES_MAPA[4], 3);   // ciano: ja andei
-    px = x; py = y;
+    bool vis = (x > -30 && x < w + 30 && y > -30 && y < h + 30);
+    if (vis && px >= 0) {
+      bool vao = temAnt && haversine(plat, plon, p.lat, p.lon) > 40.0;
+      if (vao)                       tracejado(g, px, py, x, y, C_VAO);
+      else if (i > aLo && i <= aHi)  trecho(g, px, py, x, y, C_CASING, C_RED, 13, 7);
+      else if (i > meu)              trecho(g, px, py, x, y, C_ROTA_C, C_ROTA, 11, 5);
+      else                           trecho(g, px, py, x, y, C_RASTRO_C, C_RASTRO, 8, 3);
+    }
+    px = vis ? x : -1; py = y; plat = p.lat; plon = p.lon; temAnt = true;
   }
 
-  // os outros carros
-  for (int i = 1; i < MUNDO_MAX_CARROS; i++) {
-    if (!g_carros[i].ativo || !g_carros[i].fix) continue;
-    int x, y; paraTela(g_carros[i].lat, g_carros[i].lon, cx, cy, mPorPx, x, y);
-    if (x < x0 - 40 || x > x0 + w + 40 || y < y0 - 40 || y > y0 + h + 40) continue;
-    marcadorCarro(g, x, y, CORES_MAPA[g_carros[i].cor % N_CORES], i,
-                  g_carros[i].lider, g_carros[i].alerta);
+  // carros, com rotulo que nao empilha
+  int lx[MUNDO_MAX_CARROS], ly[MUNDO_MAX_CARROS], nL = 0;
+  for (int k = 1; k < MUNDO_MAX_CARROS; k++) {
+    if (!g_carros[k].ativo || !g_carros[k].fix) continue;
+    int x, y; paraTela(g_carros[k].lat, g_carros[k].lon, cx, cy, mPorPx, x, y);
+    if (x < -30 || x > w + 30 || y < -30 || y > h + 30) continue;
+    uint16_t c = g_carros[k].alerta ? C_RED : CORES_MAPA[g_carros[k].cor % N_CORES];
+    if (g_carros[k].lider) marcaTriangulo(g, x, y, c, 15);
+    else                   marcaDisco(g, x, y, c, 13, k);
+
+    int ax = x + 20, ay = y - 10;
+    for (int t = 0; t < MUNDO_MAX_CARROS; t++) {
+      bool bateu = false;
+      for (int i = 0; i < nL; i++)
+        if (abs(lx[i] - ax) < 130 && abs(ly[i] - ay) < 22) { ay = ly[i] + 24; bateu = true; break; }
+      if (!bateu) break;
+    }
+    if (nL < MUNDO_MAX_CARROS) { lx[nL] = ax; ly[nL] = ay; nL++; }
+    g.setTextDatum(top_left);
+    g.setFont(&fonts::FreeSans12pt7b);
+    g.setTextColor(C_CASING);
+    g.drawString(g_carros[k].nome, ax + 1, ay + 1);   // halo = cor do contorno
+    g.setTextColor(c);
+    g.drawString(g_carros[k].nome, ax, ay);
   }
 
   // eu, sempre no centro
-  marcadorCarro(g, cx, cy, CORES_MAPA[g_carros[0].cor % N_CORES], 0,
-                g_carros[0].lider, false);
-  g.drawCircle(cx, cy, 26, C_INK3);
+  marcaTriangulo(g, cx, cy, CORES_MAPA[g_carros[0].cor % N_CORES], 18);
 
-  // escala: sem ela o mapa nao diz se aquilo sao 50 m ou 5 km
+  // escala
   int esc = (int)(100.0 / mPorPx);
-  g.drawFastHLine(x0 + 20, y0 + h - 26, esc, C_INK2);
-  g.drawFastVLine(x0 + 20, y0 + h - 32, 12, C_INK2);
-  g.drawFastVLine(x0 + 20 + esc, y0 + h - 32, 12, C_INK2);
-  g.setTextDatum(bottom_left);
-  g.setFont(&fonts::FreeSans9pt7b);
-  g.setTextColor(C_INK2);
-  g.drawString("100 m", x0 + 24, y0 + h - 32);
+  if (esc > 20 && esc < w - 60) {
+    g.drawFastHLine(24, h - 30, esc, C_INK2);
+    g.drawFastVLine(24, h - 36, 12, C_INK2);
+    g.drawFastVLine(24 + esc, h - 36, 12, C_INK2);
+    g.setTextDatum(bottom_left);
+    g.setFont(&fonts::FreeSans9pt7b);
+    g.setTextColor(C_INK2);
+    g.drawString("100 m", 28, h - 38);
+  }
   g.setFont(&fonts::Font0);
 }

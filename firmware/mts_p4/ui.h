@@ -39,6 +39,10 @@
 
 static uint16_t C_BG, C_SURF, C_SURF2, C_LINE, C_INK, C_INK2, C_INK3;
 static uint16_t C_SUN, C_TAN, C_RED, C_OK, C_WARN;
+// Trajeto. A ESCOLHA DA MATIZ E DO USUARIO e esta travada no projeto desde o
+// trilha_core.h: ROXO = falta andar, AZUL CLARO = ja andei. O que muda entre dia
+// e noite e so a luminancia, como o Organic Maps faz. Cada uma tem seu contorno.
+static uint16_t C_ROTA, C_ROTA_C, C_RASTRO, C_RASTRO_C, C_VAO;
 static uint8_t  g_tema = 1;          // 0 = dia, 1 = noite
 
 // Contorno dos marcadores. FIXO nos dois temas: e ele que carrega o contraste de
@@ -79,6 +83,11 @@ inline void aplicaTema(uint8_t t)
     C_RED   = 0xC8E3;  // #C81E1E
     C_OK    = 0x2446;
     C_WARN  = 0x9260;
+    C_ROTA     = 0x78FA;  // #7A1FD1 roxo escuro   5,4:1 no claro
+    C_ROTA_C   = 0xFFFF;  // contorno = branco (a polaridade do fundo)
+    C_RASTRO   = 0x0B71;  // #0E6E8C azul escuro   4,4:1
+    C_RASTRO_C = 0xFFFF;
+    C_VAO      = 0x8C50;
   } else {                     // ---- NOITE: fundo escuro, feicoes claras
     C_BG    = 0x0841;  // #080808  (nao #050505: viraria esverdeado no RGB565)
     C_SURF  = 0x18E3;  // #1A1714
@@ -92,6 +101,11 @@ inline void aplicaTema(uint8_t t)
     C_RED   = 0xFA27;  // #FF453A
     C_OK    = 0x4CCB;
     C_WARN  = 0xC544;
+    C_ROTA     = 0xCC5F;  // #C88BFF roxo claro    8,1:1 no escuro
+    C_ROTA_C   = 0x1845;  // #1A0A2E
+    C_RASTRO   = 0x4E9E;  // #4FD0F5 azul claro   11,0:1
+    C_RASTRO_C = 0x0926;  // #0A2430
+    C_VAO      = 0x5AEB;
   }
 }
 

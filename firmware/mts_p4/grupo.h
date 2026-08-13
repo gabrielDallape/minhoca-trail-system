@@ -259,7 +259,7 @@ bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
   auto pinta = [&]() {
     auto& g = temBuffer ? (LovyanGFX&)cv : (LovyanGFX&)tft;
 
-    mapaDesenha(g, 0, 0, 1280, 720, ZOOMS[zi]);
+    mapaDesenha(g, 1280, 720, ZOOMS[zi]);
 
     // canto superior esquerdo: nome do grupo. Codigo so para o LIDER - e ele quem
     // dita o numero; seguidor nao tem o que fazer com ele.
