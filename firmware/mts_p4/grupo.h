@@ -325,7 +325,14 @@ bool telaTrilha(TFT& tft, const Sessao& s, Membro* membros, int nMembros)
     int16_t ux = x, uy = y, tx, ty;
     while (tft.getTouch(&tx, &ty)) { ux = tx; uy = ty; delay(8); }
 
-    if (dentro(rModo, ux, uy)) { aplicaTema(g_tema ? 0 : 1); salvaTema(); continue; }
+    if (dentro(rModo, ux, uy)) {
+      // instantaneo: apaga, repinta no escuro, acende. Sem isso da para ver a
+      // tela virando de cima para baixo.
+      trocaTema(tft, g_tema ? 0 : 1, pinta);
+      salvaTema();
+      ultimo = millis();
+      continue;
+    }
     if (dentro(rZoom, ux, uy)) { zi = (zi + 1) % 5; continue; }
 
     bool tratou = false;

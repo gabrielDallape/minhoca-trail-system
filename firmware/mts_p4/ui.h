@@ -109,6 +109,25 @@ inline void aplicaTema(uint8_t t)
   }
 }
 
+// TROCA DE TEMA INSTANTANEA.
+//
+// Trocar dia/noite repinta a tela inteira, e num painel de framebuffer isso
+// APARECE: o video le o mesmo endereco que a gente escreve, entao da para ver a
+// tela sendo pintada de cima para baixo. Parece transicao suave - e nao e, e
+// lentidao visivel.
+//
+// O unico jeito de ficar instantaneo e apagar a luz, repintar no escuro e
+// acender. O usuario ve o quadro novo pronto, nunca o meio do caminho. E o mesmo
+// truque da abertura, e custa os ~15 ms do redesenho.
+template <typename TFT, typename FN>
+void trocaTema(TFT& tft, uint8_t novo, FN repinta)
+{
+  tft.setBrightness(0);
+  aplicaTema(novo);
+  repinta();
+  tft.setBrightness(255);
+}
+
 // Margem unica. Antes havia 40, 60 e 8 misturados - era isso que fazia a tela
 // parecer torta mesmo onde nao havia sobreposicao.
 #define M 48

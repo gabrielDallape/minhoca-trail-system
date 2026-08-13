@@ -192,9 +192,8 @@ static void telaConfig()
       continue;
     }
     if (dentro(rModo, x, y)) {
-      aplicaTema(g_tema ? 0 : 1);
+      trocaTema(tft, g_tema ? 0 : 1, desenhaTudo);
       salvaCfg();
-      desenhaTudo();          // o tema muda TUDO: aqui o redesenho inteiro e o certo
       continue;
     }
     if (dentro(rTema, x, y)) {
