@@ -81,6 +81,22 @@ sec("[3] a janela de TX cai dentro do meu slot");
   check(firstTx<S.tdmaSlotStartUs(t,ID)+t.slotUs,"TX nao vaza para o slot seguinte");
 }
 
+// [3b] com air-time, o FIM do pacote cabe no slot (espelha o tdma_selftest)
+sec("[3b] com air-time, o FIM do pacote cabe no slot");
+{
+  const AT=58000, f0=942000;                 // ancora recua o air-time: frame em 942000
+  const t=S.tdmaInit(1,8,1,15000); t.airtimeUs=AT;
+  NOW=1000000; S.tdmaOnBeacon(t,NOW);
+  NOW=f0+180000;
+  check(shouldTx(t),"TX aos 180 ms do frame (fim 238 ms, dentro do slot)");
+
+  const u=S.tdmaInit(1,8,1,15000); u.airtimeUs=AT;
+  NOW=1000000; S.tdmaOnBeacon(u,NOW);
+  NOW=f0+200000;                             // a janela ANTIGA autorizaria aqui
+  check(!shouldTx(u),"TX negado aos 200 ms (fim 258 ms invadiria o slot 2)");
+  checkEq(u.missedTx,1,"a janela encolhida perdida e contabilizada");
+}
+
 // [4] exatamente 1 TX por frame
 sec("[4] exatamente 1 TX por frame");
 {
@@ -141,13 +157,16 @@ sec("[7] holdover quando a ancora para de chegar");
   NOW=0; S.tdmaOnBeacon(t,0); tick(t);
   check(!t.holdover,"sem holdover logo depois da ancora");
   checkEq(S.tdmaGuardNow(t),15000,"guarda normal");
+  // TTL = max(1,5s, 2*frame + 0,5s) -> 2,5s com frame de 1s
   NOW=1400000; tick(t);
   check(!t.holdover,"1,4s sem ancora: ainda nao e holdover");
-  NOW=2000000; tick(t);
-  check(t.holdover,"2s sem ancora: entrou em holdover");
+  NOW=2400000; tick(t);
+  check(!t.holdover,"2,4s sem ancora: ainda nao e holdover (roster no lugar do beacon)");
+  NOW=3000000; tick(t);
+  check(t.holdover,"3s sem ancora: entrou em holdover");
   checkEq(S.tdmaGuardNow(t),45000,"guarda triplicada no holdover");
   let txs=0;
-  for(let ms=2000;ms<5000;ms++){ NOW=ms*1000; if(shouldTx(t)) txs++; }
+  for(let ms=3000;ms<6000;ms++){ NOW=ms*1000; if(shouldTx(t)) txs++; }
   check(txs>=2,"segue transmitindo em holdover (nao para a rede)");
 }
 

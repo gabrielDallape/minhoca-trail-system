@@ -1005,7 +1005,11 @@ function tdmaTick(t,nowUs){
   // quem ancora a rede nao tem quem o sincronize: marcar holdover nele triplicava
   // a guarda do no 0 para sempre e acendia o alarme em regime normal
   if(sim.fixAnchorHoldover && t.isAnchor && t.sync===TDMA_SYNC_BEACON){ t.holdover=false; return; }
-  t.holdover=(nowUs-t.anchorUs)>TDMA_ANCHOR_TTL_US;
+  // TTL acompanha o frame (piso = TDMA_ANCHOR_TTL_US): o roster do no 0 troca o
+  // beacon de um frame a cada oito, entao 2 frames de silencio e regime normal
+  let ttl=t.frameUs*2+500000;
+  if(ttl<TDMA_ANCHOR_TTL_US) ttl=TDMA_ANCHOR_TTL_US;
+  t.holdover=(nowUs-t.anchorUs)>ttl;
 }
 function tdmaUsInFrame(t,nowUs){
   if(!t.haveAnchor) return null;
@@ -1024,13 +1028,16 @@ function tdmaSlotAt(t,usInFrame){
   const s=Math.floor(usInFrame/t.slotUs);
   return s<t.nSlots?s:t.nSlots-1;
 }
-// true UMA vez por frame, dentro de [inicio+guarda/2, inicio+slot-guarda/2]
+// true UMA vez por frame, dentro de [inicio+guarda/2, inicio+slot-guarda/2-airtime]
+// O air-time recua o limite superior: a janela limita o INICIO do TX e o pacote
+// inteiro tem de caber no slot (espelha o tdma_core.h).
 function tdmaShouldTx(t,nowUs){
   const p=tdmaUsInFrame(t,nowUs); if(!p) return false;
   if(t.haveTxFrame && t.txFrameDone===p.frameIdx) return false;
   const g=tdmaGuardNow(t), half=Math.floor(g/2), start=tdmaSlotStartUs(t,t.nodeId);
   if(t.slotUs<=g) return false;
-  const lo=start+half, hi=start+t.slotUs-half;
+  if(t.airtimeUs && t.airtimeUs+g>=t.slotUs) return false;
+  const lo=start+half, hi=start+t.slotUs-half-t.airtimeUs;
   if(p.usInFrame>=lo && p.usInFrame<=hi){
     t.txFrameDone=p.frameIdx; t.haveTxFrame=true; t.txCount++; return true;
   }

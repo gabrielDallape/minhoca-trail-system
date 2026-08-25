@@ -207,6 +207,13 @@ sec("correcoes do TDMA presentes no firmware (e espelhadas na bancada)");
   const webOk=/t\.isAnchor && t\.sync===TDMA_SYNC_BEACON/.test(web);
   ck("o no ancora nao e marcado em holdover", fwOk&&webOk, `firmware=${fwOk} bancada=${webOk}`);
 }
+// a janela de TX recua o limite superior pelo air-time (o pacote inteiro cabe no slot)
+{
+  const fwOk=/hi = start \+ t\.slotUs - half - t\.airtimeUs/.test(tdmaCore);
+  const webOk=/hi=start\+t\.slotUs-half-t\.airtimeUs/.test(web);
+  ck("a janela de TX desconta o air-time do fim do slot", fwOk&&webOk,
+     `firmware=${fwOk} bancada=${webOk}`);
+}
 
 sec("correcoes do modo grupo presentes no firmware");
 {

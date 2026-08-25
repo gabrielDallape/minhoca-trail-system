@@ -77,6 +77,41 @@ void testSlotWindow(){
 }
 
 // ---------------------------------------------------------------------------
+// Com o air-time informado, a janela limita o FIM do pacote, nao so o inicio:
+// um TX autorizado no fim da janela antiga (242500) terminava em 300500 - 50 ms
+// dentro do slot do vizinho. So aparece com o loop atrasado (mapa repintando),
+// que e exatamente o estado normal do aparelho em trilha.
+void testAirtimeWindow(){
+  Serial.println("\n[3b] com air-time, o FIM do pacote cabe no slot");
+  const uint32_t AT = 58000;                 // medido no e22_ping (16B SF7)
+  Tdma t; tdmaInit(t, 1, 8, 1, 15000);
+  tdmaSetAirtime(t, AT);
+  tdmaTestNowUs = 1000000;
+  tdmaOnBeacon(t, tdmaTestNowUs);            // ancora recua AT: frame comeca em 942000
+
+  // slot 1 = [125000, 250000); janela = [132500, 242500 - 58000 = 184500]
+  const uint64_t f0 = 942000;                // inicio do frame local
+  tdmaTestNowUs = f0 + 180000;
+  check(tdmaShouldTx(t), "TX aos 180 ms do frame (fim 238 ms, dentro do slot)");
+
+  Tdma u; tdmaInit(u, 1, 8, 1, 15000);
+  tdmaSetAirtime(u, AT);
+  tdmaTestNowUs = 1000000; tdmaOnBeacon(u, tdmaTestNowUs);
+  tdmaTestNowUs = f0 + 200000;               // a janela ANTIGA autorizaria aqui
+  check(!tdmaShouldTx(u), "TX negado aos 200 ms (fim 258 ms invadiria o slot 2)");
+  checkEqU(u.missedTx, 1UL, "a janela encolhida perdida e contabilizada");
+
+  // prova geral: para qualquer slot, inicio+air-time nunca passa do fim do slot
+  bool ok = true;
+  for (uint8_t s = 0; s < 8; s++) {
+    uint32_t lo = tdmaSlotStartUs(t, s) + t.guardUs / 2;
+    uint32_t hi = tdmaSlotStartUs(t, s) + t.slotUs - t.guardUs / 2 - AT;
+    if (lo > hi || hi + AT > tdmaSlotStartUs(t, s) + t.slotUs) ok = false;
+  }
+  check(ok, "fim do pacote <= fim do slot, nos 8 slots");
+}
+
+// ---------------------------------------------------------------------------
 void testOneTxPerFrame(){
   Serial.println("\n[4] exatamente 1 TX por frame");
   Tdma t; tdmaInit(t, 1, 8, 1, 15000);
@@ -150,17 +185,23 @@ void testHoldover(){
   check(!t.holdover, "sem holdover logo depois da ancora");
   checkEqU(tdmaGuardNow(t), 15000UL, "guarda normal");
 
-  tdmaTestNowUs = 1400000;   // 1,4s: ainda dentro do TTL de 1,5s
+  // TTL = max(1,5s, 2*frame + 0,5s) -> 2,5s com frame de 1s. Dois frames de
+  // silencio sao regime NORMAL (o roster do no 0 troca o beacon de 1 a cada 8).
+  tdmaTestNowUs = 1400000;
   tdmaTick(t);
   check(!t.holdover, "1,4s sem ancora: ainda nao e holdover");
 
-  tdmaTestNowUs = 2000000;   // 2s: passou do TTL
+  tdmaTestNowUs = 2400000;   // 2,4s: dois frames sem beacon (roster) e normal
   tdmaTick(t);
-  check(t.holdover, "2s sem ancora: entrou em holdover");
+  check(!t.holdover, "2,4s sem ancora: ainda nao e holdover (roster no lugar do beacon)");
+
+  tdmaTestNowUs = 3000000;   // 3s: passou do TTL de 2,5s
+  tdmaTick(t);
+  check(t.holdover, "3s sem ancora: entrou em holdover");
   checkEqU(tdmaGuardNow(t), 45000UL, "guarda triplicada no holdover");
   // continua transmitindo pelo relogio interno (nao para a rede)
   uint32_t txs = 0;
-  for (uint32_t ms = 2000; ms < 5000; ms++) { tdmaTestNowUs = (uint64_t)ms * 1000; if (tdmaShouldTx(t)) txs++; }
+  for (uint32_t ms = 3000; ms < 6000; ms++) { tdmaTestNowUs = (uint64_t)ms * 1000; if (tdmaShouldTx(t)) txs++; }
   check(txs >= 2, "segue transmitindo em holdover (nao para a rede)");
 }
 
@@ -312,6 +353,7 @@ void setup(){
   testConfig();
   testNoAnchor();
   testSlotWindow();
+  testAirtimeWindow();
   testOneTxPerFrame();
   testMissedWindow();
   testLongRun();

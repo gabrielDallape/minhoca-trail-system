@@ -45,7 +45,12 @@ $FQBN = switch ($Board) {
   # 1A86). E por ali que a placa enumera quando voce liga na USB-C de gravacao.
   # Se trocar para CDCOnBoot=cdc, o log passa a sair pelo USB Serial/JTAG nativo
   # (GPIO24/25) e a COM da CH343 fica MUDA - o sintoma e "gravou e nao imprime nada".
-  'p4'     { "esp32:esp32:esp32p4:PSRAM=enabled,FlashSize=32M,PartitionScheme=huge_app,USBMode=default,CDCOnBoot=default" }
+  # PartitionScheme=default_8MB: DOIS slots de app de 3,3 MB (OTA pelo WiFi).
+  # O huge_app antigo tinha um slot so e o binario usa ~1 MB - sobra 3x. A NVS
+  # fica no MESMO deslocamento (0x9000) nos dois esquemas, entao a migracao NAO
+  # apaga nome/slot/potencia/wifi. A primeira gravacao apos a troca e por cabo;
+  # depois: -Upload -Port <IP da tela> (a tela mostra o IP na linha WIFI).
+  'p4'     { "esp32:esp32:esp32p4:PSRAM=enabled,FlashSize=32M,PartitionScheme=default_8MB,USBMode=default,CDCOnBoot=default" }
 }
 
 if ($ListPorts) {
@@ -75,7 +80,13 @@ if ($m) {
 
 if ($Upload) {
   if (-not $Port) { throw "-Upload exige -Port (use -ListPorts para achar a VID 303A)" }
-  & $CLI upload -p $Port --fqbn $FQBN $sketchPath
+  if ($Port -match '^\d+\.\d+\.\d+\.\d+$') {
+    # OTA pelo WiFi: o Port e o IP da tela (aparece na linha WIFI da configuracao
+    # e no serial). Senha fixa "mts" - so evita gravacao acidental.
+    & $CLI upload -p $Port --fqbn $FQBN --upload-field password=mts $sketchPath
+  } else {
+    & $CLI upload -p $Port --fqbn $FQBN $sketchPath
+  }
   if ($LASTEXITCODE -ne 0) { throw "upload falhou" }
   Write-Host "gravado em $Port" -ForegroundColor Green
 }

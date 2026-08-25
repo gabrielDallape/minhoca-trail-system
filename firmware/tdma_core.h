@@ -236,7 +236,16 @@ inline void tdmaTick(Tdma& t){
   // de 110ms para 80ms, e acendia o alarme de HOLDOVER em regime normal.
   if (t.isAnchor && t.sync == TDMA_SYNC_BEACON) { t.holdover = false; return; }
   uint64_t now = tdmaNowUs();
-  t.holdover = (now - t.anchorUs) > TDMA_ANCHOR_TTL_US;
+  // O TTL acompanha o FRAME, com o valor antigo como piso. No modo beacon a
+  // ancora e o pacote de POSICAO do no 0, e de oito em oito frames ele manda
+  // roster no lugar - o maior silencio NORMAL entre ancoras e 2 frames. Com TTL
+  // fixo de 1,5s e frame de 1s, a rede "entrava em holdover" em regime normal a
+  // cada 8 s: guarda triplicada e alarme aceso sem nada errado. E o holdover nao
+  // precisa ser nervoso: 2,5 s de drift a 10 ppm sao 25 us, nada contra uma
+  // guarda de 20 ms - ele existe para silencios de verdade, medidos em segundos.
+  uint64_t ttl = (uint64_t)t.frameUs * 2 + 500000ULL;
+  if (ttl < TDMA_ANCHOR_TTL_US) ttl = TDMA_ANCHOR_TTL_US;
+  t.holdover = (now - t.anchorUs) > ttl;
 }
 
 // ------------------------------------------------------- posicao no frame
@@ -273,9 +282,16 @@ inline uint8_t tdmaSlotAt(const Tdma& t, uint32_t usInFrame){
 
 // ------------------------------------------------------------ decisao de TX
 // true UMA vez por frame, quando estamos dentro da janela util do meu slot:
-//   [inicio + guarda/2 , inicio + slotUs - guarda/2]
+//   [inicio + guarda/2 , inicio + slotUs - guarda/2 - airtime]
 // A meia-guarda de cada lado deixa o pacote centrado no slot: sobra margem
 // tanto p/ atraso de entrada quanto p/ o tempo no ar nao vazar pro vizinho.
+//
+// O air-time entra no limite SUPERIOR porque a janela limita o INICIO do TX e o
+// pacote inteiro tem de caber no slot. Sem o desconto, um loop atrasado (ex.:
+// repintando o mapa por 100 ms) autorizava um TX no fim da janela cujos ultimos
+// ~48 ms (16 B em SF7) invadiam o slot do vizinho - colisao sistematica que so
+// aparece quando a tela esta ocupada, o pior tipo de bug de campo. Com
+// airtimeUs = 0 (nao informado) o comportamento antigo se mantem.
 inline bool tdmaShouldTx(Tdma& t){
   uint32_t usInFrame, frameIdx;
   if (!tdmaUsInFrame(t, usInFrame, frameIdx)) return false;
@@ -285,8 +301,9 @@ inline bool tdmaShouldTx(Tdma& t){
   uint32_t half = g / 2;
   uint32_t start = tdmaSlotStartUs(t, t.nodeId);
   if (t.slotUs <= g) return false;                                // slot menor que a guarda: config invalida
+  if (t.airtimeUs && t.airtimeUs + g >= t.slotUs) return false;   // pacote nao cabe: mesmo criterio do headroom
   uint32_t lo = start + half;
-  uint32_t hi = start + t.slotUs - half;
+  uint32_t hi = start + t.slotUs - half - t.airtimeUs;
 
   if (usInFrame >= lo && usInFrame <= hi) {
     t.txFrameDone = frameIdx; t.haveTxFrame = true; t.txCount++;
