@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MTS — Central de Firmware</title>
+<style>
+  :root{
+    --bg:#14171c; --painel:#1c2129; --linha:#2a313c;
+    --tinta:#e8e4da; --tinta2:#9aa3b0; --sol:#f0a63c; --ok:#57b364;
+    font-size:16px;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{
+    background:var(--bg); color:var(--tinta);
+    font-family:"Segoe UI",system-ui,sans-serif;
+    min-height:100vh; display:grid; place-items:center; padding:24px;
+  }
+  main{width:min(560px,100%)}
+  .marca{display:flex; align-items:baseline; gap:12px; margin-bottom:18px}
+  .marca b{font-size:1.6rem; letter-spacing:.06em}
+  .marca span{color:var(--tinta2); font-size:.95rem}
+  .cartao{
+    background:var(--painel); border:1px solid var(--linha);
+    border-radius:14px; padding:22px 24px;
+  }
+  .versao{display:flex; align-items:center; gap:14px; margin-bottom:18px}
+  .versao .num{
+    font-size:2.6rem; font-weight:700; color:var(--sol);
+    font-variant-numeric:tabular-nums;
+  }
+  .versao .rot{color:var(--tinta2)}
+  .pill{
+    margin-left:auto; background:color-mix(in srgb, var(--ok) 18%, transparent);
+    color:var(--ok); border:1px solid var(--ok);
+    padding:4px 12px; border-radius:999px; font-size:.8rem; font-weight:600;
+  }
+  dl{display:grid; grid-template-columns:auto 1fr; gap:8px 18px; font-size:.95rem}
+  dt{color:var(--tinta2)}
+  dd{font-variant-numeric:tabular-nums; overflow-wrap:anywhere}
+  code{background:var(--bg); padding:2px 6px; border-radius:6px; font-size:.85em}
+  footer{margin-top:16px; color:var(--tinta2); font-size:.85rem; line-height:1.5}
+</style>
+</head>
+<body>
+<main>
+  <div class="marca"><b>MTS</b><span>Minhoca Trail System — central de firmware</span></div>
+  <div class="cartao">
+    <div class="versao">
+      <span class="num" id="v">—</span>
+      <span class="rot">versão publicada</span>
+      <span class="pill" id="estado">carregando…</span>
+    </div>
+    <dl>
+      <dt>publicado em</dt><dd id="data">—</dd>
+      <dt>tamanho</dt><dd id="tam">—</dd>
+      <dt>arquivo</dt><dd id="arq">—</dd>
+      <dt>MD5</dt><dd><code id="md5">—</code></dd>
+    </dl>
+  </div>
+  <footer>
+    As telas conectadas em qualquer WiFi consultam este servidor a cada 15 minutos
+    (na tela inicial, nunca na trilha) e se atualizam sozinhas.<br>
+    Publicar: subir <code>MTS_VERSAO</code> e rodar <code>tools\publica_ota.ps1</code>.
+  </footer>
+</main>
+<script>
+fetch('/version.json').then(r=>r.json()).then(m=>{
+  document.getElementById('v').textContent = 'v' + m.versao;
+  document.getElementById('data').textContent = (m.publicado||'—').replace('T',' ');
+  document.getElementById('tam').textContent = m.bytes ? (m.bytes/1048576).toFixed(2)+' MB ('+m.bytes.toLocaleString('pt-BR')+' bytes)' : '—';
+  document.getElementById('arq').textContent = m.arq||'—';
+  document.getElementById('md5').textContent = m.md5||'—';
+  document.getElementById('estado').textContent = 'no ar';
+}).catch(()=>{ document.getElementById('estado').textContent = 'erro ao ler manifesto'; });
+</script>
+</body>
+</html>
