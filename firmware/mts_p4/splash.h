@@ -8,6 +8,7 @@
 // custaria caro; variar o PWM da luz e de graca e da o mesmo efeito.
 #pragma once
 #include "logo_mts.h"
+#include "ui.h"       // esperaServindo: a abertura nao pode deixar o radio surdo
 
 // Desenha a arte centralizada, com as laterais na mesma cor do fundo dela para a
 // emenda nao aparecer (a tela e 1280 de largura, a arte 1080).
@@ -57,6 +58,9 @@ void splashMostrar(GFX& tft, uint32_t seguraMs = 1400)
   tft.setBrightness(0);
   splashDesenhar(tft);
   tft.setBrightness(255);
-  delay(seguraMs);
+  // Segura a arte SERVINDO o radio e o GPS: o radio ja esta no ar antes do
+  // painel subir, e 2,4 s de delay cru custavam duas janelas de TDMA e ~2 KB de
+  // NMEA logo no boot - justamente quando o no 0 esta ancorando a rede.
+  esperaServindo(seguraMs);
   tft.fillScreen(TFT_BLACK);
 }

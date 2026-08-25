@@ -14,6 +14,7 @@
 // nao parecem dois aplicativos colados.
 #pragma once
 #include <stdint.h>
+#include "icones.h"
 
 // ------------------------------------------------------------------ paleta
 // DOIS TEMAS, e a escolha nao e estetica - e norma.
@@ -44,6 +45,36 @@ static uint16_t C_SUN, C_TAN, C_RED, C_OK, C_WARN;
 // e noite e so a luminancia, como o Organic Maps faz. Cada uma tem seu contorno.
 static uint16_t C_ROTA, C_ROTA_C, C_RASTRO, C_RASTRO_C, C_VAO;
 static uint8_t  g_tema = 1;          // 0 = dia, 1 = noite
+
+// ------------------------------------------------------------- tamanho da tela
+// Preenchidos no boot a partir do painel. NAO cravar 1280/720: sao duas placas
+// com resolucoes diferentes (720x1280 e 1024x600) e o codigo tem de servir as
+// duas. Regra pratica ao posicionar: ancore no RODAPE (TELA_H - x) em vez de usar
+// coordenada absoluta - foi o que quebrou na primeira tentativa, com botoes em
+// y=596 e 88 de altura terminando em 684, fora de uma tela de 600.
+static int TELA_W = 1280, TELA_H = 720;
+inline void telaTamanho(int w, int h) { TELA_W = w; TELA_H = h; }
+
+// ---------------------------------------------------------------- ZOOM
+// Cinco niveis fixos, em metros por pixel. Nao ha zoom continuo de proposito:
+// numa trilha se troca de zoom com a mao balancando e sem olhar, e degrau
+// nomeado e o que da para acertar assim. Cada nivel e ~2,5x o anterior, que e o
+// passo em que a mudanca se percebe sem perder a referencia do que estava na
+// tela.
+//
+// A LARGURA COBERTA e o que interessa na hora de escolher (tela de 1280 px):
+//   0 -> 0,4 m/px .... 512 m ..... manobra, ve a trilha bifurcar
+//   1 -> 0,9 m/px ... 1,15 km .... andando devagar
+//   2 -> 2,0 m/px ... 2,56 km .... padrao: da para ver o carro da frente e a curva
+//   3 -> 5,0 m/px ... 6,40 km .... o grupo espalhado
+//   4 -> 12 m/px ... 15,36 km .... onde estamos na regiao
+static const double MAPA_ZOOMS[] = { 0.4, 0.9, 2.0, 5.0, 12.0 };
+#define MAPA_NZOOM 5
+
+// GUARDADO NA NVS. O aparelho desliga com a chave do carro, e reabrir sempre no
+// mesmo zoom que o usuario escolheu e o que faz a tela parecer a MESMA tela -
+// resetar, sair do grupo ou ficar sem energia nao muda. So o toque no botao muda.
+static uint8_t g_zoom = 2;
 
 // Contorno dos marcadores. FIXO nos dois temas: e ele que carrega o contraste de
 // dia (14:1 contra o fundo claro); a noite o preenchimento contrasta o fundo
@@ -77,17 +108,32 @@ inline void aplicaTema(uint8_t t)
     C_LINE  = 0xA534;  // #A8A69A
     C_INK   = 0x10A2;  // #141414  14:1 sobre o fundo
     C_INK2  = 0x5ACA;  // #5A5A52
-    C_INK3  = 0x8C50;  // #8A8A82
+    C_INK3  = 0x6B6C;  // #6E6C64  4,0:1 (era #8A8A82, 2,7:1 - nao dava no sol)
     C_SUN   = 0xB1C1;  // #B03A0F  laranja escurecido para contrastar no claro
     C_TAN   = 0x6A45;  // #6B4A2F  o bege da arte nao serve no claro; vira marrom
     C_RED   = 0xC8E3;  // #C81E1E
     C_OK    = 0x2446;
     C_WARN  = 0x9260;
-    C_ROTA     = 0x78FA;  // #7A1FD1 roxo escuro   5,4:1 no claro
-    C_ROTA_C   = 0xFFFF;  // contorno = branco (a polaridade do fundo)
-    C_RASTRO   = 0x0B71;  // #0E6E8C azul escuro   4,4:1
-    C_RASTRO_C = 0xFFFF;
-    C_VAO      = 0x8C50;
+    // CONTORNO ESCURO NO TEMA CLARO. Era BRANCO, e branco sobre o bege #E6E3D6 da
+    // 1,29:1 - invisivel. E o contorno e o traco MAIS GROSSO (11 px contra 5 do
+    // nucleo): com ele apagado, dois tercos do tracado sumiam e o caminho ficava
+    // um risco fino. Agora o contorno usa o MESMO preto dos marcadores e das vias
+    // (C_CASING, 14,8:1), o que da ao mapa inteiro um traco so.
+    //
+    // Com o contorno escuro, o nucleo nao precisa mais brigar com o fundo claro -
+    // ele fica DENTRO do contorno. Por isso as duas matizes clarearam: agora o
+    // criterio e contrastar com o proprio contorno, e ai da para usar a cor cheia
+    // em vez da versao escurecida.
+    // Matizes CHEIAS, nao versoes acinzentadas. Agora que o fundo vem do cartao -
+    // estrada em laranja, trilha em bege, mata, agua - o traçado disputa atencao
+    // com o mapa inteiro, e tem de ganhar sempre: e a unica coisa na tela que
+    // diz para onde ir. Saturacao alta e o que separa "informacao" de "fundo".
+    C_ROTA     = 0xA15E;  // #A32BF5 roxo   3,8:1 contra o contorno e 3,8:1 no fundo
+    C_ROTA_C   = C_CASING;
+    C_RASTRO   = 0x0CDD;  // #0A9BE8 azul   6,2:1 contra o contorno
+    C_RASTRO_C = C_CASING;
+    C_VAO      = 0x5ACA;  // #5A5952  5,5:1 (era 2,7:1: a ponte do sinal caido
+                          // e justamente o que nao pode passar despercebido)
   } else {                     // ---- NOITE: fundo escuro, feicoes claras
     C_BG    = 0x0841;  // #080808  (nao #050505: viraria esverdeado no RGB565)
     C_SURF  = 0x18E3;  // #1A1714
@@ -101,9 +147,9 @@ inline void aplicaTema(uint8_t t)
     C_RED   = 0xFA27;  // #FF453A
     C_OK    = 0x4CCB;
     C_WARN  = 0xC544;
-    C_ROTA     = 0xCC5F;  // #C88BFF roxo claro    8,1:1 no escuro
+    C_ROTA     = 0xC3FF;  // #C77DFF roxo    7,5:1 no escuro
     C_ROTA_C   = 0x1845;  // #1A0A2E
-    C_RASTRO   = 0x4E9E;  // #4FD0F5 azul claro   11,0:1
+    C_RASTRO   = 0x06BF;  // #00D4FF ciano  11,3:1 - o mais luminoso da tela
     C_RASTRO_C = 0x0926;  // #0A2430
     C_VAO      = 0x5AEB;
   }
@@ -131,7 +177,19 @@ void trocaTema(TFT& tft, uint8_t novo, FN repinta)
 
 // Margem unica. Antes havia 40, 60 e 8 misturados - era isso que fazia a tela
 // parecer torta mesmo onde nao havia sobreposicao.
-#define M 48
+// A MARGEM veio de 48 para 20, e nao e capricho: 48 de cada lado comem 96 px de
+// uma tela de 1024, quase 10% da largura, para nao mostrar nada. O desenho novo usa
+// 20 - o respiro minimo da borda do painel - e o espaco que sobra vai para o
+// conteudo, que e o que o motorista tenta ler com o carro pulando.
+#define M 20
+
+// Alvo de toque minimo. E o dedo COM LUVA, nao a unha: qualquer coisa que se
+// aperte tem de ter pelo menos isto de altura. Linha de lista que so se le pode
+// ser menor, e por isso ha duas medidas e nao uma.
+#define ALVO   76
+#define LINHA_LEITURA 66
+#define BARRA_H 88
+#define RAIO   10
 
 
 struct Ret { int16_t x, y, w, h; };
@@ -145,13 +203,21 @@ inline bool dentro(const Ret& r, int16_t px, int16_t py) {
 
 // Sol ou lua, desenhado em vetor. Mostra o modo para o qual VAI ao ser tocado -
 // e a convencao do botao de dia/noite do OsmAnd.
+// corFundo E OBRIGATORIA NA PRATICA: a lua e um circulo com uma MORDIDA, e a
+// mordida e pintada com a cor do que esta atras. A versao anterior usava sempre
+// C_BG, mas o icone e desenhado sobre C_SURF nas linhas de configuracao - entao a
+// mordida saia como um borrao da cor errada, e era isso que deixava a lua feia.
+// A mordida tambem era grande demais (0,85 do raio, deslocada so 0,5): sobrava um
+// filete, nao uma lua.
 template <typename G>
-void iconeTema(G& g, int cx, int cy, int r, uint16_t cor, bool desenhaLua)
+void iconeTema(G& g, int cx, int cy, int r, uint16_t cor, bool desenhaLua,
+               uint16_t corFundo)
 {
-  if (desenhaLua) {                      // lua: circulo com uma mordida
+  if (desenhaLua) {
     g.fillCircle(cx, cy, r, cor);
-    g.fillCircle(cx + r / 2, cy - r / 3, r * 0.85f, C_BG);
-  } else {                               // sol: disco com oito raios
+    g.fillCircle(cx + (int)(r * 0.62f), cy - (int)(r * 0.30f),
+                 (int)(r * 0.80f), corFundo);
+  } else {
     g.fillCircle(cx, cy, r * 0.58f, cor);
     for (int i = 0; i < 8; i++) {
       float a = i * 0.7853982f;
@@ -164,52 +230,130 @@ void iconeTema(G& g, int cx, int cy, int r, uint16_t cor, bool desenhaLua)
 }
 
 // -------------------------------------------------------------- cabecalho
-// O subtitulo vai EMBAIXO do "MTS", nao ao lado. Isso conserta um bug real: a
-// versao anterior media textWidth("MTS") DEPOIS de trocar a fonte para uma menor,
-// entao o divisor e o subtitulo caiam em cima do logotipo.
+// ALTURA DO CABECALHO. Antes ele gastava 130 px com "MTS" em 24pt mais um
+// subtitulo - 22% de uma tela de 600, so de enfeite, e o que sobrava obrigava as
+// linhas de configuracao a caberem em 58 px cada (nao da para clicar). A marca ja
+// aparece na abertura; repetir na tela toda nao informa nada.
+#define CAB_H 88
+
+// Cabecalho com a MARCA: "MTS" sublinhado pelo traco de sol (a assinatura
+// visual do aparelho - a mesma barra laranja que marca o que e tocavel nas
+// linhas de configuracao) e o nome da tela ao lado, em voz baixa. Nao e o
+// titulo de 130 px que foi removido: cabe nos MESMOS 88 px que ja existiam,
+// e da identidade ao que antes era uma faixa vazia.
+// Passe sub = nullptr ou "" para so a marca (tela inicial).
 template <typename G>
 void cabecalho(G& g, const char* sub, bool comEngrenagem, Ret* eng = nullptr)
 {
-  g.setTextDatum(top_left);
-  g.setFont(&fonts::FreeSansBold24pt7b);
-  g.setTextColor(C_TAN);
-  g.drawString("MTS", M, 30);
+  g.setTextDatum(middle_left);
+  g.setFont(&fonts::FreeSansBold18pt7b);
+  g.setTextColor(C_SUN);
+  g.drawString("MTS", M, CAB_H / 2 - 6);
+  const int wm = g.textWidth("MTS");
+  g.fillRoundRect(M, CAB_H / 2 + 16, wm, 5, 2, C_SUN);   // o traco de sol
 
-  g.setFont(&fonts::FreeSans9pt7b);
-  g.setTextColor(C_INK3);
-  g.drawString(sub, M, 92);
+  if (sub && sub[0]) {
+    g.setFont(&fonts::FreeSans12pt7b);
+    g.setTextColor(C_INK2);
+    g.drawString(sub, M + wm + 20, CAB_H / 2 - 2);
+  }
 
   if (comEngrenagem) {
-    Ret r = { (int16_t)(g.width() - M - 68), 34, 68, 68 };
-    g.drawRoundRect(r.x, r.y, r.w, r.h, 14, C_LINE);
-    int cx = r.x + 34, cy = r.y + 34;
+    // engrenagem num botao REDONDO: os controles flutuantes do aparelho sao
+    // circulos (mapa idem); retangulo e conteudo, circulo e acao
+    const int cx = g.width() - M - 38, cy = CAB_H / 2;
+    g.fillCircle(cx, cy + 3, 38, C_CASING);              // sombra deslocada
+    g.fillCircle(cx, cy, 38, C_SURF);
+    g.drawCircle(cx, cy, 38, C_LINE);
     for (int i = 0; i < 8; i++) {
       float a = i * 0.7853982f;
       g.fillCircle(cx + (int)(cosf(a) * 17), cy + (int)(sinf(a) * 17), 5, C_INK2);
     }
     g.fillCircle(cx, cy, 13, C_INK2);
-    g.fillCircle(cx, cy, 6, C_BG);
-    if (eng) *eng = { r.x, r.y, 68, 68 };
+    g.fillCircle(cx, cy, 6, C_SURF);
+    if (eng) *eng = { (int16_t)(cx - 40), (int16_t)(cy - 40), 80, 80 };
   }
   g.setFont(&fonts::Font0);
 }
 
-// Pastilha de estado (radio, gps). Hoje mostram travessao; quando o E22 e o GPS
-// entrarem, acendem. O lugar fica reservado agora para o layout nao mudar depois.
+// Botao flutuante redondo (mapa: zoom, dia/noite). A sombra DESLOCADA e o que
+// o separa do mapa - a sombra colada de antes lia como borda suja.
 template <typename G>
-int pastilha(G& g, int x, int y, const char* rot, const char* val, uint16_t cor)
+void fabFundo(G& g, int cx, int cy, int r, uint16_t fundo)
 {
-  g.setFont(&fonts::FreeSans9pt7b);
-  int w = 34 + g.textWidth(rot) + 10 + g.textWidth(val) + 20;
-  g.drawRoundRect(x, y, w, 40, 20, C_LINE);
-  g.fillCircle(x + 20, y + 20, 5, cor);
-  g.setTextDatum(middle_left);
-  g.setTextColor(C_INK3);
-  g.drawString(rot, x + 34, y + 21);
-  g.setTextColor(cor == C_INK3 ? C_INK3 : C_INK2);
-  g.drawString(val, x + 34 + g.textWidth(rot) + 10, y + 21);
+  g.fillCircle(cx, cy + 3, r, C_CASING);
+  g.fillCircle(cx, cy, r, fundo);
+  g.drawCircle(cx, cy, r, C_LINE);
+}
+
+// Pilula de HUD: chrome para texto que flutua sobre o MAPA. Texto pelado sobre
+// mapa e ilegivel na primeira area clara; a pilula da fundo, contorno e sombra.
+template <typename G>
+void hudPilula(G& g, int x, int y, int w, int h)
+{
+  g.fillRoundRect(x, y + 3, w, h, h / 2, C_CASING);
+  g.fillRoundRect(x, y, w, h, h / 2, C_SURF);
+  g.drawRoundRect(x, y, w, h, h / 2, C_LINE);
+}
+
+// PASTILHA DE ESTADO: icone + valor, SEM rotulo escrito.
+//
+// A versao anterior escrevia "GPS  9 satelites" - duas palavras para dizer o que um
+// desenho de satelite e o algarismo 9 dizem sozinhos, e melhor, porque o motorista
+// reconhece a forma antes de conseguir ler. Texto na tela do aparelho ficou
+// reservado a NOME, NUMERO e acao que nao pode ser ambigua.
+//
+// quem = 0 satelite (GPS), 1 antena (radio), 2 mapa/cartao.
+template <typename G>
+int pastilhaIc(G& g, int x, int y, uint8_t quem, const char* val, uint16_t cor,
+               bool riscado = false)
+{
+  const int h = 52, ics = 26;
+  g.setFont(&fonts::FreeSansBold12pt7b);
+  const int wv = val && val[0] ? g.textWidth(val) : 0;
+  const int w = 17 + ics + (wv ? 9 + wv : 0) + 17;
+  // PILULA de verdade (raio = metade da altura) com contorno: a versao de
+  // cantos 10 px parecia um botao quadrado orfao; a pilula le como ESTADO.
+  g.fillRoundRect(x, y, w, h, h / 2, C_SURF);
+  g.drawRoundRect(x, y, w, h, h / 2, C_LINE);
+  const int cx = x + 17 + ics / 2, cy = y + h / 2;
+  if      (quem == 0) icSatelite(g, cx, cy, ics, cor);
+  else if (quem == 1) icAntena  (g, cx, cy, ics, cor);
+  else                icMapa    (g, cx, cy, ics, cor, riscado);
+  if (wv) {
+    g.setTextDatum(middle_left);
+    g.setTextColor(cor);
+    g.drawString(val, x + 15 + ics + 9, cy + 1);
+  }
   g.setFont(&fonts::Font0);
   return w;
+}
+
+// BOTAO SO DE ICONE, para as acoes secundarias: voltar, fechar, ajustes.
+// Elas se repetem em toda tela, e escrever "VOLTAR" nove vezes e ruido - o
+// chevron diz a mesma coisa e devolve a largura para o conteudo.
+// ic: 0 seta-esq, 1 seta-dir, 2 X, 3 engrenagem, 4 comboio, 5 alerta, 6 info, 7 lapis
+template <typename G>
+void botaoIc(G& g, const Ret& r, uint8_t ic, uint16_t fundo, uint16_t frente,
+             bool premido = false)
+{
+  g.fillRoundRect(r.x, r.y, r.w, r.h, RAIO, fundo);
+  // A sombra interna e o que faz o retangulo parecer apertavel. Ela troca de
+  // lado quando premido, entao o botao AFUNDA sob o dedo em vez de so mudar de cor.
+  const uint16_t sombra = (fundo == C_SURF || fundo == C_SURF2) ? C_LINE : C_CASING;
+  if (premido) g.fillRoundRect(r.x, r.y, r.w, 4, 2, sombra);
+  else         g.fillRoundRect(r.x, r.y + r.h - 4, r.w, 4, 2, sombra);
+  const int cx = r.x + r.w / 2, cy = r.y + r.h / 2, s = 34;
+  switch (ic) {
+    case 0: icSeta      (g, cx, cy, s, frente, -1); break;
+    case 1: icSeta      (g, cx, cy, s, frente, +1); break;
+    case 2: icX         (g, cx, cy, s, frente);     break;
+    case 3: icEngrenagem(g, cx, cy, s, frente);     break;
+    case 4: icComboio   (g, cx, cy, s, frente);     break;
+    case 5: icAlerta    (g, cx, cy, s, frente);     break;
+    case 6: icInfo      (g, cx, cy, s, frente);     break;
+    default:icLapis     (g, cx, cy, s, frente);     break;
+  }
 }
 
 // ---------------------------------------------------------------- botoes
@@ -223,11 +367,16 @@ void botao(G& g, const Ret& r, const char* titulo, const char* desc,
   const int raio = 18;
   uint16_t fg;
   if (cheio) {
+    // profundidade de verdade: banda de sombra embaixo (em cima quando premido,
+    // para o botao AFUNDAR sob o dedo) + cunho de contorno escuro
     g.fillRoundRect(r.x, r.y, r.w, r.h, raio, premido ? C_TAN : cor);
+    if (premido) g.fillRoundRect(r.x, r.y, r.w, 6, 3, C_CASING);
+    else         g.fillRoundRect(r.x, r.y + r.h - 6, r.w, 6, 3, C_CASING);
+    g.drawRoundRect(r.x, r.y, r.w, r.h, raio, C_CASING);
     fg = C_BG;
   } else {
     if (premido) g.fillRoundRect(r.x, r.y, r.w, r.h, raio, C_SURF);
-    for (int k = 0; k < 3; k++)
+    for (int k = 0; k < 2; k++)
       g.drawRoundRect(r.x + k, r.y + k, r.w - 2 * k, r.h - 2 * k, raio - k, cor);
     fg = cor;
   }
@@ -250,30 +399,70 @@ template <typename G>
 void linhaCfg(G& g, const Ret& r, const char* rot, const char* val,
               const char* acao, bool ativa, uint16_t swatch = 0)
 {
+  // TUDO POSICIONADO PELA ALTURA DA LINHA, nada de deslocamento fixo. A versao
+  // anterior cravava rotulo em y+24 e valor em y+56: numa linha de 58 px - que e
+  // o que sobrava na tela de 1024x600 - os dois se sobrepunham e o toque nao
+  // acertava nada. Foi o que deixou a tela de configuracao impossivel de usar.
   g.fillRoundRect(r.x, r.y, r.w, r.h, 14, C_SURF);
   if (ativa) g.fillRoundRect(r.x, r.y, 5, r.h, 2, C_SUN);
 
-  g.setTextDatum(top_left);
-  g.setFont(&fonts::FreeSans9pt7b);
-  g.setTextColor(C_INK3);
-  g.drawString(rot, r.x + 30, r.y + 24);
+  const int px = 30;                    // respiro lateral
+  const bool baixa = r.h < 96;          // linha apertada: some com o rotulo
 
-  int vx = r.x + 30;
-  if (swatch) { g.fillRoundRect(vx, r.y + 60, 26, 26, 6, swatch); vx += 40; }
-  g.setFont(&fonts::FreeSansBold18pt7b);
+  if (!baixa) {
+    g.setTextDatum(top_left);
+    g.setFont(&fonts::FreeSans9pt7b);
+    g.setTextColor(C_INK3);
+    g.drawString(rot, r.x + px, r.y + r.h / 5);
+  }
+
+  // o valor fica no meio vertical da linha, sempre
+  int vx = r.x + px;
+  const int vy = baixa ? (r.y + r.h / 2) : (r.y + r.h * 2 / 3);
+  if (swatch) {
+    int s = r.h / 4; if (s > 26) s = 26;
+    g.fillRoundRect(vx, vy - s / 2, s, s, 6, swatch);
+    vx += s + 14;
+  }
+  g.setTextDatum(middle_left);
+  g.setFont(baixa ? &fonts::FreeSansBold12pt7b : &fonts::FreeSansBold18pt7b);
   g.setTextColor(ativa ? C_TAN : C_INK3);
-  g.drawString(val, vx, r.y + 56);
+  g.drawString(val, vx, vy);
 
+  // Em linha apertada o rotulo vira o texto de acao, para nao perder o contexto
   g.setTextDatum(middle_right);
   g.setFont(&fonts::FreeSans9pt7b);
   g.setTextColor(ativa ? C_SUN : C_INK3);
-  g.drawString(acao, r.x + r.w - 30, r.y + r.h / 2);
+  g.drawString(baixa ? rot : acao, r.x + r.w - px, r.y + r.h / 2);
   g.setFont(&fonts::Font0);
 }
 
 // ------------------------------------------------------------------ toque
 // Espera o dedo SAIR e devolve onde ele estava. Usar a saida e nao a entrada
 // deixa arrastar para fora do botao e desistir - o que todo mundo espera.
+// GANCHO DE SERVICO. Toda tela que espera o dedo passa por aqui, e enquanto
+// espera o aparelho nao pode ficar surdo: o slot de TDMA dura 105 ms e o radio
+// precisa ser atendido dentro dele. Sem isto, a tela inicial - que espera 400 ms
+// por vez - perdia 7 de cada 8 janelas de transmissao (medido: tx=1, perdi=7).
+//
+// Por que um gancho e nao uma tarefa do FreeRTOS: a tarefa resolveria o tempo,
+// mas passaria a escrever g_carros[] em paralelo com quem desenha, e um double
+// lido pela metade vira coordenada absurda no mapa. Aqui tudo continua numa
+// linha de execucao so, e o custo e uma chamada indireta a cada 8 ms.
+static void (*g_hookServico)() = nullptr;
+
+// delay() que NAO deixa o aparelho surdo: serve o radio e o GPS enquanto espera.
+// Toda espera de UI (piscada de alerta, animacao, debounce) tem de usar isto -
+// um delay(150) cru custa uma janela inteira de TDMA e frases de NMEA.
+inline void esperaServindo(uint32_t ms)
+{
+  uint32_t t0 = millis();
+  do {
+    if (g_hookServico) g_hookServico();
+    delay(4);
+  } while (millis() - t0 < ms);
+}
+
 template <typename TFT>
 bool esperaToque(TFT& t, int16_t& x, int16_t& y, uint32_t limiteMs = 0)
 {
@@ -281,6 +470,7 @@ bool esperaToque(TFT& t, int16_t& x, int16_t& y, uint32_t limiteMs = 0)
   int16_t ux = -1, uy = -1;
   bool tocou = false;
   while (true) {
+    if (g_hookServico) g_hookServico();
     int16_t tx, ty;
     if (t.getTouch(&tx, &ty)) { ux = tx; uy = ty; tocou = true; }
     else if (tocou) { x = ux; y = uy; return true; }

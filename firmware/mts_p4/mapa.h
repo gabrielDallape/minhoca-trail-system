@@ -31,6 +31,7 @@
 #pragma once
 #include "ui.h"
 #include "mundo.h"
+#include "mapa_fundo.h"
 
 // trecho de "estrada": contorno + nucleo
 // Engrossa NA PERPENDICULAR da reta, nao nos dois eixos. A versao anterior
@@ -68,11 +69,33 @@ void tracejado(G& g, int x0, int y0, int x1, int y1, uint16_t cor)
   }
 }
 
+// Seta que aponta o RUMO, num mapa north-up (0 = norte, para cima). Substitui o
+// triangulo fixo: um marcador que sempre aponta para o norte mente sobre para
+// onde o carro vai - e saber a direcao do lider e o que decide em qual saida da
+// bifurcacao ele entrou. O rumo vem do RMC (proprio) ou do pacote (dos outros);
+// parado, vale o ultimo rumo em movimento, que e o que um carro parado tem.
+// O entalhe atras (dois triangulos) e o que faz a frente ser inconfundivel.
 template <typename G>
-void marcaTriangulo(G& g, int x, int y, uint16_t cor, int r)
+void marcaSetaRumo(G& g, int x, int y, uint16_t cor, int r, float rumoGraus)
 {
-  g.fillTriangle(x, y - r - 2, x - r - 2, y + r + 1, x + r + 2, y + r + 1, C_CASING);
-  g.fillTriangle(x, y - r,     x - r,     y + r,     x + r,     y + r,     cor);
+  float a = rumoGraus * 0.017453292f;
+  float sa = sinf(a), ca = cosf(a);
+  // (lado, frente) no referencial do carro -> tela (y cresce para baixo)
+  auto P = [&](float pl, float pf, int& ox, int& oy) {
+    ox = x + (int)lroundf(pl * ca + pf * sa);
+    oy = y + (int)lroundf(pl * sa - pf * ca);
+  };
+  auto seta = [&](float rr, uint16_t c) {
+    int tx, ty, lx, ly, rx, ry, nx, ny;
+    P(0,           rr * 1.15f,  tx, ty);   // bico
+    P(-rr * 0.85f, -rr * 0.85f, lx, ly);   // traseira esquerda
+    P( rr * 0.85f, -rr * 0.85f, rx, ry);   // traseira direita
+    P(0,           -rr * 0.35f, nx, ny);   // entalhe
+    g.fillTriangle(tx, ty, lx, ly, nx, ny, c);
+    g.fillTriangle(tx, ty, nx, ny, rx, ry, c);
+  };
+  seta((float)r + 3.0f, C_CASING);
+  seta((float)r, cor);
 }
 
 template <typename G>
@@ -116,8 +139,13 @@ template <typename G>
 void mapaDesenha(G& g, int w, int h, double mPorPx)
 {
   const int cx = w / 2, cy = h / 2;
+  mapaOrientaPeloRumo();     // o que esta a frente do carro sobe na tela
   g.fillRect(0, 0, w, h, C_BG);
-  // Quando o cartao entrar, os tiles vao AQUI e nada mais muda.
+
+  // O fundo do cartao (relevo, agua, mata, vias, POI) entra AQUI, antes de tudo
+  // que vem da rede. Se nao houver cartao, fundoDesenha devolve 0 e o resto do
+  // mapa continua identico: o trajeto e os carros nunca dependem do cartao.
+  if (g_meuFix) fundoDesenha(g, g_fundo, w, h, mPorPx, g_meuLat, g_meuLon);
 
   if (!g_meuFix) {
     g.setTextDatum(middle_center);
@@ -130,11 +158,18 @@ void mapaDesenha(G& g, int w, int h, double mPorPx)
 
   // aneis de distancia: escala sem precisar ler numero
   for (int r = 90; r < (h / 2 + 120); r += 90) g.drawCircle(cx, cy, r, C_SURF);
-  g.setTextDatum(top_center);
-  g.setFont(&fonts::FreeSans9pt7b);
-  g.setTextColor(C_INK3);
-  g.drawString("N", cx, 8);
-  g.fillTriangle(cx, 26, cx - 6, 36, cx + 6, 36, C_INK2);
+  // O NORTE agora passeia: com o mapa orientado pelo rumo, o "N" anda no anel
+  // apontando para onde o norte realmente esta - e a bussola da tela.
+  {
+    const int nx = cx - (int)(g_rotSen * 180.0f);
+    const int ny = cy - (int)(g_rotCos * 180.0f);
+    g.fillCircle(nx, ny, 17, C_SURF);
+    g.drawCircle(nx, ny, 17, C_LINE);
+    g.setTextDatum(middle_center);
+    g.setFont(&fonts::FreeSansBold12pt7b);
+    g.setTextColor(C_INK2);
+    g.drawString("N", nx, ny + 1);
+  }
 
   // onde eu estou no caminho, e o trecho em alerta
   int meu = trechoMaisPerto(g_meuLat, g_meuLon);
@@ -150,6 +185,37 @@ void mapaDesenha(G& g, int w, int h, double mPorPx)
   // 47 ms em 40 s). Pulando pontos que caem no MESMO lugar da tela, o custo passa
   // a depender do tamanho da TELA, nao do historico - e nada se perde, porque
   // eles seriam desenhados um por cima do outro de qualquer jeito.
+  uint32_t tT = micros();
+
+  // O CAMINHO DO LIDER, roxo, do ponto onde EU estou para a frente. E a promessa
+  // do produto: o mundo.h ja montava g_rota[] a cada pacote do lider, mas nada a
+  // desenhava - o seguidor via o lider como um ponto andando, nunca o caminho
+  // ate ele. So o trecho A FRENTE entra: o que ficou para tras eu ja andei (esta
+  // no meu rastro azul) ou nao me leva a lugar nenhum. Desenhado ANTES do meu
+  // rastro para o azul (onde estou) ficar por cima do roxo (para onde vou) no
+  // pedaco em que os dois se sobrepoem.
+  if (g_rotaN >= 2) {
+    int meuIdx; float fora;
+    if (rotaProjeta(g_meuLat, g_meuLon, meuIdx, fora)) {
+      int rx = -1, ry = 0; double rlat = 0, rlon = 0; bool rAnt = false;
+      for (int i = meuIdx; i < g_rotaN; i++) {
+        const Ponto& p = g_rota[i];
+        int x, y; paraTela(p.lat, p.lon, cx, cy, mPorPx, x, y);
+        bool ultimo = (i == g_rotaN - 1);
+        if (rx >= 0 && !ultimo && abs(x - rx) < 3 && abs(y - ry) < 3) continue;
+        bool vis = (x > -30 && x < w + 30 && y > -30 && y < h + 30);
+        if (vis && rx >= 0) {
+          // vao no radio: mesmo criterio dos 40 m do rastro
+          bool vao = rAnt && haversine(rlat, rlon, p.lat, p.lon) > 40.0;
+          // 15/9 (era 11/5): "muito fina" foi a reclamacao de campo - com o
+          // carro pulando, a linha que diz para onde ir tem de ser gorda
+          if (vao) tracejado(g, rx, ry, x, y, C_VAO);
+          else     trecho(g, rx, ry, x, y, C_ROTA_C, C_ROTA, 15, 9);
+        }
+        rx = vis ? x : -1; ry = y; rlat = p.lat; rlon = p.lon; rAnt = true;
+      }
+    }
+  }
   int px = -1, py = 0; double plat = 0, plon = 0; bool temAnt = false;
   for (int i = 0; i < g_trajN; i++) {
     const Ponto& p = trajetoEm(i);
@@ -159,13 +225,21 @@ void mapaDesenha(G& g, int w, int h, double mPorPx)
     bool vis = (x > -30 && x < w + 30 && y > -30 && y < h + 30);
     if (vis && px >= 0) {
       bool vao = temAnt && haversine(plat, plon, p.lat, p.lon) > 40.0;
+      // O rastro proprio e SEMPRE azul (mais o trecho de alerta em vermelho).
+      // Havia um estado roxo "a frente" herdado do grupo_ws - la o buffer era a
+      // rota COMPARTILHADA do lider e roxo significava "falta andar"; aqui este
+      // buffer e o MEU proprio rastro, e pintar de roxo o pedaco dele que passa
+      // perto de mim (um cruzamento com o proprio caminho) fingia rota onde nao
+      // ha. Roxo agora e exclusivo da rota do lider, desenhada acima.
       if (vao)                       tracejado(g, px, py, x, y, C_VAO);
-      else if (i > aLo && i <= aHi)  trecho(g, px, py, x, y, C_CASING, C_RED, 13, 7);
-      else if (i > meu)              trecho(g, px, py, x, y, C_ROTA_C, C_ROTA, 11, 5);
-      else                           trecho(g, px, py, x, y, C_RASTRO_C, C_RASTRO, 8, 3);
+      else if (i > aLo && i <= aHi)  trecho(g, px, py, x, y, C_CASING, C_RED, 17, 9);
+      else                           trecho(g, px, py, x, y, C_RASTRO_C, C_RASTRO, 11, 5);
     }
     px = vis ? x : -1; py = y; plat = p.lat; plon = p.lon; temAnt = true;
   }
+
+  g_usTraj = micros() - tT;
+  uint32_t tC = micros();
 
   // carros, com rotulo que nao empilha
   int lx[MUNDO_MAX_CARROS], ly[MUNDO_MAX_CARROS], nL = 0;
@@ -174,7 +248,9 @@ void mapaDesenha(G& g, int w, int h, double mPorPx)
     int x, y; paraTela(g_carros[k].lat, g_carros[k].lon, cx, cy, mPorPx, x, y);
     if (x < -30 || x > w + 30 || y < -30 || y > h + 30) continue;
     uint16_t c = g_carros[k].alerta ? C_RED : CORES_MAPA[g_carros[k].cor % N_CORES];
-    if (g_carros[k].lider) marcaTriangulo(g, x, y, c, 15);
+    // rumo RELATIVO ao mapa girado: a seta continua apontando para onde o carro
+    // vai no MUNDO, seja qual for a rotacao da tela
+    if (g_carros[k].lider) marcaSetaRumo(g, x, y, c, 15, g_carros[k].rumo - g_mapaRotG);
     else                   marcaDisco(g, x, y, c, 13, k);
 
     int ax = x + 20, ay = y - 10;
@@ -193,19 +269,23 @@ void mapaDesenha(G& g, int w, int h, double mPorPx)
     g.drawString(g_carros[k].nome, ax, ay);
   }
 
-  // eu, sempre no centro
-  marcaTriangulo(g, cx, cy, CORES_MAPA[g_carros[0].cor % N_CORES], 18);
+  // eu, sempre no centro - e com o mapa orientado pelo rumo a minha seta fica
+  // essencialmente para CIMA (a diferenca e so o filtro perseguindo o alvo)
+  marcaSetaRumo(g, cx, cy, CORES_MAPA[g_carros[0].cor % N_CORES], 18,
+                g_meuRumo - g_mapaRotG);
+  g_usCarros = micros() - tC;
 
-  // escala
+  // escala, centrada embaixo: o canto esquerdo agora e do botao SAIR
   int esc = (int)(100.0 / mPorPx);
   if (esc > 20 && esc < w - 60) {
-    g.drawFastHLine(24, h - 30, esc, C_INK2);
-    g.drawFastVLine(24, h - 36, 12, C_INK2);
-    g.drawFastVLine(24 + esc, h - 36, 12, C_INK2);
-    g.setTextDatum(bottom_left);
+    int x0 = w / 2 - esc / 2;
+    g.drawFastHLine(x0, h - 24, esc, C_INK2);
+    g.drawFastVLine(x0, h - 30, 12, C_INK2);
+    g.drawFastVLine(x0 + esc, h - 30, 12, C_INK2);
+    g.setTextDatum(bottom_center);
     g.setFont(&fonts::FreeSans9pt7b);
     g.setTextColor(C_INK2);
-    g.drawString("100 m", 28, h - 38);
+    g.drawString("100 m", w / 2, h - 32);
   }
   g.setFont(&fonts::Font0);
 }
