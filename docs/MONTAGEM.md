@@ -103,6 +103,15 @@ você conta os pads uma vez só). Depois a direita.
 pads vizinhos**, não só contra o próprio. Curto entre adjacentes é o defeito nº 1 e
 não aparece a olho nu. Ponte entre 9 (VCC) e 8 (DIO2) queima o módulo.
 
+> ### Do manual oficial (E22-M Series User Manual, seção 3.3 — M30S)
+>
+> | | o que o fabricante diz |
+> |---|---|
+> | **Pino 21 `ANT`** | O desenho mecânico do datasheet traz o **conector IPX no canto inferior esquerdo** — **use ele**. O pino 21 é o pad castelado ("stamp hole", 50 Ω), alternativa para soldar o cabo direto. Não use os dois. |
+> | **Alimentação** | **2,5 a 5,5 V**, e *"com tensão **≥ 5 V** o requisito de potência de saída é atendido"*. Abaixo de 5 V ele funciona mas **não entrega os 30 dBm**. Acima de 5,5 V, risco de queima. |
+> | **Corrente** | **500 a 620 mA** instantâneos a 30 dBm. É esse pico que exige o capacitor de 470 µF na ponta do módulo. |
+> | **DIO3** | *"usado internamente, alimenta um **TCXO de 32 MHz**"*. Por isso **nunca** use `radio.XTAL = true` no firmware, e o `RF_TCXO` é 2,2 V. |
+>
 > **Por que nenhum dos 9 sinais é dispensável:** DIO1 é o TxDone (sem ele não existe
 > TDMA — é o motivo de o E22 substituir o LoRaMESH). BUSY: o chip trava se receber
 > comando enquanto processa. TXEN/RXEN: sem eles o PA e o LNA nunca ligam. SPI precisa
@@ -112,47 +121,76 @@ não aparece a olho nu. Ponte entre 9 (VCC) e 8 (DIO2) queima o módulo.
 
 ## Passo 3 — Monte o chicote
 
-Mesmos GPIOs nas três placas. Mesmo firmware. Só o conector muda.
+> ### Conectores: JST-PH 2,0 mm, não barra de pinos
+>
+> **Conferido no esquemático oficial.** `P3` e `P1` são **PH2.0 de 12 vias**; os
+> headers `CAN`, `RS485`, `I2C` e `UART` são **PH2.0 de 4 vias**. Dupont de
+> 2,54 mm **não encaixa** — compre chicote PH2.0 crimpado, ou conectores e alicate.
+>
+> A numeração abaixo **vem do esquemático**, e a etiqueta impressa também está na
+> tabela. Repare que as duas correm em sentidos opostos: o silkscreen imprime na
+> ordem física, que é o inverso da numeração dos pinos. Confira sempre pelos dois.
 
-| Fio | GPIO | Chicote **A** (40 vias) | Chicote **B** (7B) |
-|---|---|---|---|
-| **RÁDIO** | | | |
-| NSS | 28 | pino 15 | P3-6 |
-| MOSI | 29 | pino 19 | P3-5 |
-| SCK | 30 | pino 21 | P3-4 |
-| MISO | 31 | pino 23 | P3-3 |
-| BUSY | 49 | pino 31 | P1-4 |
-| DIO1 | 50 | pino 33 | P1-3 |
-| NRST | 51 | pino 35 | P1-2 |
-| TXEN | 52 | pino 37 | P1-1 |
-| RXEN | 5 | pino 12 | P3-7 |
-| VCC (os dois) | — | **pinos 2 e 4 (5 V)** | **pino 1 do conector CAN** |
-| GND (os quatro) | — | 6, 9, 14, 20 | P1-8, P1-11, P3-11 |
-| **GPS** | | | |
-| TXD do GPS → | 4 | pino 13 | P3-8 |
-| ← RXD do GPS | 3 | pino 11 | P3-9 |
-| PPS | 2 | pino 7 | P3-10 |
-| VCC do GPS | — | **pino 1 ou 17 (3,3 V)** | P1-10 ou P3-12 |
-| GND do GPS | — | qualquer GND | P1-8 |
+**O esquemático, na íntegra:**
+
+```
+P3   1 GPIO36   2 GPIO34   3 GPIO31   4 GPIO30   5 GPIO29   6 GPIO28
+     7 GPIO5    8 GPIO4    9 GPIO3   10 GPIO2   11 GND     12 ESP_3V3
+
+P1   1 GPIO52   2 GPIO51   3 GPIO50   4 GPIO49   5 GPIO48   6 GPIO47
+     7 GPIO46   8 GND      9 ESP_LDO_VO4  10 ESP_3V3  11 GND  12 BAT
+
+CAN (H11)    1 Core_5V   2 GND   3 CANH   4 CANL
+RS485 (H9)   1 Core_5V   2 GND   3 A      4 B
+```
+
+| Fio | GPIO | Tela de 5" — **J3** | 7B — conector e **pino** | 7B — etiqueta |
+|---|---|---|---|---|
+| **RÁDIO — sinais** | | | | |
+| NSS | 28 | `28` | **P3 pino 6** | `IO28` |
+| MOSI | 29 | `29` | **P3 pino 5** | `IO29` |
+| SCK | 30 | `30` | **P3 pino 4** | `IO30` |
+| MISO | 31 | `31` | **P3 pino 3** | `IO31` |
+| RXEN | 5 | `5` (fileira de baixo) | **P3 pino 7** | `IO5` |
+| BUSY | 49 | `49` | **P1 pino 4** | `IO49` |
+| DIO1 | 50 | `50` | **P1 pino 3** | `IO50` |
+| NRST | 51 | `51` | **P1 pino 2** | `IO51` |
+| TXEN | 52 | `52` | **P1 pino 1** | `IO52` |
+| **RÁDIO — alimentação** | | | | |
+| VCC (os dois juntos) | — | `5V` | **CAN ou RS485 pino 1** | `5V` |
+| GND (os quatro juntos) | — | `GND` | **o mesmo header, pino 2** | `GND` |
+| **GPS** | | | | |
+| PPS | 2 | `2` | **P3 pino 10** | `IO2` |
+| RXD do GPS ← | 3 | `3` | **P3 pino 9** | `IO3` |
+| TXD do GPS → | 4 | `4` | **P3 pino 8** | `IO4` |
+| VCC | — | `3V3` | **P3 pino 12** | `3V3` |
+| GND | — | `GND` | **P3 pino 11** | `GND` |
+
+**São 16 fios**, não 15: o E22 tem 15 pads, mas os dois `VCC` viram um fio só e os
+quatro `GND` viram outro — 11 fios saem do rádio, mais 5 do GPS.
+
+**O terra do rádio sai do mesmo header que o 5 V dele.** Não é capricho: o E22
+puxa pulsos de 600 mA, e se esse retorno passar pelo `GND` do P3 o pulso vira
+ruído na referência do GPS, que está no mesmo conector. O PPS do GPS é a régua de
+tempo do TDMA — sujar a referência dele apareceria como colisão de slot, que você
+caçaria no firmware sem nunca desconfiar do fio preto.
 
 **Mais duas coisas no chicote:**
 
-- **Pull-down de 10 kΩ entre o GPIO 52 (TXEN) e o GND**, do lado do rádio. Sem ele o
-  PA pode acordar transmitindo antes de o firmware subir, com a antena ainda fora.
-- **O capacitor de ≥470 µF na ponta do rádio**, junto dos pads 9/10 — não na placa.
-  Ele combate a indutância do fio do chicote; na placa não faz o trabalho.
+- **Pull-down de 10 kΩ entre o TXEN e o GND**, do lado do rádio. Sem ele o PA pode
+  acordar transmitindo antes de o firmware subir, com a antena ainda fora.
+- **O capacitor de ≥470 µF na ponta do rádio**, junto dos pads 9/10 — não na
+  placa. Ele combate a indutância do fio do chicote; na placa não faz o trabalho.
 
 > ### ⚠️ Não use os GPIO 46, 47 e 48
-> Eles estão no banco `VDD_IO_5`, que a placa alimenta pelo **LDO interno** — o mesmo
-> que comuta o cartão SD entre 3,3 V e 1,8 V. Se o cartão mudar de tensão, esses três
-> pinos vão junto, com o seu rádio pendurado neles.
->
-> **Na 7B isso é uma armadilha física:** no conector P1, os pinos 1 a 4 estão em 3,3 V
-> fixo, mas os **pinos 5, 6 e 7 estão no banco do LDO**. São vizinhos, no mesmo
-> conector, e nada os distingue a olho nu. **Deixe as posições 5, 6 e 7 do P1 vazias.**
+> Estão no banco `VDD_IO_5`, alimentado pelo **LDO interno** — o mesmo que comuta o
+> cartão SD entre 3,3 V e 1,8 V. Se o cartão mudar de tensão, esses três vão junto,
+> com o seu rádio pendurado neles. **Na 7B eles são vizinhos do `IO49` no mesmo
+> conector, sem nada que os distinga a olho nu.**
 
-Também não toque em: **GPIO 35** (botão BOOT), **34/36/37/38** (strapping e console),
-**39–45** (cartão SD), **7/8** (toque), **14–19** (Wi-Fi).
+Também não toque em: **GPIO 35** (botão BOOT), **34/36/37/38** (strapping e
+console), **39–45** (cartão SD), **7/8** (I2C do toque), **14–19** (Wi-Fi),
+**26/27** (RS485 na 7B), **32/33** (backlight e reset do painel na 7B).
 
 ---
 

@@ -74,7 +74,7 @@ disciplinado por GPS** (cada carro fala só no seu slot, zero colisão) sobre um
 | 2× Waveshare ESP32-S3-Touch-LCD-7B (RGB 1024×600, 8 MB PSRAM OPI, 16 MB flash) | **em mãos**, rodando o firmware de produção |
 | 3× E22-900M30S (SX1262, 915 MHz, 1 W, TCXO 32 MHz) | **em trânsito** |
 | 1× Waveshare ESP32-P4 | **em trânsito** |
-| GPS NEO-7M, NMEA 9600 no GPIO6 (só RX) | em mãos — **PPS NÃO fiado**, e o breakout não expõe PPS no header |
+| GPS NEO-7M "mini" (header de 5 pinos: VCC/GND/TXD/RXD/**PPS**) | em mãos, **PPS FIADO no IO2** das telas P4 (2026-08-24). A nota antiga "não expõe PPS" era sobre OUTRO breakout (GY-NEO7MV2) |
 | Rádio LoRaMESH 915 MHz (Serial1, GPIO 44/43) | em mãos, nas telas |
 
 ## Como compilar
