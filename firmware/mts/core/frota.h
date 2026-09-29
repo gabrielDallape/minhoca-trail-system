@@ -25,6 +25,7 @@
 #include "proto.h"
 #include "geo.h"
 #include "rota.h"
+#include "cfg.h"          // CFG_N_CORES (so compilava pela ordem de quem incluia)
 
 enum FrotaSinal : uint8_t { SINAL_NUNCA = 0, SINAL_VIVO, SINAL_VELHO, SINAL_SUMIU };
 
@@ -49,6 +50,7 @@ struct Carro {
   bool     temAck;
   uint16_t ackAte, ackDe;
   uint32_t ackMs;
+  uint16_t ackTopo;            // o ultimo ponto MEU que ele tem (0xFFFF = nenhum)
 };
 
 struct Frota {
@@ -160,21 +162,30 @@ inline void frotaVersaoAlheia(Frota& f, uint8_t versao, uint8_t slotDeclarado, u
 }
 
 // O ack de trilha de um carro (para o lider escolher o bloco).
-inline void frotaAck(Frota& f, int i, uint16_t ackAte, uint16_t ackDe, uint32_t agoraMs)
+inline void frotaAck(Frota& f, int i, uint16_t ackAte, uint16_t ackDe, uint16_t topo, uint32_t agoraMs)
 {
   if (i <= 0 || i >= FROTA_MAX_CARROS) return;
-  f.c[i].temAck = true; f.c[i].ackAte = ackAte; f.c[i].ackDe = ackDe; f.c[i].ackMs = agoraMs;
+  Carro& c = f.c[i];
+  c.temAck = true; c.ackAte = ackAte; c.ackDe = ackDe; c.ackTopo = topo; c.ackMs = agoraMs;
 }
 
 // Os acks vivos combinados: MENOR ackAte (quem esta mais atras manda) e MAIOR
 // ackDe (o historico mais perto do presente primeiro). false se ninguem informou.
-inline bool frotaAckMin(const Frota& f, uint16_t& ackAteMin, uint16_t& ackDeMax, uint32_t agoraMs)
+//
+// SO CONTA QUEM ME OUVE: o topo do carro (o ultimo ponto meu que ele tem) tem de
+// estar a ate ROTA_OUVE_PONTOS do meu 'head'. Um seguidor surdo tem o ack parado
+// para sempre, e pela regra do "menor ack manda" ele decidia o bloco de todo
+// mundo: o lider repetia para ele o mesmo bloco inutil e o vao dos outros nunca
+// fechava (revisao de 2026-09-29). Quando volta a ouvir, o primeiro bloco recente
+// ja poe o topo dele no presente e ele volta a contar - sem relogio nenhum.
+inline bool frotaAckMin(const Frota& f, uint16_t head, uint16_t& ackAteMin, uint16_t& ackDeMax, uint32_t agoraMs)
 {
   bool tem = false, temDe = false;
   uint16_t m = 0, de = 0;
   for (int i = 1; i < FROTA_MAX_CARROS; i++) {
     const Carro& c = f.c[i];
     if (!c.ativo || !c.temAck || (agoraMs - c.ackMs) > ROTA_ACK_TTL_MS) continue;
+    if (c.ackTopo == ROTA_SEQ_NENHUMA || (int16_t)(c.ackTopo - head) < -ROTA_OUVE_PONTOS) continue;
     if (!tem) { m = c.ackAte; tem = true; }
     else if (c.ackAte == ROTA_SEQ_NENHUMA || m == ROTA_SEQ_NENHUMA) m = ROTA_SEQ_NENHUMA;
     else if ((int16_t)(c.ackAte - m) < 0) m = c.ackAte;

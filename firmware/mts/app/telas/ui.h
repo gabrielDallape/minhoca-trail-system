@@ -452,11 +452,11 @@ void linhaCfg(G& g, const Ret& r, const char* rot, const char* val,
 // A funcao servico() (app/servico.h) e o gancho: o laco do mapa tambem a chama.
 
 // ---------------------------------------------------------- aviso permanente
-// UMA FAIXA VERMELHA que fica ate o aparelho reiniciar. Existe para o modo
-// seguro do radio (core/params.h): um teto de potencia que entra sozinho, mesmo
-// que so em RAM e so por um boot, TEM de estar na cara do usuario - foi a
-// ausencia disto que deixou o campo de 09-28 inteiro rodar a 6 dBm sem ninguem
-// saber. Toda tela que se repinta chama avisoDesenha(); quem nao chamar nao
+// UMA FAIXA VERMELHA que fica ate o aparelho reiniciar. Existe para o alarme de
+// reinicios seguidos (core/params.h, RADIO_SEGURO_APOS): o aparelho que reinicia
+// sem parar TEM de dizer isso na cara do usuario - foi a falta de aviso que
+// deixou o campo de 09-28 inteiro rodar a 6 dBm sem ninguem saber. (A potencia
+// nao muda; so avisa.) Toda tela que se repinta chama avisoDesenha(); quem nao chamar nao
 // mostra, e por isso o mapa e a tela inicial chamam.
 // (g_avisoTexto, avisoDefine e avisoAtivo moram em app/estado.h)
 

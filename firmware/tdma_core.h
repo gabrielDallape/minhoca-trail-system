@@ -70,6 +70,14 @@ enum TdmaSync : uint8_t { TDMA_SYNC_NONE = 0, TDMA_SYNC_BEACON = 1, TDMA_SYNC_PP
 // o TSCH faz:
 //   ppm = (dt_medido - N*1e6) / (N*1e6) * 1e6      (N=300 resolve <1 ppm)
 static const uint32_t TDMA_ANCHOR_TTL_US  = 1500000UL;
+// Quadros sem ouvir a fonte antes do holdover. 2 e o historico (bancada e
+// mts_p4). Quem define antes de incluir muda - o firmware/mts usa 4: com quadro
+// de 6 s e 46-62 % de entrega medidos no campo, 2 quadros (12,5 s) mal cobriam o
+// quadro do roster, e cada beacon perdido ao lado dele virava holdover e
+// eleicao. A deriva nao pesa: a guarda aguenta ~2000 s de holdover (acima).
+#ifndef TDMA_HOLDOVER_QUADROS
+#define TDMA_HOLDOVER_QUADROS 2
+#endif
 static const uint32_t TDMA_HOLDOVER_GUARD = 3;          // multiplicador da guarda
 
 // ------------------------------------------------------- eleicao da ancora
@@ -461,7 +469,7 @@ inline void tdmaTick(Tdma& t){
   // cada 8 s: guarda triplicada e alarme aceso sem nada errado. E o holdover nao
   // precisa ser nervoso: 2,5 s de drift a 10 ppm sao 25 us, nada contra uma
   // guarda de 20 ms - ele existe para silencios de verdade, medidos em segundos.
-  uint64_t ttl = (uint64_t)t.frameUs * 2 + 500000ULL;
+  uint64_t ttl = (uint64_t)t.frameUs * TDMA_HOLDOVER_QUADROS + 500000ULL;
   if (ttl < TDMA_ANCHOR_TTL_US) ttl = TDMA_ANCHOR_TTL_US;
   t.holdover = (now - t.anchorUs) > ttl;
 }

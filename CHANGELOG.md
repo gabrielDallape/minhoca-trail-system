@@ -2,6 +2,54 @@
 
 Histórico das fases do projeto. As datas são aproximadas (marcos, não releases formais).
 
+## 2026-09-29 — firmware/mts: revisao depois das duas quedas de sessao
+
+A sessao que escreveu o `firmware/mts` caiu duas vezes. Tres revisores leram as 42
+fontes: **nenhum sinal de trabalho interrompido** (nada pela metade, assinaturas
+batem, compila com e sem WiFi). Mas acharam defeitos de logica, corrigidos aqui.
+**Compila em 1.092.650 B; bancada toda verde (mts_core 88, audit 71, selftest 63,
+tdma_replay 56, catchup 48, eleicao 160). Nada gravado nem testado em placa.**
+
+- **Boot-loop com o radio mudo.** O `begin()` do RadioLib com o chip sem resposta
+  leva >= 10 s (`findChip`: 10 resets x 1 s de `standby()`), e o WDT e de 10 s: o
+  5 V do E22 caido virava reinicio eterno, sem mapa nem GPS. Agora um `GetStatus`
+  cru (`radioHwResponde`, microssegundos) decide antes, e o `begin()` roda com o
+  WDT pausado. O timeout de SPI de 100 ms vale ja no primeiro `begin()`.
+- **Catch-up travado para sempre** (o bug do campo, em outra forma). Dois caminhos:
+  o vao que o lider ja nao guarda (lider reiniciou, ou vao > buffer) prendia o
+  ack do seguidor; e um seguidor surdo, pela regra do "menor ack manda", ditava o
+  bloco de todo mundo. Correcao: o lider anuncia o ponto mais antigo que guarda
+  (campo `ackDe` do pacote dele, que ia vazio) e o seguidor passa por cima dos
+  vaos abaixo dele (**piso**); o seguidor manda o seu **topo** (campo `base`, que
+  ia vazio) e so conta no bloco quem esta ouvindo o lider (`ROTA_OUVE_PONTOS`).
+  Mesmo tamanho de pacote, mesmo air-time.
+- **A potencia nao baixa mais sozinha em caso nenhum.** O "modo seguro" (2 dBm apos
+  3 reinicios violentos) virou alarme: faixa vermelha, potencia intacta. A
+  migracao de NVS esquema 0 so sobe ao padrao, nunca desce. `p30` no serial virava
+  3 dBm (e gravava): agora le ate 2 digitos. Troca pedida com TX em voo e aplicada
+  quando o radio libera (antes a NVS ficava com o novo e o chip com o velho).
+- **Rastro zerado ao abrir a trilha**, como no v101: o lider transmitia tudo desde o
+  boot e quem entrava passava ~20 min recebendo historico.
+- **Caixa-preta** fecha a conta a cada etapa: antes, toda morte DENTRO de uma etapa
+  (as que interessam) deixava a caixa invalida e o contador de reinicios nunca
+  passava de 1. Carimbos anteriores ao `caixaBoot` nao apagam mais a caixa velha.
+- **Holdover em 4 quadros** (24,5 s; `TDMA_HOLDOVER_QUADROS`, padrao 2 no
+  `tdma_core.h` para bancada e `mts_p4`): com 46-62 % de entrega, 2 quadros tinham
+  0,5 s de folga e cada beacon perdido perto do roster virava eleicao.
+- Menores: `km[]` da rota nao andava com a rota cheia (distancia pela trilha errada
+  apos ~14 km); o `redePodeGastar` liberava 250 ms DENTRO da janela de TX aberta;
+  com 7 outros carros o lider podia sumir da lista (agora lider e alerta primeiro);
+  "SEM SINAL HA N s" congelava comigo parado; alerta de quem esta A FRENTE nao
+  pintava trecho vermelho; ao sair do grupo o aparelho seguia anunciando LIDER;
+  epoca sorteada podia repetir a anterior (agora +1 na NVS); `/status` do WiFi
+  escrevia fora do buffer.
+- **Testes**: o `catchup_test.js` espelhava o `mts_campo` com constantes a mao e por
+  isso passou verde com dois dos bugs acima. Agora espelha o `firmware/mts`, le o
+  `params.h`, confere no C as linhas que decidem, e tem os cenarios A (lider
+  reinicia), B (vao > buffer), C (seguidor surdo), D (rota cheia) - A, C e D
+  **falham com a logica antiga**. O `mts_selftest` ganhou os mesmos casos com os
+  headers reais (roda na placa).
+
 ## 2026-09-28 — firmware/mts v200: um firmware so, em camadas, para a tela P4 de 7"
 
 Reescrita do `mts_campo` v101 + `mts_p4` em `firmware/mts/` (43 arquivos, `core/`

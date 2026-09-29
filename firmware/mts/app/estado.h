@@ -49,7 +49,7 @@ struct Eu {
 };
 static Eu g_eu = { false, -23.5505, -46.6333, 0, 0, 0 };   // ancora do mapa antes do fix
 
-// UMA FAIXA VERMELHA que fica ate o aparelho reiniciar (modo seguro do radio).
+// UMA FAIXA VERMELHA que fica ate o aparelho reiniciar (alarme de reinicios seguidos).
 static char g_avisoTexto[64] = "";
 inline void avisoDefine(const char* t) { strncpy(g_avisoTexto, t ? t : "", sizeof(g_avisoTexto) - 1); g_avisoTexto[sizeof(g_avisoTexto) - 1] = 0; }
 inline bool avisoAtivo() { return g_avisoTexto[0] != 0; }

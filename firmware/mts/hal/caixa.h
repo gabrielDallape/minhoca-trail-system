@@ -19,8 +19,8 @@
 // carimba a etapa e a hora ANTES de comecar. Se o aparelho morrer la dentro, o boot
 // seguinte le a etapa, imprime no serial e grava no diario.
 //
-// TAMBEM E O CONTADOR DE REINICIOS VIOLENTOS SEGUIDOS, que substitui o "resgate de
-// boot" antigo sem gravar nada na NVS - ver app/rede.h, modo seguro.
+// TAMBEM E O CONTADOR DE REINICIOS VIOLENTOS SEGUIDOS, que acende o alarme de
+// reinicios (app/rede.h) sem gravar nada na NVS e SEM mexer na potencia.
 //
 // Integridade: magic + checksum. Um brownout pode corromper a LP RAM; um struct
 // que nao fecha a conta e tratado como vazio, nunca como verdade.
@@ -92,21 +92,30 @@ inline uint32_t caixaSoma(const CaixaPreta& c)
 inline void caixaFecha() { g_caixa.check = caixaSoma(g_caixa); }
 inline bool caixaValida() { return g_caixa.magic == CAIXA_MAGIC && g_caixa.check == caixaSoma(g_caixa); }
 
-// Carimba a etapa. Barato de proposito: chamado dezenas de vezes por segundo.
-// NAO fecha o checksum a cada carimbo; quem fecha e caixaVolta(), uma vez por
-// volta. Um reset entre o carimbo e o fecho deixa a caixa "invalida" - e o boot
-// entao mostra a ULTIMA volta fechada.
+// Ja passou pelo caixaBoot neste boot? Antes disso a LP RAM ainda guarda a caixa
+// do boot ANTERIOR - a que vai ser relatada - e um carimbo ali (configCarrega
+// grava na NVS, que carimba CP_NVS) apagava a etapa em que ele morreu.
+static bool g_caixaPronta = false;
+
+// Carimba a etapa E FECHA A CONTA. Ate 2026-09-29 so o caixaVolta() fechava, uma
+// vez por volta: toda morte DENTRO de uma etapa (startTransmit, vigia, flush,
+// pintura) - justamente as que interessam - deixava a caixa invalida, o boot nao
+// relatava nada e o contador de reinicios seguidos nunca passava de 1. O fecho
+// custa ~60 multiplicacoes; os carimbos sao dezenas por segundo.
 inline void caixaEtapa(CaixaEtapa e)
 {
+  if (!g_caixaPronta) return;
   g_caixa.etapaAnt = g_caixa.etapa;
   g_caixa.etapa    = (uint8_t)e;
   g_caixa.etapaMs  = (uint32_t)(esp_timer_get_time() / 1000);
+  caixaFecha();
 }
 
 inline void caixaVolta(uint32_t txCount, uint32_t rxCount, uint32_t presos,
                        uint32_t flushes, uint32_t utc, int8_t pwr, uint8_t txTipo,
                        uint32_t txDesdeMs)
 {
+  if (!g_caixaPronta) return;
   g_caixa.ultimoUs  = (uint64_t)esp_timer_get_time();
   g_caixa.ultimoMs  = (uint32_t)(g_caixa.ultimoUs / 1000);
   g_caixa.txCount = txCount; g_caixa.rxCount = rxCount; g_caixa.presos = presos;
@@ -139,6 +148,7 @@ inline bool caixaBoot(esp_reset_reason_t motivo, CaixaPreta& anterior, uint32_t&
   g_caixa.resetsViolentos = n;
   g_caixa.pwr = 127;              // desconhecida ate o radio subir
   caixaFecha();
+  g_caixaPronta = true;
   violentosSeguidos = n;
   return tinha && violento;
 }

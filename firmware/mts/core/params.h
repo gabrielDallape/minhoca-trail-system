@@ -70,10 +70,10 @@
 #define RF_PWR_MAX       22
 #define RADIO_GANHO_PA_DB 10      // tabela oficial do modulo montado, VCC 5 V
 
-// Modo seguro: apos este numero de reinicios VIOLENTOS seguidos, o boot roda com
-// este teto de potencia EM RAM (nunca na NVS). Ver hal/caixa.h e app/rede.h.
+// Alarme de reinicios: apos este numero de reinicios VIOLENTOS seguidos, faixa
+// vermelha e linha no diario. NAO mexe na potencia (usuario, 2026-09-29: "isso
+// nao pode acontecer") - ate entao havia um teto de 2 dBm em RAM aqui.
 #define RADIO_SEGURO_APOS  3
-#define RADIO_PWR_SEGURO   2
 
 // ------------------------------------------------------------- trajeto / rota
 // PASSO DE 10 m (era 5). A conta que manda: o pacote leva TRILHA_PONTOS_PKT
@@ -92,6 +92,13 @@
 
 // Ack de catch-up dos seguidores vale por este tempo (5 quadros).
 #define ROTA_ACK_TTL_MS    (5UL * TDMA_FRAME_MS)
+// Holdover do tdma_core (core/tdma.h explica o 4).
+#define TDMA_HOLDOVER_QUADROS 4
+// Um seguidor cujo ULTIMO ponto recebido esta mais que isto atras do meu topo
+// nao esta me ouvindo: nao dita o bloco de catch-up (frotaAckMin). 50 pontos =
+// 500 m = ~1 min a 30 km/h - bem mais que a folga normal (10 pontos por bloco,
+// blocos recentes em quadros alternados durante o catch-up, perdas de 50 %).
+#define ROTA_OUVE_PONTOS   50
 
 // ------------------------------------------------------------- frota (TTLs)
 // Tudo em SEGUNDOS de silencio, com a conta ao lado. Entrega medida no campo de
@@ -150,7 +157,6 @@ static_assert(FROTA_EXTRAPOLA_MAX_MS < FROTA_SINAL_VELHO_MS && FROTA_SINAL_VELHO
 static_assert(FROTA_SINAL_VELHO_MS >= 3 * TDMA_FRAME_MS, "sinal velho antes de 3 quadros piscaria a cada roster");
 static_assert(PROTO_VERSAO >= 2 && PROTO_VERSAO <= 255, "versao do protocolo");
 static_assert(RF_PWR_PADRAO >= RF_PWR_MIN && RF_PWR_PADRAO <= RF_PWR_MAX, "potencia padrao fora da faixa");
-static_assert(RADIO_PWR_SEGURO >= RF_PWR_MIN, "teto do modo seguro fora da faixa");
 // A rota converge em catch-up ate VEL_PROJETO_KMH (ver ROTA_PASSO_M).
 static_assert(TRILHA_PONTOS_PKT * ROTA_PASSO_M * 3.6 >= 2.0 * VEL_PROJETO_KMH * TDMA_FRAME_S,
               "com este passo/quadro o catch-up nao converge a VEL_PROJETO_KMH");

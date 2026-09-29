@@ -10,16 +10,18 @@
 //
 // AS REGRAS QUE VIERAM DO CAMPO e que este arquivo carrega:
 //
-//   - A POTENCIA NUNCA MUDA SOZINHA (usuario, 2026-09-28). Nao existe recuo
-//     automatico nem resgate de boot. O que existe e um MODO SEGURO em RAM: apos
-//     RADIO_SEGURO_APOS reinicios violentos seguidos (hal/caixa.h) este boot roda
-//     com teto de RADIO_PWR_SEGURO dBm, faixa vermelha na tela e linha no diario.
-//     A NVS nao e tocada; o comando 'p' ou a tela de diagnostico desligam.
+//   - A POTENCIA NUNCA MUDA SOZINHA (usuario, 2026-09-28 e 2026-09-29). Nao
+//     existe recuo automatico, resgate de boot nem teto de "modo seguro". Apos
+//     RADIO_SEGURO_APOS reinicios violentos seguidos (hal/caixa.h) o que acontece
+//     e um ALARME: faixa vermelha na tela e linha no diario, com a potencia
+//     intacta. Ate 2026-09-29 esse caso baixava para 2 dBm em RAM - e somado a
+//     um boot-loop por radio mudo, terminava pior que os 6 dBm do campo.
 //   - Um pacote de VERSAO diferente e ignorado, contado e AVISADO na tela.
 //   - A primeira fala e sempre POSICAO (roster nao ancora ninguem); os rosters
 //     de arranque sao INTERCALADOS (falas 1, 3, 5) para nunca haver dois quadros
-//     seguidos sem beacon - com 6 s de quadro, dois quadros mudos ja passam do
-//     TTL de holdover (12,5 s) e a rede se partia no arranque (I5 da auditoria).
+//     seguidos sem beacon - com 6 s de quadro, dois quadros mudos passavam do
+//     TTL de holdover de entao (12,5 s) e a rede se partia no arranque (I5).
+//     Hoje o TTL e de 4 quadros (core/tdma.h), mas a regra continua.
 //   - O vigia de TX preso pergunta ao chip antes de acusar, espera mais que o
 //     maior pacote (RADIO_VIGIA_MS), e refaz o begin() completo.
 //   - O mapa e o cartao perguntam ao orcamento antes de gastar tempo; a
@@ -96,7 +98,7 @@ struct Rede {
   uint8_t  ruidoSlotProx;
   // potencia
   int8_t   pwrConfig;          // a que o USUARIO escolheu (NVS)
-  bool     seguro;             // modo seguro ligado (teto em RAM)
+  bool     seguro;             // alarme de reinicios seguidos (so aviso, NAO mexe na potencia)
   // bancada
   bool     rssiVerboso;        // 'm' no serial: uma linha por pacote recebido
   uint32_t relogioVoltou;
@@ -136,8 +138,7 @@ inline bool redeInicia(uint8_t meuSlot, const char* codigoSala, int8_t pwrConfig
   r.ruidoFrame = 0xFFFFFFFFu;
   r.ruidoMax = -200; r.ruidoSlotProx = RUIDO_SLOT_INI;
   r.sala = protoSalaHash(codigoSala);
-  int8_t pwr = pwrConfig;
-  if (seguro && pwr > RADIO_PWR_SEGURO) pwr = RADIO_PWR_SEGURO;
+  const int8_t pwr = pwrConfig;
 
   tdmaInit(r.tdma, meuSlot, TDMA_SLOTS, TDMA_FRAME_S, TDMA_GUARD_US);
   tdmaSetAirtime(r.tdma, REDE_AIRTIME_US);
@@ -153,7 +154,7 @@ inline bool redeInicia(uint8_t meuSlot, const char* codigoSala, int8_t pwrConfig
                 (unsigned long)REDE_AIRTIME_US, (unsigned long)RADIO_VIGIA_MS);
   Serial.printf("rede: no ar em %.1f MHz, sala 0x%04X, potencia %d dBm (~%d na antena)%s\n",
                 RF_FREQ_MHZ, r.sala, pwr, radioHwPotenciaAntena(pwr),
-                seguro ? "  *** MODO SEGURO: teto neste boot ***" : "");
+                seguro ? "  *** REINICIOS SEGUIDOS: conferir o 5V do modulo ***" : "");
   if (pwrConfig < RF_PWR_PADRAO)
     Serial.printf("rede: *** ATENCAO: %d dBm e MENOS que o padrao (%d). Veio da NVS. 'p%d' no serial volta. ***\n",
                   pwrConfig, RF_PWR_PADRAO, RF_PWR_PADRAO);
@@ -204,20 +205,20 @@ inline bool redeAplicaPotencia(int8_t pwr)
     if (g_rede.txEmVoo) { Serial.println("rede: TX nao completou - potencia NAO trocada (mande de novo)"); return false; }
   }
   radioHwAplicaPotencia(pwr);
-  Serial.printf("rede: potencia agora e %d dBm (~%d na antena)%s\n", pwr,
-                radioHwPotenciaAntena(pwr), g_rede.seguro ? " [modo seguro]" : "");
+  Serial.printf("rede: potencia agora e %d dBm (~%d na antena)\n", pwr, radioHwPotenciaAntena(pwr));
   return true;
 }
 
 // COMANDO EXPLICITO do usuario ('p' no serial, tela de diagnostico). O UNICO
-// caminho que muda a potencia configurada; desliga o modo seguro. Quem grava na
-// NVS e o chamador (app), porque e ele quem tem o Cfg.
+// caminho que muda a potencia configurada. Quem grava na NVS e o chamador (app),
+// porque e ele quem tem o Cfg. Se o TX em voo nao deixou aplicar AGORA, o valor
+// pedido fica valendo e o redeAtualiza aplica assim que o radio estiver livre -
+// antes, a NVS ficava com o novo e o chip com o velho, sem ninguem perceber.
 inline void redeTrocaPotencia(int8_t nova)
 {
   if (nova < RF_PWR_MIN) nova = RF_PWR_MIN;
   if (nova > RF_PWR_MAX) nova = RF_PWR_MAX;
   g_rede.pwrConfig = nova;
-  g_rede.seguro = false;
   registroLinha("!,%lu,potencia por comando,%d dBm", (unsigned long)millis(), (int)nova);
   redeAplicaPotencia(nova);
 }
@@ -277,12 +278,24 @@ inline void redeTransmitePosicao()
   uint16_t base = 0; int nPts = 0; bool catchup = false;
   if (eu.lider && g_traj.n > 0) {
     uint16_t ackAteMin = ROTA_SEQ_NENHUMA, ackDeMax = ROTA_SEQ_NENHUMA;
-    bool temAck = frotaAckMin(g_frota, ackAteMin, ackDeMax, millis());
+    // so conta quem me ouve (o topo dele perto do meu head) - ver frotaAckMin
+    bool temAck = frotaAckMin(g_frota, g_traj.seqUlt, ackAteMin, ackDeMax, millis());
     catchup = trilhaEscolheBloco(g_traj.seqUlt, g_traj.n, ackAteMin, ackDeMax, temAck, r.quadroTx,
                                  TRILHA_PONTOS_PKT, base, nPts);
   }
+  // O LIDER nao tem ack a dar: no lugar do ackDe vai o seq do ponto MAIS ANTIGO
+  // que ele guarda - o piso de quem segue (core/rota.h, rotaDefinePiso).
+  uint16_t ackAte = rotaAck16(g_rotaC), ackDe = rotaAckDe16(g_rotaC);
+  if (eu.lider) {
+    ackAte = ROTA_SEQ_NENHUMA;
+    ackDe = g_traj.n > 0 ? (uint16_t)(g_traj.seqUlt - (uint16_t)(g_traj.n - 1)) : ROTA_SEQ_NENHUMA;
+  } else {
+    // O seguidor nao manda pontos, entao o 'base' vai livre: leva o TOPO, o ultimo
+    // ponto do lider que eu tenho. E assim que o lider sabe que eu o ouco.
+    base = rotaTopo16(g_rotaC);
+  }
   r.quadroTx++;
-  int n = trilhaCodifica(buf, g_traj.epoca, base, rotaAck16(g_rotaC), rotaAckDe16(g_rotaC), nPts,
+  int n = trilhaCodifica(buf, g_traj.epoca, base, ackAte, ackDe, nPts,
     [&](int i, double& la, double& lo) {
       if (!trajetoPontoSeq(g_traj, (uint16_t)(base + i), la, lo)) { la = g_eu.lat; lo = g_eu.lon; }
     });
@@ -400,7 +413,12 @@ inline void redeRecebe(uint64_t rxUs)
         // So o LIDER escreve na rota: o rastro dos outros nao e caminho a seguir.
         if (lider) rotaInsere(g_rotaC, rotaSeqVirtual(g_rotaC, epoca, seq16), lat, lon);
       });
-    if (np >= 0) frotaAck(g_frota, idx, ackAte, ackDe, agora);
+    if (np >= 0) {
+      // do lider, o 'ackDe' e o ponto mais antigo que ele guarda: vira o piso.
+      // E so ele: um ack de lider na frota confundiria quem virar lider depois.
+      if (lider) rotaDefinePiso(g_rotaC, epoca, ackDe);
+      else       frotaAck(g_frota, idx, ackAte, ackDe, base, agora);   // base = o topo dele
+    }
     novos = (int)(g_rotaC.inseridos - antes);
   }
   registroLinha("R,%lu,%lu,%u,%u,%d,%.0f,%.1f,%.0f,1,%lu,pos,%d,%u,%d", (unsigned long)agora, (unsigned long)redeUtc(),
@@ -481,6 +499,10 @@ inline void redeAtualiza()
     // NAO HA RECUO DE POTENCIA AQUI (params.h / README): quem decide e quem le o numero.
   }
 
+  // 2b) potencia pedida que nao pode ser aplicada na hora (TX em voo): aplica
+  //     agora. E o valor do USUARIO, nunca um recuo.
+  if (!r.txEmVoo && g_rhw.pwr != r.pwrConfig) redeAplicaPotencia(r.pwrConfig);
+
   // 3) o que o radio tem a dizer
   uint64_t irqUs;
   if (radioHwIrqPega(irqUs)) {
@@ -527,15 +549,6 @@ inline void redeAtualiza()
   if (!r.txEmVoo) redeMedeRuido();
 }
 
-// MODO SEGURO (hal/caixa.h): teto de RADIO_PWR_SEGURO dBm SO NESTE BOOT, em RAM.
-inline void redeModoSeguro(bool liga)
-{
-  g_rede.seguro = liga;
-  int8_t alvo = g_rede.pwrConfig;
-  if (liga && alvo > RADIO_PWR_SEGURO) alvo = RADIO_PWR_SEGURO;
-  if (g_rede.ok && alvo != g_rhw.pwr) redeAplicaPotencia(alvo);
-}
-
 // "Da para me deixar parado por 'us' agora?" - C4 da auditoria: nao basta
 // perguntar se ha TX em voo (91 % das vezes nao ha); e preciso saber quanto
 // falta para a janela.
@@ -544,6 +557,18 @@ inline bool redePodeGastar(uint32_t us)
   if (!g_rede.ok) return true;
   if (g_rede.txEmVoo) return false;
   if (!g_rede.tdma.haveAnchor) return true;
+  // DENTRO da minha janela e ainda sem ter falado neste quadro: nao. O
+  // tdmaUsUntilMySlot so conta ate o INICIO da janela - aberta ela, devolve "~6 s,
+  // o proximo quadro" e o mapa ganhava 250 ms que comiam os 63 ms de janela.
+  {
+    const Tdma& t = g_rede.tdma;
+    uint32_t usInFrame, frameIdx;
+    if (tdmaUsInFrame(t, usInFrame, frameIdx) && !(t.haveTxFrame && t.txFrameDone == frameIdx)) {
+      const uint32_t g = tdmaGuardNow(t), ini = tdmaSlotStartUs(t, t.nodeId);
+      const uint32_t lo = ini + g / 2, hi = ini + t.slotUs - g / 2 - t.airtimeUs;
+      if (usInFrame >= lo && usInFrame <= hi) return false;
+    }
+  }
   return tdmaUsUntilMySlot(g_rede.tdma) > us + ORC_RESERVA_US;
 }
 
@@ -551,9 +576,8 @@ inline bool redePodeGastar(uint32_t us)
 inline bool redeInicia(uint8_t, const char*, int8_t pwrConfig, bool seguro) { memset(&g_rede, 0, sizeof(g_rede)); g_rede.pwrConfig = pwrConfig; g_rede.seguro = seguro; return false; }
 inline void redeTrocaSala(const char*) {}
 inline void redeTrocaSlot(uint8_t novo) { if (novo < FROTA_MAX_CARROS) g_frota.c[0].slot = novo; }
-inline void redeTrocaPotencia(int8_t nova) { g_rede.pwrConfig = nova; g_rede.seguro = false; }
+inline void redeTrocaPotencia(int8_t nova) { g_rede.pwrConfig = nova; }
 inline void redeAtualiza() {}
-inline void redeModoSeguro(bool liga) { g_rede.seguro = liga; }
 inline bool redePodeGastar(uint32_t) { return true; }
 inline void redeRelogioVoltou(uint64_t) { g_rede.relogioVoltou++; }
 #endif

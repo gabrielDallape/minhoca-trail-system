@@ -27,7 +27,10 @@
 //      algum seguidor esta mais de TRILHA_PONTOS_PKT pontos atras, alterna os
 //      quadros - um com os pontos mais recentes (o fluxo normal), outro com o bloco
 //      a partir do ack (o preenchimento). Assim o caminho a frente nunca para de
-//      chegar, e o buraco atras fecha a 11 pontos por quadro.
+//      chegar, e o buraco atras fecha a TRILHA_PONTOS_PKT pontos a cada 2 quadros.
+//      O LIDER nao tem ack a dar (o rastro dele nao entra em rota nenhuma), entao
+//      no pacote dele o campo ackDe leva o seq do ponto MAIS ANTIGO que ele ainda
+//      guarda: e o PISO do seguidor (rotaDefinePiso).
 //
 //   3. EPOCA: o lider que reinicia recomeca a numerar do zero. Sem tratar isso, os
 //      pontos novos entrariam ANTES dos velhos na rota ordenada. Um byte de epoca
@@ -39,8 +42,11 @@
 //   [0..15]  cabecalho normal (core/proto.h), flags com FL_TRILHA (0x40)
 //   [16]     epoca do remetente
 //   [17..18] seq do PRIMEIRO ponto do bloco (LE)
+//            NO PACOTE DO SEGUIDOR (sem pontos): o topo, o ultimo ponto do lider
+//            que ele tem (rotaTopo16) - e por ele que o lider sabe quem o ouve
 //   [19..20] ackAte: ate que seq do LIDER a minha rota e CONTINUA (LE); 0xFFFF = nada
 //   [21..22] ackDe:  desde que seq do LIDER eu tenho alguma coisa (LE); 0xFFFF = nada
+//            NO PACOTE DO LIDER (FL_LIDER): o seq do ponto mais antigo que ele guarda
 //   [23]     n = pontos no bloco (0..TRILHA_PONTOS_PKT)
 //   [24..31] primeiro ponto ABSOLUTO (int32 lat, int32 lon, grau x 1e7)
 //   depois   (n-1) x (int16 dlat, int16 dlon) em 1e-5 grau (~1,1 m), cada um
@@ -54,7 +60,7 @@
 //
 // Por que o primeiro ponto e absoluto e os outros sao delta: um bloco de catch-up
 // pode comecar 500 m atras do carro (int16 x 1e-5 so alcanca +-327 m), mas entre
-// dois pontos vizinhos do trajeto ha ~5 m. Se um delta nao couber (GPS ficou mudo
+// dois pontos vizinhos do trajeto ha ~ROTA_PASSO_M. Se um delta nao couber (GPS ficou mudo
 // por um trecho longo), o bloco e cortado ali e o resto vai no quadro seguinte.
 //
 // A CONTA DE BYTES / AIR-TIME esta em params.h e airtime.h: 24 + 8 + 9 x 4 =
@@ -86,6 +92,14 @@ struct Rota {
   uint32_t  ultVseq;           // ultimo par (vseq, seq16) visto: o proximo seq16 e
   uint16_t  ultSeq16;          // interpretado como deslocamento int16 a partir dele
   int       prefixo;           // indice do fim do trecho continuo desde p[0] (-1 = vazio)
+  // PISO: o vseq do ponto mais antigo que o LIDER ainda guarda (ele anuncia no
+  // proprio pacote). Um vao cujos pontos faltantes estao TODOS abaixo do piso nao
+  // tem como ser preenchido - ninguem mais tem esses pontos - e o prefixo passa
+  // por cima dele. Sem isso o ack ficava preso para sempre no vao, e como o lider
+  // serve o MENOR ack da frota, um seguidor preso travava o catch-up de todos
+  // (revisao de 2026-09-29: lider que reiniciou, ou vao maior que o buffer dele).
+  bool      temPiso;
+  uint32_t  pisoV;
   uint32_t  inseridos, repetidos, fora;   // diagnostico
 };
 
@@ -100,6 +114,7 @@ inline float rotaD2(double la1, double lo1, double la2, double lo2)
 inline void rotaLimpaCore(Rota& r)
 {
   r.n = 0; r.temEpoca = false; r.epoca = 0; r.base = 0; r.ultVseq = 0; r.ultSeq16 = 0; r.prefixo = -1;
+  r.temPiso = false; r.pisoV = 0;
   r.inseridos = r.repetidos = r.fora = 0;
 }
 
@@ -111,7 +126,9 @@ inline void rotaRefazPrefixo(Rota& r, int desde)
   int i = desde < 0 ? 0 : desde;
   if (i > r.prefixo + 1) i = r.prefixo + 1;
   if (i < 0) i = 0;
-  while (i + 1 < r.n && r.p[i + 1].vseq == r.p[i].vseq + 1) i++;
+  // continuo = vizinho seguinte, OU um vao que so tem pontos abaixo do piso
+  while (i + 1 < r.n && (r.p[i + 1].vseq == r.p[i].vseq + 1 ||
+                         (r.temPiso && r.p[i + 1].vseq <= r.pisoV))) i++;
   r.prefixo = i;
 }
 
@@ -138,6 +155,7 @@ inline uint32_t rotaSeqVirtual(Rota& r, uint8_t epoca, uint16_t seq16)
     r.base = topo;
     r.ultVseq = topo + seq16; r.ultSeq16 = seq16;
     r.epoca = epoca; r.temEpoca = true;
+    r.temPiso = false;          // o piso era da epoca velha
     return r.ultVseq;
   }
   int32_t d = (int16_t)(uint16_t)(seq16 - r.ultSeq16);
@@ -166,6 +184,11 @@ inline bool rotaInsere(Rota& r, uint32_t vseq, double lat, double lon)
     // ele esta mais longe. Um ponto mais antigo que tudo simplesmente nao entra.
     if (pos == 0) { r.fora++; return false; }
     memmove(r.p, r.p + 1, (ROTA_MAX - 1) * sizeof(RotaPonto));
+    // km[] anda junto e volta a contar do novo p[0]. Antes so p[] andava, e
+    // km[0..pos-1] ficava congelado: passados ~14 km a distancia pela trilha
+    // entre carros (fila.h) virava lixo.
+    memmove(r.km, r.km + 1, (ROTA_MAX - 1) * sizeof(float));
+    { const float k0 = r.km[0]; for (int j = 0; j < ROTA_MAX - 1; j++) r.km[j] -= k0; }
     r.n--; pos--;
     r.prefixo = -1;            // o comeco mudou: o prefixo sera refeito abaixo
   }
@@ -180,6 +203,21 @@ inline bool rotaInsere(Rota& r, uint32_t vseq, double lat, double lon)
   return true;
 }
 
+// O lider anunciou o ponto mais antigo que ainda guarda (seq16, na epoca dele).
+// So vale na epoca que a rota ja conhece; o piso so anda para a frente (o
+// buffer do lider so esquece, nunca relembra). Traduz sem mexer no par
+// (ultVseq, ultSeq16), que e de quem recebe pontos.
+inline void rotaDefinePiso(Rota& r, uint8_t epoca, uint16_t oldest16)
+{
+  if (!r.temEpoca || r.epoca != epoca || oldest16 == ROTA_SEQ_NENHUMA) return;
+  int32_t d = (int16_t)(uint16_t)(oldest16 - r.ultSeq16);
+  int64_t v = (int64_t)r.ultVseq + d;
+  if (v < (int64_t)r.base) v = r.base;
+  if (r.temPiso && (uint32_t)v <= r.pisoV) return;
+  r.temPiso = true; r.pisoV = (uint32_t)v;
+  if (r.n) rotaRefazPrefixo(r, r.prefixo < 0 ? 0 : r.prefixo);
+}
+
 // ackAte: seq16 (na epoca atual do lider) ate onde a rota e continua desde o
 // primeiro ponto que tenho. 0xFFFF quando nao ha nada da epoca atual - o lider
 // entao manda desde o mais antigo que ainda guarda.
@@ -188,6 +226,18 @@ inline uint16_t rotaAck16(const Rota& r)
   if (r.prefixo < 0 || !r.temEpoca) return ROTA_SEQ_NENHUMA;
   uint32_t v = r.p[r.prefixo].vseq;
   if (v < r.base) return ROTA_SEQ_NENHUMA;      // o prefixo ainda e da epoca velha
+  uint16_t s = (uint16_t)(v - r.base);
+  return s == ROTA_SEQ_NENHUMA ? 0xFFFE : s;
+}
+
+// topo: seq16 do ULTIMO ponto que tenho da epoca atual. Vai no pacote do
+// SEGUIDOR no campo 'base' (que ele nao usa: nao manda pontos) e diz ao lider se
+// eu o estou OUVINDO - ver frotaAckMin.
+inline uint16_t rotaTopo16(const Rota& r)
+{
+  if (!r.temEpoca || r.n == 0) return ROTA_SEQ_NENHUMA;
+  uint32_t v = r.p[r.n - 1].vseq;
+  if (v < r.base) return ROTA_SEQ_NENHUMA;
   uint16_t s = (uint16_t)(v - r.base);
   return s == ROTA_SEQ_NENHUMA ? 0xFFFE : s;
 }

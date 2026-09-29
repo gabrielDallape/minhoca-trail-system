@@ -93,7 +93,8 @@ void setup()
   // [4] cfg: migracao
   {
     Cfg c; cfgPadrao(c); c.pwr = 6; uint8_t e;
-    CHECK(cfgMigra(c, 0, 0, e) && e == CFG_ESQUEMA && c.pwr == RF_PWR_PADRAO, "esquema 0 sem pwrv: pwr volta ao padrao");
+    CHECK(cfgMigra(c, 0, 0, e) && e == CFG_ESQUEMA && c.pwr == RF_PWR_PADRAO, "esquema 0 sem pwrv: pwr abaixo do padrao sobe");
+    c.pwr = 14; CHECK(cfgMigra(c, 0, 0, e) && c.pwr == 14, "esquema 0 sem pwrv com 14 dBm: continua 14 (so sobe)");
     c.pwr = 6; CHECK(cfgMigra(c, 0, 101, e) && c.pwr == 6, "v101: pwr e do usuario");
     c.slot = 9; c.zoom = 7; CHECK((cfgValida(c) & (CFG_AJ_SLOT | CFG_AJ_ZOOM)) == (CFG_AJ_SLOT | CFG_AJ_ZOOM) && c.slot == 0, "cfgValida clampa slot e zoom");
   }
@@ -125,6 +126,48 @@ void setup()
     CHECK(novos == 10 && g_r.n == 10 && rotaAck16(g_r) == 39 && rotaAckDe16(g_r) == 30, "seguidor recebe 10 pontos e acusa ackAte=39 ackDe=30");
     c = trilhaEscolheBloco(g_t.seqUlt, g_t.n, 39, 30, true, 1, TRILHA_PONTOS_PKT, base, n);
     CHECK(c && base == 20 && n == 10, "com historico faltando, o quadro impar traz o bloco 20..29");
+  }
+
+  // [7] as travas do catch-up (revisao de 2026-09-29), com os headers de verdade
+  {
+    // km[] anda junto quando a rota enche
+    rotaLimpaCore(g_r);
+    for (int i = 0; i < ROTA_MAX + 300; i++) rotaInsere(g_r, (uint32_t)i, -23.15 + i * 0.00009, -46.55);
+    float pior = 0, soma = 0;
+    for (int i = 1; i < g_r.n; i++) {
+      soma += sqrtf(rotaD2(g_r.p[i - 1].lat, g_r.p[i - 1].lon, g_r.p[i].lat, g_r.p[i].lon));
+      float e = fabsf(g_r.km[i] - soma); if (e > pior) pior = e;
+    }
+    Serial.printf("     rota cheia: pior erro de km = %.3f m\n", pior);
+    CHECK(g_r.n == ROTA_MAX && g_r.km[0] == 0 && pior < 2.0f, "rota cheia: km[] recomeca no novo p[0] e acompanha a distancia");
+
+    // PISO: um vao abaixo do ponto mais antigo do lider nao prende o ack
+    rotaLimpaCore(g_r);
+    for (uint16_t s = 0; s < 20; s++) rotaInsere(g_r, rotaSeqVirtual(g_r, 5, s), -23.15 + s * 1e-4, -46.55);
+    for (uint16_t s = 100; s < 120; s++) rotaInsere(g_r, rotaSeqVirtual(g_r, 5, s), -23.15 + s * 1e-4, -46.55);
+    CHECK(rotaAck16(g_r) == 19 && rotaTopo16(g_r) == 119, "vao 20..99: ack preso em 19, topo 119");
+    rotaDefinePiso(g_r, 5, 50);
+    CHECK(rotaAck16(g_r) == 19, "piso 50 (o lider ainda tem 50..99): o ack continua em 19");
+    rotaDefinePiso(g_r, 5, 100);
+    CHECK(rotaAck16(g_r) == 119, "piso 100 (o vao inteiro ja nao existe): o ack passa por cima e vai a 119");
+    rotaDefinePiso(g_r, 9, 200);
+    CHECK(rotaAck16(g_r) == 119, "piso de outra epoca e ignorado");
+    uint16_t s0 = 0;
+    rotaInsere(g_r, rotaSeqVirtual(g_r, 6, s0), -23.0, -46.0);                // o lider reiniciou
+    CHECK(!g_r.temPiso, "epoca nova zera o piso");
+
+    // quem nao ouve o lider nao dita o bloco
+    frotaInicia(g_f); frotaIdentidade(g_f, "eu", 0, 0);
+    ProtoPos k = { 1, 1, 1, (uint8_t)FL_FIX, -23.5, -46.6, 0, 0 }; bool al;
+    frotaRecebePos(g_f, k, 1000, al); k.slot = 2; frotaRecebePos(g_f, k, 1000, al);
+    frotaAck(g_f, 1, 300, 0, 500, 1000);                       // ouve (topo = meu head)
+    frotaAck(g_f, 2, ROTA_SEQ_NENHUMA, ROTA_SEQ_NENHUMA, ROTA_SEQ_NENHUMA, 1000);   // surdo
+    uint16_t am, dm;
+    CHECK(frotaAckMin(g_f, 500, am, dm, 1000) && am == 300, "o surdo fica fora: o bloco e o do que ouve (ack 300)");
+    frotaAck(g_f, 2, 100, 0, (uint16_t)(500 - ROTA_OUVE_PONTOS - 1), 1000);
+    CHECK(frotaAckMin(g_f, 500, am, dm, 1000) && am == 300, "topo mais que ROTA_OUVE_PONTOS atras = nao me ouve");
+    frotaAck(g_f, 2, 100, 0, 495, 1000);
+    CHECK(frotaAckMin(g_f, 500, am, dm, 1000) && am == 100, "topo perto do head: volta a contar (ack 100 manda)");
   }
 
   Serial.printf("\n%d PASS, %d FAIL\n", g_pass, g_fail);

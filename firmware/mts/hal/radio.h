@@ -34,12 +34,18 @@
 //  11. readData(buf, 0) significa "leia tudo" e estoura a pilha. O tamanho e
 //      conferido contra o buffer antes.
 //  12. Timeout de SPI de 100 ms em vez de 1000: um modulo apagado com BUSY alto
-//      segurava cada comando por 1 s, e o begin() tem dezenas.
+//      segurava cada comando por 1 s, e o begin() tem dezenas. Vale desde ANTES do
+//      primeiro begin().
+//  13. begin() com o chip MUDO leva >= 10 s (findChip: 10 resets, cada um com 1 s
+//      de standby() insistindo) - mais que o WDT. Era boot-loop com o 5 V do
+//      modulo caido. radioHwResponde() pergunta em microssegundos antes, e o
+//      begin() roda com o vigia pausado.
 
 #include <RadioLib.h>
 #include <Arduino.h>
 #include "pinos.h"
 #include "caixa.h"
+#include "wdt.h"
 #include "../core/params.h"
 
 // GetDeviceErrors/ClearDeviceErrors sao 'protected' no RadioLib; herdar custa
@@ -122,9 +128,44 @@ inline void radioHwPosBegin(int8_t pwr)
   g_rhw.pwr = pwr;
 }
 
+// O chip esta do outro lado do SPI? Reset, espera o BUSY cair (a calibracao de
+// partida leva ~3 ms) e um GetStatus (0xC0) cru. Um SX1262 vivo responde com o
+// modo em STBY_RC..TX (bits 6:4 = 2..6); MISO parado da 0x00/0xFF. Custa no maximo
+// RADIO_SONDA_MS, contra >= 10 s do begin() num chip mudo (armadilha 13).
+#define RADIO_SONDA_MS 50
+inline bool radioHwResponde()
+{
+  pinMode(PIN_LORA_NSS, OUTPUT);
+  digitalWrite(PIN_LORA_NSS, HIGH);
+  pinMode(PIN_LORA_BUSY, INPUT);
+  pinMode(PIN_LORA_NRST, OUTPUT);
+  digitalWrite(PIN_LORA_NRST, LOW);
+  delayMicroseconds(500);
+  digitalWrite(PIN_LORA_NRST, HIGH);
+  delayMicroseconds(200);
+  const uint32_t t0 = millis();
+  while (digitalRead(PIN_LORA_BUSY) && (millis() - t0) < RADIO_SONDA_MS) delay(1);
+  if (digitalRead(PIN_LORA_BUSY)) return false;              // BUSY preso: sem energia ou travado
+  spiLoRa.beginTransaction(SPISettings(2000000, MSBFIRST, SPI_MODE0));
+  digitalWrite(PIN_LORA_NSS, LOW);
+  spiLoRa.transfer(0xC0);                                    // GetStatus
+  const uint8_t st = spiLoRa.transfer(0x00);
+  digitalWrite(PIN_LORA_NSS, HIGH);
+  spiLoRa.endTransaction();
+  const uint8_t modo = (st >> 4) & 0x07;
+  return modo >= 2 && modo <= 6;
+}
+
 inline bool radioHwBegin(int8_t pwr)
 {
+  if (!radioHwResponde()) {
+    g_rhw.beginSt = RADIOLIB_ERR_CHIP_NOT_FOUND;
+    Serial.println("radio: chip nao responde ao GetStatus - begin() NAO tentado (5 V, NSS, MISO, BUSY)");
+    return false;
+  }
+  wdtPausa();
   int st = g_lora.begin(RF_FREQ_MHZ, RF_BW_KHZ, RF_SF, RF_CR, RF_SYNC, pwr, RF_PRE, RF_TCXO_V);
+  wdtRetoma();
   g_rhw.beginSt = st;
   if (st != RADIOLIB_ERR_NONE) {
     Serial.printf("radio: begin() FALHOU (%d)%s\n", st,
@@ -142,6 +183,7 @@ inline bool radioHwInicia(int8_t pwr)
   Serial.println("radio: conferindo a fiacao...");
   g_rhw.fiosOk = radioHwChecaFios();     // avisa e segue: o begin diz se da para continuar
   spiLoRa.begin(PIN_LORA_SCK, PIN_LORA_MISO, PIN_LORA_MOSI, PIN_LORA_NSS);
+  g_lora.modulo()->spiConfig.timeout = 100;           // armadilha 12, ja no primeiro begin()
   // M16: os pinos do switch entram ANTES do begin, para o RXEN nao flutuar
   // durante os ~100 ms dele (so o TXEN tem pull-down no chicote).
 #if RF_SWITCH_TROCADO

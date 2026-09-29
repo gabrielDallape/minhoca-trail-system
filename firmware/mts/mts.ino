@@ -64,15 +64,29 @@ static void sessaoEncerra()
   redeTrocaSala("SEMSALA");        // sai do grupo = sai da sala: para de falar nele
   frotaLimpaOutros(g_frota);
   rotaLimpaCore(g_rotaC);
+  // Fora do grupo eu nao guio nem peco socorro: sem isto o aparelho seguia
+  // anunciando LIDER (e talvez ALERTA) na sala neutra.
+  g_frota.c[0].lider = false;
+  g_frota.c[0].alerta = false;
 }
 
 // ---------------------------------------------------------------- telemetria
+// snprintf ACUMULADO que nunca passa do fim. O retorno do snprintf e o que ele
+// TERIA escrito: somado sem limite, 'n - u' dava a volta (size_t) e a escrita
+// seguinte ia para fora do buffer - o /status do WiFi (640 B) recebia ~700.
+#define ACUM(u, fora, n, ...) do { \
+    if ((size_t)(u) < (size_t)(n)) { \
+      int k_ = snprintf((fora) + (u), (size_t)(n) - (size_t)(u), __VA_ARGS__); \
+      if (k_ > 0) (u) += k_; \
+    } \
+    if ((size_t)(u) >= (size_t)(n)) (u) = (int)(n) - 1; \
+  } while (0)
 static void statusTexto(char* fora, size_t n)
 {
-  int u = snprintf(fora, n, "%s | fw v%d proto v%d | ar %lu s | tela %s\n", g_cfg.nome, MTS_VERSAO, PROTO_VERSAO,
+  int u = 0; ACUM(u, fora, n, "%s | fw v%d proto v%d | ar %lu s | tela %s\n", g_cfg.nome, MTS_VERSAO, PROTO_VERSAO,
                    (unsigned long)(millis() / 1000), EST_NOMES[g_estado]);
 #if MTS_TEM_GPS
-  u += snprintf(fora + u, n - u, "[gps] fix=%s sats=%u vista=%u snr=%u hdop=%.2f | %.6f, %.6f | frases=%lu ruins=%lu | PPS=%s (%lu us) pulsos=%lu parVelho=%lu backlog=%lu\n",
+  ACUM(u, fora, n, "[gps] fix=%s sats=%u vista=%u snr=%u hdop=%.2f | %.6f, %.6f | frases=%lu ruins=%lu | PPS=%s (%lu us) pulsos=%lu parVelho=%lu backlog=%lu\n",
                 gpsFixValido() ? "SIM" : "nao", g_gps.sats, g_gps.vista, g_gps.snrAnt, g_gps.hdop, g_gps.lat, g_gps.lon,
                 (unsigned long)g_gps.frases, (unsigned long)g_gps.ruins, gpsPpsValido() ? "1Hz" : "-",
                 (unsigned long)g_gps.ppsIntervaloUs, (unsigned long)gpsPpsCnt(), (unsigned long)g_gps.parVelho,
@@ -85,7 +99,7 @@ static void statusTexto(char* fora, size_t n)
   if (!t.haveAnchor) strcpy(fonte, "ninguem");
   else if (t.isAnchor) strcpy(fonte, "EU");
   else snprintf(fonte, sizeof(fonte), "slot %u%s", t.anchorSrc, t.anchorSrcPps ? " UTC" : "");
-  u += snprintf(fora + u, n - u, "[rede] slot=%u sinc=%s%s fonte=%s | pwr=%d dBm (~%d) cfg=%d%s | tx=%lu perdi=%lu preso=%lu | "
+  ACUM(u, fora, n, "[rede] slot=%u sinc=%s%s fonte=%s | pwr=%d dBm (~%d) cfg=%d%s | tx=%lu perdi=%lu preso=%lu | "
                 "rx=%lu ruim=%lu outraSala=%lu conflito=%lu versao=%lu | rssi=%.0f snr=%.1f | ruido=%.0f | air=%lu/%lu\n",
                 t.nodeId, sinc, t.holdover ? " HOLDOVER" : "", fonte, redePotencia(), radioHwPotenciaAntena(redePotencia()),
                 redePotenciaConfig(), redeEmModoSeguro() ? " SEGURO" : "", (unsigned long)t.txCount,
@@ -94,7 +108,7 @@ static void statusTexto(char* fora, size_t n)
                 (unsigned long)g_frota.versaoErrada, g_rede.rxRssi, g_rede.rxSnr, g_rede.ruidoUlt,
                 (unsigned long)g_rede.txAirUltUs, (unsigned long)REDE_AIRTIME_US);
 #endif
-  u += snprintf(fora + u, n - u, "[log] %s | %lu linhas | %lu KB | perdidas=%lu | flushes=%lu pior=%lu us adiados=%lu | laco pior=%lu us negados=%lu estouros=%lu | rota %d pts prefixo %d catchups %lu | relogioVoltou %lu\n",
+  ACUM(u, fora, n, "[log] %s | %lu linhas | %lu KB | perdidas=%lu | flushes=%lu pior=%lu us adiados=%lu | laco pior=%lu us negados=%lu estouros=%lu | rota %d pts prefixo %d catchups %lu | relogioVoltou %lu\n",
                 registroAtivo() ? "gravando" : "PARADO", (unsigned long)g_reg.anel.linhas, (unsigned long)(g_reg.bytesGravados / 1024),
                 (unsigned long)g_reg.anel.descartadas, (unsigned long)g_reg.flushes, (unsigned long)g_reg.piorFlushUs,
                 (unsigned long)g_reg.adiados, (unsigned long)g_orc.atrasoMaxUs, (unsigned long)g_orc.negados,
@@ -116,10 +130,10 @@ static void diagQuery(char* fora, size_t n)
   }
   nm[k] = 0;
   if (!k) strcpy(nm, "sem_nome");
-  int u = snprintf(fora, n, "n=%s&v=%d&pv=%d&up=%lu", nm, MTS_VERSAO, PROTO_VERSAO, (unsigned long)(millis() / 1000));
+  int u = 0; ACUM(u, fora, n, "n=%s&v=%d&pv=%d&up=%lu", nm, MTS_VERSAO, PROTO_VERSAO, (unsigned long)(millis() / 1000));
 #if MTS_TEM_RADIO
   const Tdma& t = g_rede.tdma;
-  u += snprintf(fora + u, n - u, "&slot=%u&fios=%d&bg=%ld&ok=%d&pwr=%d&sinc=%d&fonte=%d&utc=%d&tx=%lu&perdi=%lu&preso=%lu&rx=%lu&ruim=%lu&sala=%lu&conf=%lu&ver=%lu&rssi=%d&ruido=%d",
+  ACUM(u, fora, n, "&slot=%u&fios=%d&bg=%ld&ok=%d&pwr=%d&sinc=%d&fonte=%d&utc=%d&tx=%lu&perdi=%lu&preso=%lu&rx=%lu&ruim=%lu&sala=%lu&conf=%lu&ver=%lu&rssi=%d&ruido=%d",
                 t.nodeId, g_rhw.fiosOk ? 1 : 0, (long)g_rhw.beginSt, g_rede.ok ? 1 : 0, redePotencia(), (int)t.sync,
                 t.haveAnchor ? (t.isAnchor ? 99 : (int)t.anchorSrc) : -1, t.anchorSrcPps ? 1 : 0,
                 (unsigned long)t.txCount, (unsigned long)t.missedTx, (unsigned long)g_rede.txPreso,
@@ -127,7 +141,7 @@ static void diagQuery(char* fora, size_t n)
                 (unsigned long)g_frota.conflitos, (unsigned long)g_frota.versaoErrada, (int)g_rede.rxRssi, (int)g_rede.ruidoUlt);
 #endif
 #if MTS_TEM_GPS
-  u += snprintf(fora + u, n - u, "&fix=%d&sats=%u&pps=%lu", gpsFixValido() ? 1 : 0, g_gps.sats, (unsigned long)gpsPpsCnt());
+  ACUM(u, fora, n, "&fix=%d&sats=%u&pps=%lu", gpsFixValido() ? 1 : 0, g_gps.sats, (unsigned long)gpsPpsCnt());
 #endif
   (void)u;
 }
@@ -194,12 +208,14 @@ static void rodaTrilha()
 static void serialComandos()
 {
   static bool esperandoSlot = false, esperandoPwr = false;
-  static int  pwrAcc = -1;
+  static int  pwrAcc = -1, pwrDig = 0;
   while (Serial.available()) {
     char c = Serial.read();
-    if (c == 'p' || c == 'P') { esperandoPwr = true; pwrAcc = -1; esperandoSlot = false; continue; }
+    if (c == 'p' || c == 'P') { esperandoPwr = true; pwrAcc = -1; pwrDig = 0; esperandoSlot = false; continue; }
     if (esperandoPwr) {
-      if (c >= '0' && c <= '9' && pwrAcc < 3) { pwrAcc = (pwrAcc < 0 ? 0 : pwrAcc * 10) + (c - '0'); continue; }
+      // Ate DOIS digitos (a faixa -9..22 cabe). Era 'pwrAcc < 3': p30 virava 3 dBm
+      // e p40..p9x viravam 4..9 - e isso ia para a NVS.
+      if (c >= '0' && c <= '9' && pwrDig < 2) { pwrAcc = (pwrAcc < 0 ? 0 : pwrAcc * 10) + (c - '0'); pwrDig++; continue; }
       esperandoPwr = false;
       if (pwrAcc >= 0) {
         redeTrocaPotencia((int8_t)pwrAcc);
@@ -247,7 +263,6 @@ void setup()
   aplicaTema(g_cfg.tema);
   frotaInicia(g_frota);
   frotaIdentidade(g_frota, g_cfg.nome, g_cfg.cor, g_cfg.slot);
-  trajetoInicia(g_traj, (uint8_t)(esp_random() & 0xFF));   // epoca nova a cada boot
   rotaLimpaCore(g_rotaC);
   orcamentoInicia(g_orc);
 
@@ -256,17 +271,21 @@ void setup()
   const esp_reset_reason_t motivoBoot = esp_reset_reason();
   uint32_t violentos = 0;
   const bool temCaixa = caixaBoot(motivoBoot, g_caixaAnterior, violentos);
+  // Depois do caixaBoot: a epoca grava na NVS, e o carimbo CP_NVS nao pode cair
+  // na caixa do boot anterior antes de ela ser lida.
+  trajetoInicia(g_traj, nvsProximaEpoca((uint8_t)(esp_random() & 0xFF)));   // epoca nova a cada boot
   if (temCaixa) relataCaixa(g_caixaAnterior, motivoBoot, false);
   else if (caixaMotivoViolento(motivoBoot))
     Serial.printf("*** o boot anterior morreu (motivo %d, rom 0x%02X) e a caixa-preta nao estava valida ***\n",
                   (int)motivoBoot, (int)esp_rom_get_reset_reason(0));
+  // ALARME DE REINICIOS: so avisa. A potencia continua a do usuario.
   bool seguro = false;
   if (violentos >= RADIO_SEGURO_APOS) {
     seguro = true;
     char av[64];
-    snprintf(av, sizeof(av), "%lu REINICIOS SEGUIDOS - RADIO EM %d dBm SO NESTE BOOT", (unsigned long)violentos, (int)RADIO_PWR_SEGURO);
+    snprintf(av, sizeof(av), "%lu REINICIOS SEGUIDOS - CONFERIR O 5V DO RADIO", (unsigned long)violentos);
     avisoDefine(av);
-    Serial.printf("rede: *** %s (configurada: %d dBm, NAO alterada) ***\n", av, (int)g_cfg.pwr);
+    Serial.printf("rede: *** %s (potencia %d dBm, NAO alterada) ***\n", av, (int)g_cfg.pwr);
   }
 
   Serial.printf("wdt: %s (%d s, loopTask)\n", wdtInicia() ? "ativo" : "NAO configurou", WDT_TIMEOUT_S);
@@ -313,7 +332,7 @@ void setup()
                   (unsigned)g_traj.epoca, (unsigned)g_cfgEsquema);
     if (relatoCfg[0]) registroLinha("!,%lu,%s", (unsigned long)millis(), relatoCfg);
     if (temCaixa) relataCaixa(g_caixaAnterior, motivoBoot, true);
-    if (avisoAtivo()) registroLinha("!,%lu,MODO SEGURO,%s", (unsigned long)millis(), g_avisoTexto);
+    if (avisoAtivo()) registroLinha("!,%lu,REINICIOS SEGUIDOS,%s", (unsigned long)millis(), g_avisoTexto);
   }
 #endif
 
@@ -368,6 +387,11 @@ void loop()
         strncpy(g_ses.gCod,  gc, sizeof(g_ses.gCod) - 1);
         nvsGravaSessao(g_ses);
         Serial.printf("trilha aberta: %s | codigo %s\n", gn, gc);
+        // Trilha nova, rastro novo (como o v101): sem isto o lider transmitia tudo
+        // desde o boot - o caminho ate a entrada da trilha, ou a trilha anterior -
+        // e quem entrasse passava ~20 min recebendo historico. A numeracao
+        // continua (so a EPOCA diz "recomecei"), entao ninguem ve um vao falso.
+        trajetoLimpa(g_traj);
         rodaTrilha();
       } else {
         sessaoEncerra();
@@ -390,6 +414,7 @@ void loop()
       frotaLimpaOutros(g_frota);
       rotaLimpaCore(g_rotaC);
       Serial.printf("entrou no grupo de codigo %s\n", cod);
+      trajetoLimpa(g_traj);
       rodaTrilha();
     }
     estadoVai(EST_INICIAL);

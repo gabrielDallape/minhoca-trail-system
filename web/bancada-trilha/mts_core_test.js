@@ -33,7 +33,7 @@ const FROTA_MAX_CARROS = def('FROTA_MAX_CARROS'), RUIDO_SLOT_INI = def('RUIDO_SL
 const ROTA_PASSO_M = def('ROTA_PASSO_M'), TRILHA_PONTOS_PKT = def('TRILHA_PONTOS_PKT'), VEL_PROJETO_KMH = def('VEL_PROJETO_KMH');
 const FROTA_EXTRAPOLA_MAX_MS = def('FROTA_EXTRAPOLA_MAX_MS'), FROTA_SINAL_VELHO_MS = def('FROTA_SINAL_VELHO_MS'), FROTA_SOME_MS = def('FROTA_SOME_MS');
 const ROSTER_CADA = def('ROSTER_CADA'), PROTO_VERSAO = def('PROTO_VERSAO'), MTS_VERSAO = def('MTS_VERSAO'), CFG_ESQUEMA = def('CFG_ESQUEMA');
-const RF_PWR_PADRAO = def('RF_PWR_PADRAO'), RADIO_PWR_SEGURO = def('RADIO_PWR_SEGURO'), RADIO_SEGURO_APOS = def('RADIO_SEGURO_APOS');
+const RF_PWR_PADRAO = def('RF_PWR_PADRAO'), RADIO_SEGURO_APOS = def('RADIO_SEGURO_APOS');
 ck([TDMA_SLOTS, TDMA_FRAME_S, TDMA_GUARD_US, RF_SF, RF_CR, RF_PRE, RF_BW_KHZ, FROTA_MAX_CARROS, ROTA_PASSO_M, TRILHA_PONTOS_PKT,
     FROTA_EXTRAPOLA_MAX_MS, FROTA_SINAL_VELHO_MS, FROTA_SOME_MS, ROSTER_CADA, PROTO_VERSAO, MTS_VERSAO, CFG_ESQUEMA].every(Number.isFinite),
    'todas as constantes foram lidas do params.h');
@@ -45,7 +45,24 @@ ck(86400 % TDMA_FRAME_S === 0, 'o quadro divide 86400 (meia-noite)');
 ck(FROTA_MAX_CARROS <= TDMA_SLOTS && RUIDO_SLOT_INI === FROTA_MAX_CARROS && RUIDO_SLOT_INI < TDMA_SLOTS,
    `slots ${RUIDO_SLOT_INI}..${TDMA_SLOTS - 1} sempre vazios para o ruido`);
 ck(MTS_VERSAO > 101 && PROTO_VERSAO === 2 && CFG_ESQUEMA === 2, `fw v${MTS_VERSAO} > 101, proto v${PROTO_VERSAO}, cfg esquema ${CFG_ESQUEMA}`);
-ck(RADIO_PWR_SEGURO <= RF_PWR_PADRAO && RADIO_SEGURO_APOS >= 2, 'modo seguro: teto abaixo do padrao, so apos >= 2 reinicios');
+ck(RADIO_SEGURO_APOS >= 2, 'alarme de reinicios so apos >= 2 reinicios seguidos');
+// 2026-09-29: o alarme de reinicios NAO baixa a potencia (usuario: "isso nao pode
+// acontecer"). Nao pode existir teto em lugar nenhum do firmware.
+{
+  const P = R('firmware/mts/core/params.h').replace(/\/\/.*$/gm, '');
+  ck(!/RADIO_PWR_SEGURO/.test(P), 'params.h: sem RADIO_PWR_SEGURO (o teto do modo seguro saiu)');
+  let comTeto = [];
+  const varre = (dir, rel) => {
+    for (const f of fs.readdirSync(dir)) {
+      const full = path.join(dir, f);
+      if (fs.statSync(full).isDirectory()) { varre(full, rel + f + '/'); continue; }
+      if (!/\.(h|ino)$/.test(f) || f === 'logo_mts.h') continue;
+      if (/RADIO_PWR_SEGURO/.test(fs.readFileSync(full, 'utf8').replace(/\/\/.*$/gm, ''))) comTeto.push(rel + f);
+    }
+  };
+  varre(path.join(__dirname, '..', '..', 'firmware', 'mts'), '');
+  ck(comTeto.length === 0, 'nenhum arquivo do firmware/mts usa o teto' + (comTeto.length ? ' (' + comTeto.join(',') + ')' : ''));
+}
 
 // air-time: espelho de core/airtime.h (formula do datasheet + 6,5 ms medidos)
 const AIRTIME_EXTRA_US = 6500;
@@ -199,13 +216,19 @@ sec('[4] cfg.h: migracao de esquema');
 function cfgMigra(c, esquemaLido, pwrvLido) {
   let mudou = false, e = esquemaLido;
   if (e === 0 && pwrvLido >= 101) e = 1;
-  if (e < 1) { c.pwr = RF_PWR_PADRAO; e = 1; mudou = true; }
+  if (e < 1) { if (c.pwr < RF_PWR_PADRAO) c.pwr = RF_PWR_PADRAO; e = 1; mudou = true; }
   if (e < 2) { e = 2; mudou = true; }
   return { mudou, e };
 }
 {
   let c = { pwr: 6 }; let r = cfgMigra(c, 0, 0);
-  ck(r.mudou && r.e === 2 && c.pwr === RF_PWR_PADRAO, 'esquema 0 sem pwrv (mts_p4 / v100): pwr volta ao padrao UMA vez');
+  ck(r.mudou && r.e === 2 && c.pwr === RF_PWR_PADRAO, 'esquema 0 sem pwrv (mts_p4 / v100): pwr abaixo do padrao sobe UMA vez');
+  c = { pwr: 14 }; r = cfgMigra(c, 0, 0);
+  ck(r.mudou && c.pwr === 14, 'esquema 0 sem pwrv com 14 dBm: continua 14 (a migracao so sobe, nunca desce)');
+  {
+    const C = R('firmware/mts/core/cfg.h');
+    ck(/if \(c\.pwr < RF_PWR_PADRAO\) c\.pwr = RF_PWR_PADRAO;/.test(C), 'cfg.h faz o mesmo que este espelho (so sobe)');
+  }
   c = { pwr: 6 }; r = cfgMigra(c, 0, 101);
   ck(r.mudou && r.e === 2 && c.pwr === 6, 'v101 (pwrv=101): o pwr e do usuario, so o esquema sobe');
   c = { pwr: 14 }; r = cfgMigra(c, 2, 101);
@@ -253,13 +276,40 @@ sec('[6] hal/radio.h e app/rede.h: as armadilhas continuam no lugar');
   ck(/protoVersaoOk\(buf, n\)/.test(N) && /frotaVersaoAlheia/.test(N), 'pacote de versao alheia e contado e nao entra na frota');
   ck(/tdmaBeaconAceita\(r\.tdma, k\.slot, srcPps\)/.test(N) && /tdmaEleicao\(r\.tdma\)/.test(N), 'politica de aceitacao e eleicao do tdma_core em uso');
   ck(/tdmaUsUntilMySlot\(g_rede\.tdma\) > us \+ ORC_RESERVA_US/.test(N), 'redePodeGastar usa tdmaUsUntilMySlot (C4 da auditoria)');
+  {
+    const ig = N.indexOf('inline bool redePodeGastar');
+    const pg = N.slice(ig, N.indexOf('\n}', ig));
+    ck(pg.indexOf('usInFrame >= lo && usInFrame <= hi') > 0 && pg.indexOf('usInFrame >= lo') < pg.lastIndexOf('tdmaUsUntilMySlot'),
+       'redePodeGastar nega DENTRO da janela aberta, antes de olhar o proximo quadro');
+  }
+  {
+    const ib = H.indexOf('inline bool radioHwBegin');
+    const bb = H.slice(ib, H.indexOf('\n}', ib));
+    const iR = bb.indexOf('radioHwResponde()'), iP = bb.indexOf('wdtPausa()'), iB = bb.indexOf('g_lora.begin('), iT = bb.indexOf('wdtRetoma()');
+    ck(iR >= 0 && iR < iB, 'radioHwBegin sonda o chip (GetStatus) ANTES do begin() - armadilha 13');
+    ck(iP >= 0 && iP < iB && iT > iB, 'o begin() roda com o WDT pausado e retomado logo depois');
+    const ii = H.indexOf('inline bool radioHwInicia');
+    const bi = H.slice(ii, H.indexOf('\n}', ii));
+    ck(bi.indexOf('spiConfig.timeout = 100') >= 0 && bi.indexOf('spiConfig.timeout = 100') < bi.indexOf('radioHwBegin('),
+       'timeout de SPI de 100 ms ja no PRIMEIRO begin()');
+  }
+  {
+    const iI = N.indexOf('inline bool redeInicia');
+    const bI = N.slice(iI, N.indexOf('\n}', iI));
+    ck(!/seguro\s*&&\s*pwr/.test(bI) && /radioHwInicia\(pwr\)/.test(bI), 'redeInicia sobe o radio com a potencia do usuario, com ou sem alarme');
+    ck(!/redeModoSeguro/.test(N), 'redeModoSeguro (codigo morto que baixava a potencia) saiu');
+  }
+  {
+    const I = R('firmware/mts/mts.ino').replace(/\/\/.*$/gm, '');
+    ck(/pwrDig < 2/.test(I) && !/pwrAcc < 3/.test(I), "comando 'p' do serial le ate 2 digitos (p30 nao vira 3)");
+  }
   const G = R('firmware/mts/hal/gps.h');
   ck(/idade < GPS_PAR_PPS_MAX_US/.test(G) && /backlogDescartado\+\+/.test(G), 'C1: o par PPS/NMEA confere idade e descarta backlog');
   const T = R('firmware/mts/core/tdma.h');
   ck(/#include "\.\.\/tdma_core\.h"/.test(T), 'core/tdma.h inclui o tdma_core.h compartilhado (sem copia)');
   const W = R('firmware/mts/hal/pinos.h');
   ck(/#define MTS_TEM_WIFI\s+0/.test(W), 'WiFi desligado por padrao');
-  ck(!/#defines+MTS_PLACA/.test(W) && !fs.existsSync(path.join(__dirname, '..', '..', 'firmware', 'mts', 'hal', 'LGFX_P4_LCD5.h')), 'um alvo so: sem MTS_PLACA nem LGFX_P4_LCD5.h');
+  ck(!/#define\s+MTS_PLACA/.test(W) && !fs.existsSync(path.join(__dirname, '..', '..', 'firmware', 'mts', 'hal', 'LGFX_P4_LCD5.h')), 'um alvo so: sem MTS_PLACA nem LGFX_P4_LCD5.h');
   // core nao inclui Arduino
   let arduinoNoCore = [];
   for (const f of fs.readdirSync(path.join(__dirname, '..', '..', 'firmware', 'mts', 'core'))) {

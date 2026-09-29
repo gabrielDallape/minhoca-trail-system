@@ -79,6 +79,24 @@ inline uint32_t nvsIncrementaBoots()
   return b;
 }
 
+// EPOCA do meu trajeto: a do boot anterior + 1. Sorteada (como era ate
+// 2026-09-29), repetia a anterior 1 vez em 256 - e ai quem me seguia lia os pontos
+// novos como deslocamento dos velhos e os descartava como repetidos ate a
+// numeracao nova alcancar a antiga. Sem NVS, o sorteio continua valendo.
+inline uint8_t nvsProximaEpoca(uint8_t sorteio)
+{
+  caixaEtapa(CP_NVS);
+  Preferences p;
+  uint8_t e = sorteio;
+  if (p.begin(NVS_NS_GRUPO, false)) {
+    if (p.isKey("epoca")) e = (uint8_t)(p.getUChar("epoca", 0) + 1);
+    p.putUChar("epoca", e);
+    p.end();
+  }
+  caixaEtapa(CP_LACO);
+  return e;
+}
+
 // ---------------------------------------------------------------- sessao
 // "Eu estou numa trilha": grupo, codigo e papel. Poucas dezenas de bytes,
 // escritos so quando algo muda. O TRAJETO nao cabe aqui (cresce enquanto o

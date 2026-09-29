@@ -29,7 +29,10 @@ inline bool wdtInicia()
 {
   esp_task_wdt_config_t cfg = {};
   cfg.timeout_ms = WDT_TIMEOUT_S * 1000;
-  cfg.idle_core_mask = 0;          // as IDLE ja sao do core; aqui so a loopTask
+  // 0 = as tarefas IDLE saem do vigia (o reconfigure as desinscreve). De
+  // proposito: o laco do Arduino gira sem ceder a CPU e mataria a IDLE do seu
+  // nucleo de fome - o vigia aqui e SO da loopTask.
+  cfg.idle_core_mask = 0;
   cfg.trigger_panic = true;        // panic -> esp_reset_reason() = TASK_WDT e backtrace
   esp_err_t e = esp_task_wdt_reconfigure(&cfg);
   if (e == ESP_ERR_INVALID_STATE) e = esp_task_wdt_init(&cfg);   // nao estava inicializado
@@ -40,3 +43,10 @@ inline bool wdtInicia()
 }
 
 inline void wdtAlimenta() { if (g_wdtAtivo) esp_task_wdt_reset(); }
+
+// Para as chamadas de biblioteca que PODEM passar do timeout sem que haja nada
+// travado - hoje so o begin() do RadioLib, que com o chip mudo fica >= 10 s no
+// findChip (10 resets x 1 s de standby tentando, SX126x.cpp:1506 e :203).
+// Quem pausa retoma na mesma funcao, sem return no meio.
+inline void wdtPausa()  { if (g_wdtAtivo) esp_task_wdt_delete(NULL); }
+inline void wdtRetoma() { if (g_wdtAtivo) { esp_task_wdt_add(NULL); esp_task_wdt_reset(); } }

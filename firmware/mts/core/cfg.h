@@ -65,16 +65,18 @@ inline uint8_t cfgValida(Cfg& c)
 // recuo automatico ou pelo resgate de boot, sem o usuario saber - e foi (campo
 // de 09-28, duas telas em 6 dBm sem ninguem pedir). Como nao ha como distinguir
 // "6 porque o dono quis" de "6 porque o firmware baixou", a PRIMEIRA subida a
-// partir de um esquema sem a marca pwrv devolve a potencia ao padrao. Nao e "a
-// potencia mudando sozinha": e um acerto unico, anunciado, para limpar o que os
-// mecanismos removidos deixaram. Do esquema 1 em diante o pwr e do usuario.
+// partir de um esquema sem a marca pwrv traz ao padrao quem estiver ABAIXO dele.
+// So sobe, nunca desce: ate 2026-09-29 era "volta ao padrao", e quem tinha
+// escolhido 14 ou 22 descia para 10 sem aviso na tela. E um acerto unico,
+// anunciado, para limpar o que os mecanismos removidos deixaram. Do esquema 1 em
+// diante o pwr e do usuario.
 inline bool cfgMigra(Cfg& c, uint8_t esquemaLido, uint8_t pwrvLido, uint8_t& esquemaSaida)
 {
   bool mudou = false;
   uint8_t e = esquemaLido;
   if (e == 0 && pwrvLido >= 101) e = 1;        // v101 gravou pwrv, nao cfgv
   if (e < 1) {
-    c.pwr = RF_PWR_PADRAO;                     // ver o bloco acima
+    if (c.pwr < RF_PWR_PADRAO) c.pwr = RF_PWR_PADRAO;   // ver o bloco acima: so sobe
     e = 1; mudou = true;
   }
   if (e < 2) {

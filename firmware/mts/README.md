@@ -70,14 +70,14 @@ sozinha (so `'p'` no serial ou a celula POTENCIA do diagnostico gravam).
 | Air-time 16 B / 23 B (roster) / 68 B (trilha cheia) | 171 / 212 / 417 ms | `airtime.h`: SX1262 6.1.4 + 6,5 ms medidos em SF7 |
 | Janela para o laco decidir o TX | 63 ms | 500 − 20 − 417 |
 | Vigia de TX preso | 617 ms | maior pacote + 200 |
-| Holdover (sem ancora) | 12,5 s = 2 quadros + 0,5 s | `tdma_core.h` |
+| Holdover (sem ancora) | 24,5 s = 4 quadros + 0,5 s | `TDMA_HOLDOVER_QUADROS` (`params.h`) |
 | Eleicao da ancora sem GPS | 3 s + slot x 6 s (slot 7: 45 s) | `TDMA_ELECT_BASE_US` |
 | PPS firme antes de ancorar | 10 pulsos | `TDMA_PPS_FIRME` |
 | Roster | falas 1, 3, 5 e depois a cada 8 — **intercalado**, nunca 2 quadros sem beacon | I5 da auditoria |
 | Posicao dos outros | a cada 6 s, **extrapolada** por rumo x velocidade ate 12 s | `frota.h` |
 | Sinal velho / some da lista | 30 s (p = 3 % a 50 % de perda) / 90 s | `FROTA_*` |
 | Passo do trajeto | **10 m** (era 5): o catch-up converge ate 30 km/h | conta em `params.h` |
-| Catch-up | 10 pontos por pacote, quadros alternados | `rota.h` |
+| Catch-up | 10 pontos por pacote, quadros alternados; so conta quem ouve o lider | `rota.h`, `frota.h` |
 
 Radio: 915 MHz, SF9, BW125, CR4/5, preambulo 8, sync 0x12, TCXO 2,2 V, OCP 140 mA,
 rampa 800 us, `setOutputPower(p, false)`, RX boosted. Potencia padrao 10 dBm no
@@ -94,6 +94,8 @@ chip (~20 dBm na antena, PA +10 dB); teto legal em BW125: 24,2 dBm.
 [6..13]  lat, lon int32 grau x 1e7            (roster: [6] cor, [7..22] nome, 23 B)
 [14]     rumo graus/2        [15] velocidade km/h                       -> 16 B
 [16]     epoca do trajeto    [17..18] seq do 1o ponto   [19..20] ackAte   [21..22] ackDe
+         (seguidor: [17..18] = topo, o ultimo ponto do lider que ele tem)
+         (lider:    [19..20] = 0xFFFF, [21..22] = o ponto mais antigo que ele guarda = piso)
 [23]     n pontos            [24..31] 1o ponto absoluto  depois (n-1) x (dlat, dlon int16, 1e-5 grau)
                                                                          -> ate 68 B
 ```
@@ -110,16 +112,17 @@ do boot anterior, `V` pacote de versao de protocolo diferente.
 ## NVS
 
 Namespace `grupo` (mesmas chaves do `grupo_ws`/`mts_campo`): `name color theme
-zoom slot pwr boots cfgv pwrv s_ativa s_lider s_gnome s_gcod`; `wifi`: `ssid
+zoom slot pwr boots cfgv pwrv epoca s_ativa s_lider s_gnome s_gcod`; `wifi`: `ssid
 pass`. Esquema `cfgv 2`; a migracao de um aparelho v101 preserva tudo; de um
-mts_p4/v100 devolve o `pwr` ao padrao uma unica vez (o valor podia ter vindo do
-recuo automatico).
+mts_p4/v100 sobe o `pwr` ao padrao, uma unica vez, SE estiver abaixo dele (o
+valor podia ter vindo do recuo automatico) - nunca desce.
 
 ## O que nao esta aqui
 
 Suporte a tela de 5" (`LGFX_P4_LCD5.h`) — um alvo so. Recuo automatico de
-potencia e resgate de boot — a regra e que a potencia nunca muda sozinha; o que
-existe e o modo seguro em RAM apos 3 reinicios violentos. Simulador de outros
+potencia, resgate de boot e teto de modo seguro — a regra e que a potencia nunca
+muda sozinha; o que existe e um ALARME (faixa vermelha) apos 3 reinicios
+violentos seguidos, com a potencia intacta. Simulador de outros
 carros sem radio (o `mundoEntra` do mts_campo) — sem radio o mapa mostra so o
 proprio carro. `tools/publica_ota.ps1` e `tools/frota.ps1` ainda apontam para
 `firmware/mts_p4`: trocar para `firmware/mts` quando este firmware for para a frota.

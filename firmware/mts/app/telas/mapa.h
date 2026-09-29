@@ -170,6 +170,18 @@ void mapaDesenha(G& g, int w, int h, double mPorPx, uint32_t agoraMs)
   if (g_rotaC.n >= 2) {
     int meuIdx; float fora;
     if (rotaProjeta(g_eu.lat, g_eu.lon, meuIdx, fora)) {
+      // ALERTA A FRENTE: quem pediu socorro esta adiante de mim no caminho do
+      // lider (o proprio lider, ou outro seguidor). O vermelho no MEU rastro so
+      // cobre quem esta atras; sem isto o trecho ate ele nao acendia (ja era
+      // assim no v101). Pinta de vermelho, na rota, de mim ate ele.
+      int alIdx = -1;
+      for (int k = 1; k < FROTA_MAX_CARROS; k++) {
+        const Carro& c = g_frota.c[k];
+        if (!c.ativo || !c.alerta || !c.fix || !c.temPos) continue;
+        int ai; float af;
+        if (rotaProjeta(c.lat, c.lon, ai, af) && af < FORA_DA_TRILHA_M && ai > meuIdx) alIdx = ai;
+        break;
+      }
       int rx = -1, ry = 0; double rlat = 0, rlon = 0; bool rAnt = false;
       bool vaoPend = false;
       for (int i = meuIdx; i < g_rotaC.n; i++) {
@@ -182,6 +194,7 @@ void mapaDesenha(G& g, int w, int h, double mPorPx, uint32_t agoraMs)
         if (vis && rx >= 0) {
           bool vao = vaoPend || (rAnt && geoHaversine(rlat, rlon, p.lat, p.lon) > 40.0);
           if (vao) tracejado(g, rx, ry, x, y, C_VAO);
+          else if (i <= alIdx) trecho(g, rx, ry, x, y, C_CASING, C_RED, 17, 9);
           else     trecho(g, rx, ry, x, y, C_ROTA_C, C_ROTA, 15, 9);
         }
         vaoPend = false;

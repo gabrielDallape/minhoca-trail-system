@@ -63,10 +63,12 @@ void telaDiag(TFT& tft)
     else { rRot = "RADIO"; rVal = "no ar"; rCor = C_OK; }
     celula(0, 0, rRot, rVal, rCor);
 
-    if (redeEmModoSeguro()) snprintf(v, sizeof(v), "%d dBm SO NESTE BOOT (cfg %d) >", redePotencia(), redePotenciaConfig());
+    // Mostra o que esta NO CHIP; se o pedido ainda nao entrou (TX em voo), diz.
+    if (redePotencia() != redePotenciaConfig())
+      snprintf(v, sizeof(v), "%d dBm -> %d pendente >", redePotencia(), redePotenciaConfig());
     else snprintf(v, sizeof(v), "%d dBm (~%d na antena) >", redePotencia(), radioHwPotenciaAntena(redePotencia()));
     const bool travando = g_rede.txPreso > 0 && g_rede.tdma.txCount > 0 && g_rede.txPreso * 2 > g_rede.tdma.txCount;
-    celula(1, 0, redeEmModoSeguro() ? "POTENCIA - MODO SEGURO" : travando ? "POTENCIA - ALTA DEMAIS?" : "POTENCIA (tocar para trocar)",
+    celula(1, 0, travando ? "POTENCIA - ALTA DEMAIS?" : redeEmModoSeguro() ? "POTENCIA - REINICIOS SEGUIDOS" : "POTENCIA (tocar para trocar)",
            v, (travando || redeEmModoSeguro()) ? C_RED : C_OK);
 
     snprintf(v, sizeof(v), "%d de 0..%d | quadro %d s", g_cfg.slot, FROTA_MAX_CARROS - 1, TDMA_FRAME_S);
@@ -151,8 +153,9 @@ void telaDiag(TFT& tft)
       if (dentro(rVolta, x, y)) return;
 #if MTS_TEM_RADIO
       if (dentro(rPwr, x, y)) {
-        // Degraus, nao 1 em 1 dBm. Comeca no MENOR: quem esta aqui quase sempre
-        // veio consertar um radio que nao transmite.
+        // Degraus, nao 1 em 1 dBm: cada toque sobe um degrau, e depois do maior
+        // volta ao MENOR (quem esta aqui quase sempre veio consertar um radio que
+        // nao transmite). E comando explicito e vai para a NVS.
         static const int8_t DEGRAUS[] = { 2, 6, 10, 14, 17, 22 };
         const int nD = sizeof(DEGRAUS) / sizeof(DEGRAUS[0]);
         int i = 0;

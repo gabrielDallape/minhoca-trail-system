@@ -44,11 +44,21 @@ bool telaTrilha(TFT& tft, SPR& cv, bool temSprite, const Sessao& s)
   auto faixaCarro = [&](int i) -> Ret {
     return Ret{ (int16_t)cxr, (int16_t)(20 + (i - 1) * (ch + 6)), (int16_t)cw, (int16_t)ch };
   };
+  // 6 cartoes cabem acima do botao de zoom; com 8 slots pode haver 7 outros
+  // carros. Quem fica de fora nunca e o LIDER nem quem pediu ALERTA: a lista e
+  // montada nessa ordem (antes era por slot, e o 7o - talvez o lider - sumia).
   int fila[6]; int nFila = 0;
   auto montaFila = [&]() {
     nFila = 0;
-    for (int i = 1; i < FROTA_MAX_CARROS && nFila < 6; i++)
-      if (g_frota.c[i].ativo) fila[nFila++] = i;
+    bool posto[FROTA_MAX_CARROS] = {};
+    for (int passo = 0; passo < 3; passo++)
+      for (int i = 1; i < FROTA_MAX_CARROS && nFila < 6; i++) {
+        const Carro& c = g_frota.c[i];
+        if (!c.ativo || posto[i]) continue;
+        if (passo == 0 && !c.lider) continue;
+        if (passo == 1 && !c.alerta) continue;
+        fila[nFila++] = i; posto[i] = true;
+      }
   };
 
   static uint32_t medN = 0, medMapa = 0, medPush = 0, medPior = 0;
@@ -220,15 +230,20 @@ bool telaTrilha(TFT& tft, SPR& cv, bool temSprite, const Sessao& s)
     for (int i = 0; i < FROTA_MAX_CARROS; i++) if (g_frota.c[i].alerta) al |= (1 << i);
     int n = frotaQuantos(g_frota);
     uint32_t outros = (uint32_t)g_rotaC.n;
-    bool alguemAnda = false;
+    bool alguemAnda = false, alguemMudo = false;
     for (int i = 1; i < FROTA_MAX_CARROS; i++) {
       const Carro& c = g_frota.c[i];
       if (!c.ativo) continue;
       outros = outros * 31 + (uint32_t)(int32_t)(c.lat * 1e4) + (uint32_t)(int32_t)(c.lon * 1e4)
              + (c.temNome ? 7u : 0u) + (c.fix ? 3u : 0u) + (uint32_t)frotaSinal(c, agora) * 13u;
-      if (c.vel > 0 && frotaSinal(c, agora) == SINAL_VIVO) alguemAnda = true;
+      const uint8_t sn = frotaSinal(c, agora);
+      if (c.vel > 0 && sn == SINAL_VIVO) alguemAnda = true;
+      if (sn != SINAL_VIVO) alguemMudo = true;
     }
-    const bool periodica = (alguemAnda || avisoTmpAtivo(agora)) && (agora - uPintaMs >= 1000);
+    // alguemMudo: o "SEM SINAL HA 31 s" conta segundos. Sem isto, comigo parado
+    // esperando e o lider mudo, nada mudava e o numero ficava congelado ate os
+    // 90 s em que ele some da lista.
+    const bool periodica = (alguemAnda || alguemMudo || avisoTmpAtivo(agora)) && (agora - uPintaMs >= 1000);
     if (g_cfg.zoom != uZi || g_tema != uTema || n != uN || al != uAl || outros != uOutros || periodica) {
       uZi = g_cfg.zoom; uTema = g_tema; uN = n; uAl = al; uOutros = outros;
       uLat = g_eu.lat; uLon = g_eu.lon; uPintaMs = agora; return true;
