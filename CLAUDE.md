@@ -171,6 +171,13 @@ Todas verificadas neste repo ou em fonte primária. Não redescubra:
   penduram no mesmo no. **E nunca injete 5 V ali**: o diodo de corpo do FET do botao
   (Q8) realimenta o `VCC_5V`, ignora o botao de desligar e briga com o VBUS do USB.
   `J4`/`BAT` e entrada de celula 1S (3,0–4,2 V), nao 5 V.
+- **A LovyanGFX deste PC tem um patch manual ("PATCH REDEA", 2026-09-20) no
+  `Bus_DSI.cpp`** que troca o clock do PHY DSI para XTAL (P4 rev 3). Nas nossas
+  telas P4 (ROM `esp32p4-eco2`, rev 1.3) isso dá `abort()` no `esp_lcd_new_dsi_bus`:
+  boot-loop de ~1,2 s com tela preta, em **qualquer** firmware compilado aqui.
+  O `firmware/mts` não depende disso: `hal/bus_dsi.h` escolhe o clock pela revisão
+  do chip. Os firmwares antigos (`mts_p4`, `mts_campo`) usam o `Bus_DSI` da
+  biblioteca e **vão entrar em boot-loop se forem recompilados neste PC**.
 - **`huge_app` não tem partição OTA** (um slot só). O binário usa 14 % de 3 MB,
   então qualquer esquema de dois slots cabe — mas trocar o esquema exige uma
   gravação **por cabo**.

@@ -28,6 +28,7 @@
 
 #include "lgfx/v1/platforms/esp32p4/Bus_DSI.hpp"
 #include "lgfx/v1/platforms/esp32p4/Panel_EK79007.hpp"
+#include "bus_dsi.h"          // Bus_DSI com o clock do PHY pela revisao do chip (ver la)
 
 // --------------------------------------------------------------- pinos
 // WAVESHARE ESP32-P4-WIFI6-Touch-LCD-7B. Confirmados no esquematico oficial da
@@ -78,7 +79,7 @@
 
 class LGFX_P4 : public lgfx::LGFX_Device
 {
-  lgfx::Bus_DSI        _dsi;
+  BusDsiMts            _dsi;    // NAO o lgfx::Bus_DSI puro: hal/bus_dsi.h
   lgfx::Light_PWM      _luz;
   lgfx::Panel_EK79007* _pnl = nullptr;
   lgfx::Touch_GT911*   _tp  = nullptr;
@@ -110,7 +111,8 @@ public:
     MTS_LOG("2. Bus_DSI.init() (%d lanes @ %d Mbps, LDO ch3 2500 mV)",
             EK7_LANE_NUM, EK7_LANE_MBPS);
     if (!_dsi.init()) { MTS_LOG("   FALHOU"); return false; }
-    MTS_LOG("   ok");
+    MTS_LOG("   ok (chip rev %d.%d, clock do PHY %s)", _dsi.revisaoChip / 100, _dsi.revisaoChip % 100,
+            _dsi.clockLegado ? "legado PLL_F20M" : "PLLREF/XTAL");
     lgfx::delay(80);
 
     // RESET SO AGORA, com o PHY do DSI ja energizado e o barramento de pe.
