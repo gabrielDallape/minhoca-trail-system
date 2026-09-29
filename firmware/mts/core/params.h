@@ -74,6 +74,8 @@
 // vermelha e linha no diario. NAO mexe na potencia (usuario, 2026-09-29: "isso
 // nao pode acontecer") - ate entao havia um teto de 2 dBm em RAM aqui.
 #define RADIO_SEGURO_APOS  3
+// Radio que nao respondeu no boot: nova tentativa a cada tanto (app/rede.h).
+#define RADIO_RETENTA_MS   3000UL
 
 // ------------------------------------------------------------- trajeto / rota
 // PASSO DE 10 m (era 5). A conta que manda: o pacote leva TRILHA_PONTOS_PKT

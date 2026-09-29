@@ -156,11 +156,11 @@ inline bool radioHwResponde()
   return modo >= 2 && modo <= 6;
 }
 
-inline bool radioHwBegin(int8_t pwr)
+inline bool radioHwBegin(int8_t pwr, bool avisaMudo = true)
 {
   if (!radioHwResponde()) {
     g_rhw.beginSt = RADIOLIB_ERR_CHIP_NOT_FOUND;
-    Serial.println("radio: chip nao responde ao GetStatus - begin() NAO tentado (5 V, NSS, MISO, BUSY)");
+    if (avisaMudo) Serial.println("radio: chip nao responde ao GetStatus - begin() NAO tentado (5 V, NSS, MISO, BUSY)");
     return false;
   }
   wdtPausa();
@@ -192,6 +192,15 @@ inline bool radioHwInicia(int8_t pwr)
   g_lora.setRfSwitchPins(PIN_LORA_RXEN, PIN_LORA_TXEN);
 #endif
   g_rhw.ok = radioHwBegin(pwr);
+  return g_rhw.ok;
+}
+
+// O radio NAO RESPONDEU no boot: nova tentativa, calada se o chip continua mudo.
+// Chamado pela rede a cada RADIO_RETENTA_MS. Custa o teste rapido (microssegundos
+// com o BUSY baixo, ate RADIO_SONDA_MS com ele preso) - nunca o begin() cego.
+inline bool radioHwTentaDeNovo(int8_t pwr)
+{
+  g_rhw.ok = radioHwBegin(pwr, false);
   return g_rhw.ok;
 }
 

@@ -470,7 +470,25 @@ inline void redeRelogioVoltou(uint64_t salto)
 inline void redeAtualiza()
 {
   Rede& r = g_rede;
-  if (!r.ok) return;
+  if (!r.ok) {
+    // O RADIO NAO SUBIU NO BOOT: tenta de novo, para sempre, sem travar nada.
+    // Medido nas duas telas em 2026-09-29: no boot a frio o chip nao respondia, e
+    // o firmware desistia de vez - o begin() antigo insistia ~10 s (e as vezes
+    // pegava o E22 acordando no meio); o teste rapido desiste em 50 ms. O diario
+    // diz quanto tempo depois do boot ele apareceu: e o numero que separa "o E22
+    // demora a acordar" de "o E22 nao tem 5 V".
+    static uint32_t tUlt = 0;
+    const uint32_t agora = millis();
+    if (agora - tUlt >= RADIO_RETENTA_MS) {
+      tUlt = agora;
+      if (radioHwTentaDeNovo(r.pwrConfig)) {
+        r.ok = true;
+        Serial.printf("rede: radio SUBIU %lu ms depois do boot (no boot ele nao respondia)\n", (unsigned long)agora);
+        registroLinha("!,%lu,radio subiu tarde,%lu ms", (unsigned long)agora, (unsigned long)agora);
+      }
+    }
+    return;
+  }
   const uint32_t agora = millis();
 
   // 1) ancorar o tempo: o PPS so vale pareado com o segundo do NMEA (e recente).
