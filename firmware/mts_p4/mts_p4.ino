@@ -26,6 +26,7 @@
 #include "grupo.h"
 #include "sessao.h"
 #include <Preferences.h>
+#include "esp_system.h"   // esp_reset_reason() - ver o resgate do laco de reset
 #if MTS_TEM_WIFI
 #include "wifi_ota.h"
 #endif
@@ -88,8 +89,64 @@ static void carregaCfg() {
   // defeituoso que so opera ate ~2-4 dBm (ver CHANGELOG 2026-08-24).
   g_rfPwr = prefs.getChar("pwr", RF_PWR);
   if (g_rfPwr < -9 || g_rfPwr > 22) g_rfPwr = RF_PWR;
+
 #endif
   prefs.end();
+#if MTS_TEM_RADIO
+  // RESGATE DO LACO DE RESET.
+  //
+  // O recuo automatico do radio.h precisa de 3 TX travados seguidos para agir.
+  // Ha uma falha que ele nao alcanca: em potencia alta demais, o modulo se
+  // atrapalha, o RadioLib fica esperando o BUSY, o laco para e o WATCHDOG
+  // reinicia a placa - tudo isso ANTES de acumular as 3 travadas. Ai ela renasce
+  // com a mesma potencia gravada na NVS e trava de novo. Loop infinito.
+  //
+  // Medido em 2026-08-30 na tela Gabriel gino: 10 reinicios em 3 minutos a
+  // 22 dBm, todos por watchdog (rst 0x7 HP_WDT e 0x10 LP_WDT), com tx=0 - ela
+  // nem chegava a transmitir. A unica saida era mandar 'p6' pelo serial na
+  // janela de 4 s entre o boot e a primeira transmissao. No carro, sem serial,
+  // a tela ficaria inutil ate alguem levar um notebook na trilha.
+  //
+  // Entao o proprio boot resgata: acordou por watchdog, panico ou brownout ->
+  // desce um degrau e grava. Dois ou tres reinicios e ela para sozinha no nivel
+  // que aquele hardware sustenta.
+  //
+  // NAO desce em reset normal (POWERON) nem no reinicio por software que a troca
+  // de slot faz - senao a potencia iria caindo a cada religada, sem defeito
+  // nenhum.
+  {
+    esp_reset_reason_t motivo = esp_reset_reason();
+    const bool violento = (motivo == ESP_RST_PANIC)    || (motivo == ESP_RST_INT_WDT) ||
+                          (motivo == ESP_RST_TASK_WDT) || (motivo == ESP_RST_WDT)     ||
+                          (motivo == ESP_RST_BROWNOUT);
+    // DESARMADO JUNTO COM O RECUO DO radio.h (2026-09-08). Este era o SEGUNDO
+    // mecanismo que baixa a potencia e grava na NVS, e ele nao estava coberto pelo
+    // RADIO_RECUO_AUTO - na primeira escada com o firmware novo ele desceu de 10 para
+    // 6 dBm por causa de um ESP_RST_PANIC que o proprio firmware causou (troca de
+    // potencia com TX em voo), nao por falta de energia.
+    //
+    // Enquanto qualquer um dos dois estiver armado, NENHUMA escada de potencia e
+    // confiavel: o experimento mexe na variavel que esta medindo.
+    if (RADIO_RECUO_AUTO && violento && g_rfPwr > RADIO_PWR_PISO) {
+      int8_t nova = (int8_t)(g_rfPwr - RADIO_RECUO_DB);
+      if (nova < RADIO_PWR_PISO) nova = RADIO_PWR_PISO;
+      Serial.printf("radio: *** a placa reiniciou sozinha (motivo %d) em %d dBm - "
+                    "RESGATE: descendo para %d dBm ***\n", (int)motivo, g_rfPwr, nova);
+      Serial.println("radio:     se isto se repetir, a alimentacao do modulo nao");
+      Serial.println("radio:     sustenta o pico de TX. Ver docs/MONTAGEM.md.");
+      g_rfPwr = nova;
+      // handle PROPRIO: o 'prefs' acima foi aberto somente-leitura, e putChar
+      // nele falharia em silencio - a placa desceria a potencia e esqueceria
+      // no proximo boot, ficando no mesmo laco que isto existe para quebrar.
+      Preferences pw; pw.begin("grupo", false); pw.putChar("pwr", g_rfPwr); pw.end();
+    } else if (violento) {
+      Serial.printf("radio: *** a placa reiniciou sozinha (motivo %d) em %d dBm. O resgate "
+                    "esta DESARMADO - a potencia foi mantida. ***\n", (int)motivo, g_rfPwr);
+      Serial.println("radio:     motivo 4=PANIC (crash de software) 5/6/7=watchdog 9=BROWNOUT.");
+      Serial.println("radio:     BROWNOUT aponta alimentacao; PANIC aponta firmware.");
+    }
+  }
+#endif
   if (g_meuSlot >= TDMA_SLOTS) g_meuSlot = 0;
   if (g_zoom >= MAPA_NZOOM) g_zoom = 2;   // NVS de uma versao antiga, ou lixo
   if (g_cor >= N_CORES) g_cor = 0;
@@ -110,7 +167,7 @@ static void salvaCfg() {
 }
 
 // ------------------------------------------------------------- tela inicial
-static Ret hCriar, hEntrar, hEng, hRetomar, hDescarta;
+static Ret hCriar, hEntrar, hEng, hRetomar, hDescarta, hDiag;
 
 // ESTADO DE VERDADE, e nao um rotulo fixo. Antes as duas pastilhas mostravam "-"
 // e o rodape dizia "sem radio - etapa 2": a tela nao sabia nada sobre o aparelho.
@@ -127,6 +184,10 @@ static void pintaPastilhas()
   const int x0 = M + 110;
   const int py = (CAB_H - 52) / 2;
   tft.fillRect(x0 - 4, py - 2, TELA_W - x0 - 96, 56, C_BG);
+  // A propria faixa de pastilhas e o alvo de toque do diagnostico: ela ja diz o
+  // estado de GPS e radio, entao tocar nela para ver o detalhe e o gesto que a
+  // pessoa ja tenta. Um botao a mais na tela inicial custaria espaco dos cartoes.
+  hDiag = { (int16_t)(x0 - 4), (int16_t)(py - 2), (int16_t)(TELA_W - x0 - 96), 56 };
 
   // GPS ------------------------------------------------------------------
   char vg[12] = "--";
@@ -266,6 +327,97 @@ static void desenhaInicial(int premido = -1)
 #if MTS_TEM_WIFI
 // Progresso da atualizacao pelo ar, em tela cheia. Fica no .ino porque e quem
 // conhece o painel; o wifi_ota.h so chama o gancho.
+// A telemetria de http://<ip>/status - o mesmo conteudo dos prints [gps] e
+// [radio] do serial, para inspecionar a tela SEM cabo (o gancho vive no
+// wifi_ota.h; a montagem fica aqui porque e o .ino quem conhece gps e radio).
+static void statusTexto(char* fora, size_t n)
+{
+  int usado = snprintf(fora, n, "%s | fw v%d | ar %lu s\n",
+                       g_nome, MTS_VERSAO, (unsigned long)(millis() / 1000));
+#if MTS_TEM_GPS
+  usado += snprintf(fora + usado, n - usado,
+                "[gps] fix=%s sats=%u vista=%u snr=%u hdop=%.2f | %.6f, %.6f | "
+                "frases=%lu ruins=%lu | PPS=%s pulsos=%lu\n",
+                gpsFixValido() ? "SIM" : "nao", g_gpsSats,
+                g_gpsVista, g_gpsSnrAnt, g_gpsHdop, g_gpsLat, g_gpsLon,
+                (unsigned long)g_gpsFrases, (unsigned long)g_gpsRuins,
+                gpsPpsValido() ? "1Hz" : "-", (unsigned long)g_ppsCnt);
+#endif
+#if MTS_TEM_RADIO
+  const char* sinc = g_tdma.sync == TDMA_SYNC_PPS    ? "PPS"
+                   : g_tdma.sync == TDMA_SYNC_BEACON ? "beacon" : "-";
+  // DE QUEM vem o meu tempo. E a pergunta que o log antigo nao respondia: com
+  // 'sinc=beacon' ainda faltava saber quem era o beacon, e sem isso nao da para
+  // ver que a rede se partiu em duas ancoras.
+  char fonte[20];
+  if (!g_tdma.haveAnchor)     strcpy(fonte, "ninguem");
+  else if (g_tdma.isAnchor)   strcpy(fonte, "EU");
+  else snprintf(fonte, sizeof(fonte), "slot %u%s", g_tdma.anchorSrc,
+                g_tdma.anchorSrcPps ? " UTC" : "");
+  usado += snprintf(fora + usado, n - usado,
+                "[radio] slot=%u sinc=%s%s fonte=%s | pwr=%d dBm (~%d na antena) | "
+                "tx=%lu perdi=%lu preso=%lu | "
+                "rx=%lu ruim=%lu outraSala=%lu conflito=%lu | rssi=%.0f snr=%.1f\n",
+                g_tdma.nodeId, sinc, g_tdma.holdover ? " HOLDOVER" : "", fonte,
+                radioPotencia(), radioPotenciaAnt(),
+                (unsigned long)g_tdma.txCount, (unsigned long)g_tdma.missedTx,
+                (unsigned long)g_txPreso,
+                (unsigned long)g_rxOk, (unsigned long)g_rxRuim,
+                (unsigned long)g_rxForaDaSala, (unsigned long)g_slotConflito,
+                g_rxRssi, g_rxSnr);
+#endif
+  (void)usado;
+}
+
+// A MESMA informacao, compacta e ja segura para query string. Vai no otaEco().
+//
+// Os dois primeiros campos sao os que importam numa placa que nao transmite, e
+// sao justamente os que so existiam como texto no serial:
+//   fios=0  -> o radioChecaFios() viu BUSY e DIO1 trocados no chicote. O begin()
+//              passa, o RX parece bom, e NENHUMA transmissao completa.
+//   bg=<n>  -> codigo do begin() do RadioLib. 0 = subiu. -2 = o chip nao
+//              respondeu ao SPI (alimentacao ou fio de NSS/MISO). -707 = TCXO.
+//
+// O NOME VAI JUNTO, e isso nao e detalhe: sem ele o relatorio chega como
+// "ECO ?" e nao da para saber DE QUAL tela se esta falando. Aconteceu em
+// 2026-08-29 - havia uma placa com defeito no relatorio e ninguem, nem o dono
+// nem eu, conseguia dizer qual das tres era. Um relatorio anonimo de uma frota
+// e quase inutil. Vai sanitizado (so letras e numeros) para nao precisar de
+// escape de URL - o resto vira '_'.
+static void diagQuery(char* fora, size_t n)
+{
+  char nm[17];
+  size_t k = 0;
+  for (const char* p = g_nome; *p && k < sizeof(nm) - 1; p++) {
+    char c = *p;
+    bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    nm[k++] = ok ? c : '_';
+  }
+  nm[k] = 0;
+  if (!k) strcpy(nm, "sem_nome");
+
+  int u = snprintf(fora, n, "n=%s&v=%d&up=%lu", nm, MTS_VERSAO,
+                   (unsigned long)(millis() / 1000));
+#if MTS_TEM_RADIO
+  u += snprintf(fora + u, n - u,
+                "&slot=%u&fios=%d&bg=%d&ok=%d&pwr=%d&sinc=%d&fonte=%d&utc=%d"
+                "&tx=%lu&perdi=%lu&preso=%lu&rx=%lu&ruim=%lu&sala=%lu&conf=%lu&rssi=%d",
+                g_tdma.nodeId, radioFiosOk() ? 1 : 0, radioBeginSt(), g_loraOk ? 1 : 0,
+                radioPotencia(), (int)g_tdma.sync,
+                g_tdma.haveAnchor ? (g_tdma.isAnchor ? 99 : (int)g_tdma.anchorSrc) : -1,
+                g_tdma.anchorSrcPps ? 1 : 0,
+                (unsigned long)g_tdma.txCount, (unsigned long)g_tdma.missedTx,
+                (unsigned long)g_txPreso, (unsigned long)g_rxOk, (unsigned long)g_rxRuim,
+                (unsigned long)g_rxForaDaSala, (unsigned long)g_slotConflito,
+                (int)g_rxRssi);
+#endif
+#if MTS_TEM_GPS
+  u += snprintf(fora + u, n - u, "&fix=%d&sats=%u&pps=%lu",
+                gpsFixValido() ? 1 : 0, g_gpsSats, (unsigned long)g_ppsCnt);
+#endif
+  (void)u;
+}
+
 static void desenhaOta(int pct)
 {
   static int ultimo = -1;
@@ -448,6 +600,176 @@ static void telaWifi()
 }
 #endif
 
+// ------------------------------------------------------------ diagnostico
+// POR QUE ESTA TELA EXISTE. Em 2026-08-28 tres aparelhos foram para a trilha e
+// dois nao se falaram. Nada na tela dizia o porque: slot, sincronia, potencia,
+// pacotes transmitidos e RSSI so saiam pelo serial (precisa de PC) ou pelo
+// /status (precisa de WiFi). Na trilha nao ha nem um nem outro, e o dia virou
+// "nao funcionou" em vez de "nao funcionou POR ISSO".
+//
+// Regra desta tela: numeros crus, sem interpretacao bonita. Verde e o esperado,
+// vermelho e o que explica a falha. Ela nao toca em nada - so olha.
+static void telaDiag()
+{
+  const int GAPX = 12, GAPY = 10;
+  const int topo = CAB_H + 16;
+  const int base = TELA_H - 48 - 76;               // acima do VOLTAR
+  const int cw   = (TELA_W - 2 * M - GAPX) / 2;
+  const int ch   = (base - topo - 24 - 4 * GAPY) / 5;
+  Ret rVolta = { M, (int16_t)base, 280, 76 };
+  // A celula da POTENCIA e tocavel. Nao e enfeite: esse numero mora na NVS,
+  // sobrevive a regravacao, e ha placa nesta frota cujo serial nao chega a lugar
+  // nenhum - sem um controle na tela, a unica forma de corrigi-lo era um cabo
+  // que nem sempre existe. Aqui o defeito e o conserto ficam no mesmo lugar.
+  Ret rPwr = { (int16_t)(M + cw + GAPX), (int16_t)topo, (int16_t)cw, (int16_t)ch };
+
+  auto celula = [&](int col, int lin, const char* rot, const char* val, uint16_t cor) {
+    const int x = M + col * (cw + GAPX);
+    const int y = topo + lin * (ch + GAPY);
+    tft.fillRoundRect(x, y, cw, ch, 10, C_SURF);
+    tft.setTextDatum(top_left);
+    tft.setFont(&fonts::FreeSans9pt7b);
+    tft.setTextColor(C_INK3);
+    tft.drawString(rot, x + 14, y + 8);
+    tft.setFont(&fonts::FreeSansBold12pt7b);
+    tft.setTextColor(cor);
+    tft.drawString(val, x + 14, y + ch - 32);
+    tft.setFont(&fonts::Font0);
+  };
+
+  auto pintaCelulas = [&]() {
+    char v[48];
+#if MTS_TEM_RADIO
+    // O CODIGO DO ERRO TRADUZIDO. "FALHOU NO BOOT" nao ajuda ninguem com a tela
+    // na mao no meio do mato: diz que quebrou, nao o que conferir. Cada codigo
+    // do RadioLib aponta para um ponto FISICO diferente do chicote, e e essa a
+    // informacao util. Custou um dia descobrir isso lendo log de servidor.
+    const char* rRot; const char* rVal; uint16_t rCor;
+    if (!g_loraOk) {
+      rRot = "RADIO - NAO SUBIU"; rCor = C_RED;
+      switch (radioBeginSt()) {
+        // -2 = CHIP_NOT_FOUND: o SPI foi e nao voltou. Alimentacao do modulo ou
+        //      um dos dois fios que fecham a conversa (NSS escolhe o chip, MISO
+        //      traz a resposta).
+        case -2:   rVal = "nao responde - ver 5V, NSS e MISO"; break;
+        // -707 = SPI_CMD_FAILED, que neste modulo e quase sempre a tensao do TCXO
+        case -707: rVal = "TCXO - conferir 2,2 V";             break;
+        case 999:  rVal = "nem chegou a iniciar";              break;
+        default:   rVal = "falhou ao iniciar";                 break;
+      }
+    } else if (!radioFiosOk()) {
+      // O begin() passou e mesmo assim pode nao transmitir: dois pads vizinhos
+      // trocados na solda. Aviso, nao erro - o radio esta de pe.
+      rRot = "RADIO - FIACAO SUSPEITA"; rVal = "BUSY e DIO1 trocados?"; rCor = C_WARN;
+    } else {
+      rRot = "RADIO"; rVal = "no ar"; rCor = C_OK;
+    }
+    celula(0, 0, rRot, rVal, rCor);
+
+    // A potencia vem da NVS, nao do firmware: sobrevive a regravacao. Uma das
+    // telas ficou em 22 dBm enquanto as outras estavam em 6, e travava 2 de cada
+    // 3 transmissoes - era o slot 0, e derrubou a rede inteira no campo. Por
+    // isso este valor tem numero E veredito: verde e o que esta transmitindo.
+    snprintf(v, sizeof(v), "%d dBm  (~%d na antena)  >", radioPotencia(), radioPotenciaAnt());
+    const bool travando = g_txPreso > 0 && g_tdma.txCount > 0 &&
+                          g_txPreso * 2 > g_tdma.txCount;   // metade ou mais travou
+    celula(1, 0, travando ? "POTENCIA - ALTA DEMAIS, TOCAR PARA BAIXAR" : "POTENCIA (tocar para trocar)",
+           v, travando ? C_RED : C_OK);
+
+    snprintf(v, sizeof(v), "%d  (de 0 a %d)", g_meuSlot, TDMA_SLOTS - 1);
+    celula(0, 1, "MEU SLOT", v, C_INK);
+
+    // A pergunta que decide tudo: de quem vem o meu tempo? Sem ancora o no NAO
+    // TRANSMITE - nem um pacote - e ate esta tela existir isso era invisivel.
+    uint16_t cs = C_OK;
+    if (!g_tdma.haveAnchor)                 { strcpy(v, "NENHUMA - nao transmito"); cs = C_RED; }
+    else if (g_tdma.sync == TDMA_SYNC_PPS)  { strcpy(v, "PPS do GPS"); }
+    else if (g_tdma.isAnchor)               { strcpy(v, g_tdma.anchorSrcPps
+                                                ? "eu sou a referencia (UTC)"
+                                                : "eu sou a referencia"); }
+    else snprintf(v, sizeof(v), "do slot %u%s", g_tdma.anchorSrc,
+                  g_tdma.anchorSrcPps ? " (grade UTC)" : " (grade do grupo)");
+    if (g_tdma.holdover && g_tdma.haveAnchor) { strncat(v, "  (holdover)", sizeof(v) - strlen(v) - 1); cs = C_WARN; }
+    celula(1, 1, "SINCRONIA", v, cs);
+
+    snprintf(v, sizeof(v), "%lu enviados, %lu perdidos",
+             (unsigned long)g_tdma.txCount, (unsigned long)g_tdma.missedTx);
+    celula(0, 2, "TRANSMITI", v, g_tdma.txCount ? C_OK : C_RED);
+
+    snprintf(v, sizeof(v), "%lu bons, %lu com erro",
+             (unsigned long)g_rxOk, (unsigned long)g_rxRuim);
+    celula(1, 2, "RECEBI", v, g_rxOk ? C_OK : C_WARN);
+
+    if (g_rxOk) snprintf(v, sizeof(v), "%.0f dBm   SNR %.1f", g_rxRssi, g_rxSnr);
+    else        strcpy(v, "nunca ouvi ninguem");
+    celula(0, 3, "SINAL DO ULTIMO PACOTE", v,
+           !g_rxOk ? C_WARN : (g_rxRssi > -110 ? C_OK : C_WARN));
+
+    // TX preso subindo junto com tx = o E22 apagando no meio da transmissao por
+    // queda do 5 V. E defeito de alimentacao, nao de radio - e a unica forma de
+    // ver isso sem osciloscopio.
+    snprintf(v, sizeof(v), "%lu travados, %lu de outro grupo",
+             (unsigned long)g_txPreso, (unsigned long)g_rxForaDaSala);
+    celula(1, 3, g_txPreso ? "TX PRESO - CONFIRA O 5V!" : "TX PRESO", v,
+           g_txPreso ? C_RED : C_OK);
+#endif
+#if MTS_TEM_GPS
+    if (gpsFixValido()) snprintf(v, sizeof(v), "fix com %u satelites", g_gpsSats);
+    else                snprintf(v, sizeof(v), "SEM FIX (%u a vista)", g_gpsVista);
+    celula(0, 4, "GPS", v, gpsFixValido() ? C_OK : C_WARN);
+
+    // O PPS so pulsa DEPOIS do fix na maioria dos modulos: "sem pulso" com o GPS
+    // ainda procurando e o normal, nao um fio solto.
+    if (gpsPpsValido()) snprintf(v, sizeof(v), "1 Hz, %lu pulsos", (unsigned long)g_ppsCnt);
+    else if (g_ppsCnt)  snprintf(v, sizeof(v), "irregular (%lu pulsos)", (unsigned long)g_ppsCnt);
+    else                strcpy(v, "sem pulso (normal sem fix)");
+    celula(1, 4, "PPS", v, gpsPpsValido() ? C_OK : C_INK2);
+#endif
+  };
+
+  tft.fillScreen(C_BG);
+  cabecalho(tft, "diagnostico", false);
+  tft.drawFastHLine(0, CAB_H, tft.width(), C_LINE);
+  pintaCelulas();
+  botao(tft, rVolta, "< VOLTAR", "", C_INK2, false);
+  tft.setTextDatum(top_right);
+  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setTextColor(C_INK3);
+  tft.drawString("atualiza sozinho, 1x por segundo", TELA_W - M, base + 28);
+  tft.setFont(&fonts::Font0);
+
+  uint32_t tAtu = millis();
+  while (true) {
+    int16_t x, y;
+    // O timeout curto e o que faz a tela viver: sem toque nenhum ela ainda
+    // repinta os numeros, que e justamente o que se quer olhar parado.
+    if (esperaToque(tft, x, y, 250)) {
+      if (dentro(rVolta, x, y)) return;
+#if MTS_TEM_RADIO
+      if (dentro(rPwr, x, y)) {
+        // Degraus, nao 1 em 1 dBm: o que muda o comportamento deste hardware sao
+        // saltos grandes, e 31 toques para atravessar a faixa seria hostil.
+        // Comeca no MENOR: quem esta aqui quase sempre veio consertar um radio
+        // que nao transmite, e o caminho para isso e para BAIXO.
+        static const int8_t DEGRAUS[] = { 2, 6, 10, 14, 17, 22 };
+        const int nD = sizeof(DEGRAUS) / sizeof(DEGRAUS[0]);
+        int i = 0;
+        while (i < nD && DEGRAUS[i] <= radioPotencia()) i++;
+        if (i >= nD) i = 0;                      // passou do topo: volta ao piso
+        radioTrocaPotencia(DEGRAUS[i]);
+        Preferences p; p.begin("grupo", false); p.putChar("pwr", DEGRAUS[i]); p.end();
+        // Zera os contadores: os travamentos velhos sao da potencia ANTERIOR, e
+        // deixa-los somados esconderia se a nova esta funcionando.
+        g_txPreso = 0; g_tdma.txCount = 0;
+        pintaCelulas();
+      }
+#endif
+      continue;
+    }
+    if (millis() - tAtu > 1000) { tAtu = millis(); pintaCelulas(); }
+  }
+}
+
 // ---------------------------------------------------------- configuracao
 static void telaConfig()
 {
@@ -625,6 +947,17 @@ void setup()
   // no ar sozinho ("chegou na garagem, da para atualizar"). O progresso na
   // tela vem pelo gancho, porque o wifi_ota.h nao conhece o painel.
   g_otaDesenha = desenhaOta;
+  g_statusTexto = statusTexto;
+  g_diagQuery   = diagQuery;    // o eco: a tela conta o proprio estado ao servidor
+#if MTS_TEM_RADIO
+  // O radio recua a potencia sozinho quando as transmissoes nao completam; quem
+  // sabe onde isso se grava e aqui.
+  g_pwrPersiste = [](int8_t v) {
+    Preferences p; p.begin("grupo", false); p.putChar("pwr", v); p.end();
+  };
+  // E o radio manda no relogio: nada de rede bloqueante com transmissao no ar.
+  g_podeBloquear = []() { return !radioTxEmVoo(); };
+#endif
   wifiInicia();
 #endif
 
@@ -768,6 +1101,14 @@ void loop()
       }
       // o caractere que terminou o numero segue para os comandos abaixo
     }
+    // BANCADA: 'm' liga/desliga o modo medida - uma linha por pacote recebido,
+    // para comparar duas antenas por mediana de RSSI em vez de leitura solta.
+    if (c == 'm' || c == 'M') {
+      esperandoNum = false;
+      g_rssiVerboso = !g_rssiVerboso;
+      Serial.printf("modo medida %s\n", g_rssiVerboso ? "LIGADO" : "desligado");
+      continue;
+    }
     if (c == 's' || c == 'S') { esperandoNum = true; continue; }
     // BANCADA: 'x' sai de qualquer sala sem tocar na tela - descarta a sessao
     // guardada e volta para a sala neutra. Existe para testar duas telas pelo
@@ -823,8 +1164,15 @@ void loop()
     tRadio = millis();
     const char* sinc = g_tdma.sync == TDMA_SYNC_PPS    ? "PPS"
                      : g_tdma.sync == TDMA_SYNC_BEACON ? "beacon" : "-";
-    Serial.printf("[radio] slot=%u sinc=%s%s | tx=%lu perdi=%lu preso=%lu | rx=%lu ruim=%lu outraSala=%lu conflito=%lu | rssi=%.0f snr=%.1f\n",
-                  g_tdma.nodeId, sinc, g_tdma.holdover ? " HOLDOVER" : "",
+    char fonte[20];
+    if (!g_tdma.haveAnchor)   strcpy(fonte, "ninguem");
+    else if (g_tdma.isAnchor) strcpy(fonte, "EU");
+    else snprintf(fonte, sizeof(fonte), "slot %u%s", g_tdma.anchorSrc,
+                g_tdma.anchorSrcPps ? " UTC" : "");
+    Serial.printf("[radio] slot=%u sinc=%s%s fonte=%s | pwr=%d dBm (~%d na antena) | "
+                  "tx=%lu perdi=%lu preso=%lu | rx=%lu ruim=%lu outraSala=%lu conflito=%lu | rssi=%.0f snr=%.1f\n",
+                  g_tdma.nodeId, sinc, g_tdma.holdover ? " HOLDOVER" : "", fonte,
+                  radioPotencia(), radioPotenciaAnt(),
                   (unsigned long)g_tdma.txCount, (unsigned long)g_tdma.missedTx,
                   (unsigned long)g_txPreso,
                   (unsigned long)g_rxOk, (unsigned long)g_rxRuim,
@@ -837,6 +1185,7 @@ void loop()
   if (!esperaToque(tft, x, y, 400)) return;
 
   if (dentro(hEng, x, y)) { telaConfig(); desenhaInicial(); return; }
+  if (dentro(hDiag, x, y)) { telaDiag(); desenhaInicial(); return; }
 
   if (g_ses.ativa && dentro(hRetomar, x, y)) {
     membrosReinicia(g_ses.lider);

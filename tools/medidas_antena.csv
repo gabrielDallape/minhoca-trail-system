@@ -1,0 +1,9 @@
+quando,rotulo,porta,amostras,rssi_mediana,rssi_p10,rssi_p90,snr_mediana,s0,s1,s2,s3
+2026-08-29T15:24:46,fio soldado,COM11,89,-60,-61,-60,12.2,-61,,-60,
+2026-08-29T15:32:05,ipx 915 (RX),COM11,120,-60,-61,-58,12,-59,,-61,
+2026-08-29T15:38:55,Luciana SEM antena,COM11,59,-54,-55,-54,12,-54,,,
+2026-08-29T15:52:11,5m gino=IPX luciana=fio,COM11,60,-66,-68,-65,12.1,,,-66,
+2026-08-29T16:26:46,5m antena no IPX direto,COM11,60,-75,-76,-74,12.1,,,-75,
+2026-08-29T16:30:49,5m IPX reencaixado,COM11,60,-76,-77,-75,12.2,,,-76,
+2026-08-29T16:36:28,5m TX915 nas duas,COM11,60,-63,-76,-62,12.2,,,-63,
+2026-08-29T16:45:01,TX915 duas fontes (na FaustoA),COM9,56,-68,-68,-68,12.5,,,-68,

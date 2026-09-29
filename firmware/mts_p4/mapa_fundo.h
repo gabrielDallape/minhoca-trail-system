@@ -238,6 +238,12 @@ struct EstiloVia { uint8_t cont, nucleo; uint16_t cor; bool tracejada; };
 // mata, ferrovia e pista sairam - "muita informacao" foi a reclamacao literal.
 // Nada disso apaga dado do cartao; reativar e devolver um case.
 inline bool estiloDe(uint8_t classe, double mPorPx, EstiloVia& e) {
+#if MTS_MAPA_SO_VIAS
+  // Modo "so vias" (hardware.h): tudo que nao e caminho dirigivel sai do
+  // desenho. O dado continua no cartao - e uma chave, nao uma amputacao.
+  if (classe != VEC_TRILHA && classe != VEC_ESTRADA && classe != VEC_RUA)
+    return false;
+#endif
   switch (classe) {
     case VEC_TRILHA:   e = { 11, 6, C_TAN,    false }; return true;
     case VEC_ESTRADA:  e = {  9, 5, C_SUN,    false }; return true;
@@ -263,10 +269,15 @@ inline bool estiloDe(uint8_t classe, double mPorPx, EstiloVia& e) {
 // Areas. So a agua sobrou: e a unica que decide caminho.
 inline bool corArea(uint8_t classe, double mPorPx, uint16_t& cor) {
   (void)mPorPx;
+#if MTS_MAPA_SO_VIAS
+  (void)classe; (void)cor;
+  return false;               // so vias: nem o lago entra
+#else
   switch (classe) {
     case VEC_LAGO: cor = C_RASTRO_C; return true;
     default: return false;
   }
+#endif
 }
 
 // ------------------------------------------------------------------- desenho
@@ -511,7 +522,11 @@ int fundoDesenha(G& g, Fundo& f, int w, int h, double mPorPx, double lat, double
       }
 
       // POI por ultimo, para nao ficar debaixo de via
+#if MTS_MAPA_SO_VIAS
+      if (false) {            // so vias: POI fora (a chave e do hardware.h)
+#else
       if (ini[VEC_POI] && qtd[VEC_POI]) {
+#endif
         VecCursor c2;
         c2.p = ini[VEC_POI]; c2.fim = s->dados + s->len;
         c2.classe = VEC_POI; c2.feicoes = qtd[VEC_POI]; c2.camadas = 0;

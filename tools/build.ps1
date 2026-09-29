@@ -56,7 +56,7 @@ $FQBN = switch ($Board) {
 if ($ListPorts) {
   # A Waveshare expoe duas USB-C: VID 303A = USB nativa (gravar), 1A86 = CH343 (usar em campo).
   & $CLI board list
-  Write-Host "`nVID 303A = USB nativa (gravar aqui) | VID 1A86 = CH343 (campo, so energia)" -ForegroundColor Cyan
+  Write-Host "`nVID 1A86 = CH343: GRAVA E FALA (medido 2026-09-08) | VID 303A = USB nativa: grava, nao traz o Serial" -ForegroundColor Cyan
   return
 }
 

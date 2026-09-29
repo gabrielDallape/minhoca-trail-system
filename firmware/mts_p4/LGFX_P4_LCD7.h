@@ -169,7 +169,12 @@ public:
 #else
       cfg.offset_rotation = 0;
 #endif
-      cfg.readable = true; cfg.rgb_order = true; cfg.bus_shared = false;
+      // rgb_order FALSE = BGR. O painel EK79007 desta placa espera BGR: com 'true'
+      // os canais R e B saem trocados, e o bege do tema DIA (#E3E1D2) aparece como
+      // azul-claro (#D2E1E3). No tema NOITE nao da para ver, porque o fundo quase
+      // preto trocado continua quase preto - foi por isso que passou despercebido
+      // ate 2026-09-08, quando uma tela em tema claro entrou na trilha.
+      cfg.readable = true; cfg.rgb_order = false; cfg.bus_shared = false;
       cfg.pin_cs  = GPIO_NUM_NC;
       cfg.pin_rst = GPIO_NUM_NC;    // ja resetamos acima, com a polaridade certa
       _pnl->config(cfg);

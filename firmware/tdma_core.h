@@ -7,7 +7,9 @@
  *  slots e cada no fala SO no seu -> zero colisao, sem lider reencaminhando.
  *
  *  A FONTE DE TEMPO fica atras de uma interface, de proposito:
- *    TDMA_SYNC_BEACON  fase 2 - ancora no beacon do no 0 (sem GPS, na bancada)
+ *    TDMA_SYNC_BEACON  fase 2 - ancora no beacon de outro no (sem GPS). Quem
+ *                      serve de beacon e ELEITO pelo relogio, nao fixado no
+ *                      slot 0 - ver tdmaEleicao(), e o porque dela.
  *    TDMA_SYNC_PPS     fase 3 - ancora no pulso 1Hz do GPS (relogio comum real)
  *  Trocar de uma para a outra NAO muda o resto do codigo: e so chamar
  *  tdmaOnBeacon() ou tdmaOnPps(). Toda a decisao de "e o meu slot?" e a mesma.
@@ -48,16 +50,54 @@ enum TdmaSync : uint8_t { TDMA_SYNC_NONE = 0, TDMA_SYNC_BEACON = 1, TDMA_SYNC_PP
 // CUIDADO: o drift NAO e desprezivel. Uma versao anterior deste comentario dizia
 // "~2ms/dia", numero que estava errado por ~3 ordens de grandeza (2ms/dia sao
 // 0,023 ppm, classe OCXO de laboratorio). A Espressif NAO especifica o ppm do
-// cristal - e escolha do fabricante da placa. Um cristal comum de 10 ppm derrete
-// uma guarda de 110ms em ~3 minutos de holdover:
+// cristal - e escolha do fabricante da placa, e a especificacao do ESP32 pede
+// +-10 ppm.
 //
-//   guarda_disponivel_us / (ppm * 1e-6)  =  110000 / 1e-5  =  11e9 us = 3,05 min
+//   guarda_disponivel_us / (ppm * 1e-6)  =  110000 / 1e-5  =  1,1e10 us
 //
-// Portanto TDMA_HOLDOVER_GUARD cobre segundos, nao minutos. Meca o ppm de cada
-// placa contando esp_timer_get_time() entre N bordas de PPS e grave na NVS:
+// CORRECAO 2026-09-08: este comentario dizia que 1,1e10 us eram "3,05 min". Sao
+// 11.000 s = **3,05 HORAS** - um erro de 60x que inverteu a conclusao. Com a guarda
+// real de hoje (TDMA_GUARD_US 20000) o holdover seguro e 20000/1e-5 = 2000 s, ou
+// seja **~33 minutos**, nao segundos.
+//
+// Isso bate com o RFC 7554 (TSCH), que com 10 ppm e guarda de 1 ms ressincroniza a
+// cada 100 s - e a nossa guarda de 20 ms e 20x a dele.
+//
+// Portanto TDMA_HOLDOVER_GUARD cobre DEZENAS DE MINUTOS. O holdover nao e o gargalo
+// da rede; o air-time e. Ainda assim, meca o ppm de cada placa contando
+// esp_timer_get_time() entre N bordas de PPS e grave na NVS - com o numero medido da
+// para usar guarda adaptativa (guarda = base + ppm * tempo_desde_ancora), que e o que
+// o TSCH faz:
 //   ppm = (dt_medido - N*1e6) / (N*1e6) * 1e6      (N=300 resolve <1 ppm)
 static const uint32_t TDMA_ANCHOR_TTL_US  = 1500000UL;
 static const uint32_t TDMA_HOLDOVER_GUARD = 3;          // multiplicador da guarda
+
+// ------------------------------------------------------- eleicao da ancora
+// POR QUE ISTO EXISTE (medido em campo e na bancada, 2026-08-28): so o no 0 se
+// auto-ancorava. Com tres aparelhos nos slots 0, 1 e 2, bastava o do slot 0
+// estar desligado, longe ou com o GPS ruim para que os outros dois NUNCA
+// transmitissem - tdmaShouldTx() exige ancora e nao havia quem a criasse. Lido
+// no serial das duas telas: sinc=- e tx=0, mapa vazio, nenhuma mensagem de erro.
+// A rede nao ficava fraca: ficava MUDA, que e muito pior de diagnosticar.
+//
+// E o PPS nao socorre o arranque: no u-blox o pulso so comeca DEPOIS do fix, que
+// e justamente o que ainda nao existe quando o carro liga embaixo de arvore.
+//
+// A regra: quem passa TDMA_ELECT_BASE_US + slot*frame sem ouvir ninguem ancora
+// em si mesmo. A espera CRESCE com o slot, entao o menor slot presente vence e
+// os outros o escutam antes de o proprio relogio estourar. Nao ha mensagem de
+// eleicao nem estado compartilhado - so tempo de espera desigual, que e o que
+// torna isto seguro numa rede onde metade dos nos nao se ouve.
+static const uint32_t TDMA_ELECT_BASE_US = 3000000UL;
+
+// Quantos pulsos SEGUIDOS de 1 Hz antes de acreditar no PPS. Um PPS que pisca e
+// PIOR que nenhum: enquanto ele existe o no vai para a grade UTC e anuncia isso,
+// a rede inteira o segue, e quando ele some todos voltam - a cada poucos
+// segundos. Medido na bancada em 2026-08-28, com o GPS dentro de casa: as duas
+// telas alternando "cedi o lugar" / "ASSUMI a ancora" sem parar, com 'perdi'
+// (janela do proprio slot perdida) subindo junto. Dez segundos de pulso limpo
+// custam dez segundos no arranque e removem a oscilacao inteira.
+static const uint16_t TDMA_PPS_FIRME = 10;
 
 // ---------------------------------------------------- grade de tempo (GPS x UTC)
 // O rotulo do segundo que entra em tdmaOnPps() pode vir de DUAS grades:
@@ -85,7 +125,8 @@ inline bool tdmaFrameSecsGridSafe(uint32_t frameSecs){
 }
 
 struct Tdma {
-  uint8_t  nodeId;      // 0..nSlots-1, unico por carro. 0 = ancora na fase 2
+  uint8_t  nodeId;      // 0..nSlots-1, unico por carro. Menor slot = prioridade
+                        // na eleicao da ancora, nao ancora garantida.
   uint8_t  nSlots;
   uint32_t frameSecs;   // frame em segundos INTEIROS (casa com o PPS)
   uint32_t frameUs;
@@ -112,9 +153,31 @@ struct Tdma {
   // (a ancora nao compensa nada, comportamento antigo).
   uint32_t airtimeUs;
 
-  // true no no que ANCORA a rede (id 0 na fase 2). Quem ancora nao tem quem o
-  // sincronize, entao nao pode ser marcado em holdover por falta de ancora.
+  // true no no que ANCORA a rede (eleito, ver tdmaEleicao). Quem ancora nao tem
+  // quem o sincronize, entao nao pode ser marcado em holdover por falta de ancora.
   bool isAnchor;
+
+  // A minha fonte esta em PPS? Uma fonte com PPS esta na grade UTC absoluta e
+  // vale mais que qualquer beacon, INCLUSIVE de slot menor: sem isto a rede se
+  // parte em duas grades no instante em que UM carro pega fix - observado ao
+  // vivo na bancada em 2026-08-28, com as duas telas em "fonte=EU".
+  bool anchorSrcPps;
+
+  // De QUEM veio a minha ancora. 0xFF = de ninguem ainda. Existe porque a fonte
+  // de tempo deixou de ser sempre o slot 0: para decidir se um beacon novo e
+  // melhor que o atual e preciso saber qual e o atual. Quando eu mesmo sou a
+  // ancora, anchorSrc == nodeId.
+  uint8_t anchorSrc;
+
+  // Continuidade do PPS: quantos pulsos seguidos com ~1 s entre eles, e quando
+  // foi o ultimo. Contados a parte do anchorUs de proposito - assim a contagem
+  // sobrevive ao no estar ancorado em beacon enquanto o pulso ainda se prova.
+  uint16_t ppsRun;
+  uint64_t lastPpsUs;
+
+  // Instante em que este no entrou no ar. So a eleicao usa: e o marco a partir
+  // do qual se conta a espera antes de ancorar em si mesmo.
+  uint64_t bornUs;
 
   // true quando (18 % frameSecs) != 0, ou seja: com este frame, misturar nos que
   // rotulam anchorSec em UTC com nos que rotulam em GPS desalinha a rede inteira
@@ -142,7 +205,14 @@ inline void tdmaInit(Tdma& t, uint8_t nodeId, uint8_t nSlots, uint32_t frameSecs
   t.haveAnchor = false; t.holdover = false;
   t.frameBase = 0;
   t.airtimeUs = 0;
-  t.isAnchor = (nodeId == 0);
+  // NAO nasce mais ancora por ser o slot 0: quem ancora e decidido pelo relogio,
+  // em tdmaEleicao(). Nascer ancora aqui era o proprio bug - um no 0 ausente
+  // deixava a rede sem referencia e ninguem assumia o lugar dele.
+  t.isAnchor = false;
+  t.anchorSrc = 0xFF;
+  t.anchorSrcPps = false;
+  t.ppsRun = 0; t.lastPpsUs = 0;
+  t.bornUs = tdmaNowUs();
   t.gridSensitive = !tdmaFrameSecsGridSafe(t.frameSecs);
   t.txFrameDone = 0; t.haveTxFrame = false;
   t.anchorCount = 0; t.txCount = 0; t.missedTx = 0;
@@ -167,22 +237,69 @@ inline uint32_t tdmaMaxNodes(const Tdma& t, uint32_t airtimeUs){
 }
 
 // ---------------------------------------------------------------- ancoragem
-// FASE 2: chamado quando chega o pacote do no 0. rxUs = instante local do RX.
-// O beacon do no 0 marca o inicio do frame (ele fala no slot 0).
-inline void tdmaOnBeacon(Tdma& t, uint64_t rxUs){
+// QUEM EU ACEITO COMO FONTE DE TEMPO. A regra e uma so, e vale para todos:
+// a minha fonte e o MENOR slot que eu ouco, e nunca um slot maior que o meu.
+//
+//   - PPS ganha de tudo: e relogio absoluto, nao referencia emprestada.
+//   - Sem ancora, qualquer fonte serve. Alinhado de forma imperfeita e
+//     incomparavelmente melhor que mudo - foi o mudo que perdeu o dia de campo.
+//   - Em holdover a minha fonte sumiu; aceito qualquer uma para voltar a rede.
+//   - Slot MAIOR que o meu eu recuso: e ele quem deve me seguir. Sem esta linha
+//     dois nos ancoram um no outro em circulo, nenhum deles e ancora, e os dois
+//     entram em holdover eterno com a guarda triplicada.
+inline bool tdmaBeaconAceita(const Tdma& t, uint8_t srcSlot, bool srcPps){
+  if (srcSlot == t.nodeId) return false;                        // eco meu: impossivel, mas nao custa
+  if (t.sync == TDMA_SYNC_PPS && !t.holdover) return false;     // PPS manda
+  if (!t.haveAnchor) return true;
+  if (t.holdover)    return true;
+  // PPS ANTES DE SLOT. Uma fonte em PPS esta na grade UTC absoluta; a de beacon
+  // esta numa grade arbitraria, herdada de quem ligou primeiro. Ela ganha mesmo
+  // com slot MAIOR que o meu - foi exatamente isto que faltou quando uma tela
+  // pegou fix e as duas viraram ancoras de grades diferentes, sem colidir por
+  // sorte e sem nada no log dizendo que a rede tinha se partido em duas.
+  if (srcPps) {
+    // Entre varias fontes em PPS fico com o menor slot. Todas estao na MESMA
+    // grade, entao trocar nao mudaria a fase - mas cada troca de fonte solta a
+    // guarda de "ja falei neste frame", e ficar alternando entre duas custaria
+    // um TX a mais por quadro. A troca tem de ter motivo.
+    if (!t.anchorSrcPps) return true;
+    return srcSlot <= t.anchorSrc;
+  }
+  // Nao rebaixo de UTC para grade arbitraria enquanto a minha fonte UTC viver.
+  if (t.anchorSrcPps && !t.holdover) return false;
+  if (srcSlot == t.anchorSrc) return true;                      // refresco da minha fonte
+  // SO DE SLOT MENOR, e mesmo em holdover. Aceitar qualquer um quando a fonte
+  // some parece generoso e cria o circulo: dois nos ficam ancorando um no outro,
+  // nenhum e ancora, e a fase dos dois deriva junta. Quem fica sem fonte deve
+  // ASSUMIR (tdmaEleicao), nao pendurar-se em quem tem slot maior.
+  return srcSlot < t.nodeId && srcSlot < t.anchorSrc;
+}
+
+// FASE 2: chamado quando chega o pacote de um no que serve de referencia.
+// rxUs = instante local do RX; srcSlot = o slot de quem falou.
+inline void tdmaOnBeaconFrom(Tdma& t, uint64_t rxUs, uint8_t srcSlot, bool srcPps){
   // O rxDone do radio vem no FIM do pacote: sem recuar o air-time a ancora fica
   // atrasada de 51,5ms (16B em SF7/BW125), que e quase a folga inteira de um slot
   // de 125ms - e com 8 nos isso virava colisao. Recua SO o air-time: airtimeUs=0
   // (o default) deixa esta correcao inerte, entao quem nao chama tdmaSetAirtime
   // tem exatamente o comportamento antigo.
   //
-  // Fica de fora o instante do TX dentro do slot do no 0 (>= guarda/2), que o
-  // receptor nao tem como saber. Sao ~7,5ms contra os 59ms de folga - ordem de
+  // Fica de fora o instante do TX dentro do slot de quem falou (>= guarda/2), que
+  // o receptor nao tem como saber. Sao ~7,5ms contra os 59ms de folga - ordem de
   // grandeza menor que o erro que se acabou de remover.
   uint64_t edge = rxUs;
   if (t.airtimeUs && edge > t.airtimeUs) edge -= t.airtimeUs;
 
-  if (t.haveAnchor && t.sync == TDMA_SYNC_BEACON && edge >= t.anchorUs) {
+  // E recua TAMBEM o offset do slot de quem falou. Enquanto so o slot 0 ancorava
+  // este termo era zero e nao existia; com a eleicao, a fonte pode ser o slot 3,
+  // e sem isto a "borda do frame" ficaria adiantada de 3 slots. Todo mundo
+  // andaria para tras a cada re-ancora, sem erro nenhum aparecendo no log.
+  uint64_t off = (uint64_t)srcSlot * t.slotUs;
+  edge = (edge > off) ? (edge - off) : 0;
+
+  bool trocouFonte = t.haveAnchor && (t.anchorSrc != srcSlot || t.anchorSrcPps != srcPps);
+
+  if (t.haveAnchor && t.sync == TDMA_SYNC_BEACON && !trocouFonte && edge >= t.anchorUs) {
     // Quantos frames se passaram desde a ancora anterior.
     //
     // ARREDONDA, com minimo 1. Truncar (a versao anterior) tinha um bug fatal:
@@ -197,11 +314,92 @@ inline void tdmaOnBeacon(Tdma& t, uint64_t rxUs){
     uint64_t d = edge - t.anchorUs;
     uint32_t n = (uint32_t)((d + t.frameUs / 2) / t.frameUs);
     t.frameBase += n ? n : 1;
+  } else if (trocouFonte) {
+    // FONTE NOVA. A borda pode saltar PARA TRAS (o srcSlot novo e menor que o
+    // antigo), e ai a contagem por diferenca acima nao vale - ela pressupoe
+    // tempo andando para a frente. Avanca um frame na marra e SOLTA a guarda de
+    // "ja falei neste frame": sem soltar, o no pode ficar um frame inteiro sem
+    // poder transmitir logo no instante em que acabou de reentrar na rede.
+    t.frameBase++;
+    t.haveTxFrame = false;
   }
   t.sync = TDMA_SYNC_BEACON;
   t.anchorUs = edge; t.anchorSec = 0;
+  t.anchorSrc = srcSlot;
+  t.anchorSrcPps = srcPps;
+  t.isAnchor = false;              // tenho quem me sincronize: nao sou mais a ancora
   t.haveAnchor = true; t.holdover = false; t.anchorCount++;
 }
+
+// O beacon classico da fase 2 vinha sempre do slot 0. Mantido para os testes e
+// para qualquer chamador que ainda pense assim.
+inline void tdmaOnBeacon(Tdma& t, uint64_t rxUs){ tdmaOnBeaconFrom(t, rxUs, 0, false); }
+
+// Ancora em SI MESMO, a frio: nunca ouviu ninguem, entao a fase do frame passa a
+// ser definida por este no. Usado so pela eleicao.
+inline void tdmaAutoAncora(Tdma& t){
+  t.sync = TDMA_SYNC_BEACON;
+  t.anchorUs = tdmaNowUs();
+  t.anchorSec = 0;
+  t.anchorSrc = t.nodeId;
+  t.anchorSrcPps = false;          // ancorei em mim sem PPS: grade arbitraria
+  t.isAnchor = true;
+  t.haveAnchor = true; t.holdover = false; t.anchorCount++;
+}
+
+// Assume a referencia SEM MEXER NA FASE. Diferente do tdmaAutoAncora: este no ja
+// estava na rede e herdou dela um alinhamento bom; a fonte e que sumiu. Trocar
+// anchorUs por "agora" aqui jogaria fora exatamente a informacao que se quer
+// preservar, e deslocaria este no em relacao aos que continuam alinhados.
+inline void tdmaPromoveAncora(Tdma& t){
+  t.isAnchor = true;
+  t.anchorSrc = t.nodeId;
+  // A FASE herdada continua valendo - e por isso que esta funcao existe. Mas a
+  // ALEGACAO de estar na grade UTC cai aqui, e isso nao e detalhe: sem PPS
+  // proprio eu passo a correr livre, sem ninguem me corrigir, e nem consigo
+  // anunciar UTC no pacote (o flag sai de t.sync, que aqui e BEACON).
+  //
+  // Mantendo a alegacao, o no ficava TRANCADO: continuava dizendo a si mesmo
+  // "eu estou em UTC" e, por isso, recusava a fonte de PPS de verdade quando ela
+  // tinha slot maior que o dele. Visto ao vivo na bancada em 2026-08-28 - a tela
+  // do slot 1 nunca cedia para a do slot 2, que era a unica com fix.
+  t.anchorSrcPps = false;
+  t.holdover = false;
+}
+
+// A ELEICAO. Chamar no loop, DEPOIS do tdmaTick (que e quem atualiza o holdover
+// em que o caso 2 se apoia). Devolve true no instante em que este no assume.
+inline bool tdmaEleicao(Tdma& t){
+  // 1) nunca ouvi ninguem. Espero o meu tempo - que cresce com o meu slot, para
+  //    o menor slot presente assumir primeiro - e ancoro em mim.
+  if (!t.haveAnchor) {
+    uint64_t espera = (uint64_t)TDMA_ELECT_BASE_US + (uint64_t)t.nodeId * t.frameUs;
+    uint64_t agora  = tdmaNowUs();
+    if (agora >= t.bornUs && (agora - t.bornUs) >= espera) { tdmaAutoAncora(t); return true; }
+    return false;
+  }
+  // 2) eu tinha fonte e ela calou (holdover no modo beacon). Assumo a referencia
+  //    mantendo a fase herdada. Sem este caso, o no do menor slot que perdeu a
+  //    ancora ficaria em holdover para sempre - e como ele RECUSA beacons de
+  //    slot maior, ninguem o traria de volta.
+  if (t.sync == TDMA_SYNC_BEACON && t.holdover && !t.isAnchor) {
+    tdmaPromoveAncora(t);
+    return true;
+  }
+  // 3) estou seguindo alguem de slot MAIOR que o meu, numa grade arbitraria.
+  //    No arranque isso e certo (seguir e melhor que ficar mudo), mas nao pode
+  //    durar: com dois nos assim cada um vira fonte do outro, ninguem e ancora
+  //    de verdade e a fase dos dois deriva junta. Quem tem o slot menor assume,
+  //    MANTENDO a fase - que a esta altura ja e a fase da rede, nao uma nova.
+  //    Nao vale para fonte em PPS: a grade UTC e boa venha do slot que vier.
+  if (!t.isAnchor && !t.anchorSrcPps && t.sync == TDMA_SYNC_BEACON &&
+      t.anchorSrc != 0xFF && t.anchorSrc > t.nodeId) {
+    tdmaPromoveAncora(t);
+    return true;
+  }
+  return false;
+}
+
 
 // FASE 3: chamado da flag levantada pela ISR do PPS.
 //   ppsUs  = esp_timer_get_time() gravado DENTRO da ISR (nada mais na ISR!)
@@ -218,8 +416,28 @@ inline void tdmaOnBeacon(Tdma& t, uint64_t rxUs){
 // carimba a borda em hardware (12,5 ns) e voce le com gptimer_get_captured_count().
 // A interface aqui nao muda; so melhora a procedencia do numero.
 inline void tdmaOnPps(Tdma& t, uint64_t ppsUs, uint32_t utcSec){
+  // O pulso tem de se PROVAR antes de mexer na ancora. Ate TDMA_PPS_FIRME
+  // pulsos limpos e seguidos, ele so e contado - o no continua na grade do
+  // grupo. Sem isto um GPS marginal joga a rede inteira de um lado para o outro.
+  uint64_t d = (ppsUs > t.lastPpsUs) ? (ppsUs - t.lastPpsUs) : 0;
+  if (t.lastPpsUs && d > 800000ULL && d < 1200000ULL) {
+    if (t.ppsRun < 0xFFFF) t.ppsRun++;
+  } else {
+    t.ppsRun = 1;                       // primeira borda, ou uma falha no meio
+  }
+  t.lastPpsUs = ppsUs;
+  if (t.ppsRun < TDMA_PPS_FIRME) return;
+
   t.sync = TDMA_SYNC_PPS;
   t.anchorUs = ppsUs; t.anchorSec = utcSec;
+  // Quem tem PPS e referencia por direito proprio: o relogio dele e absoluto, nao
+  // emprestado. Marcar isso deixa a eleicao e o tdmaBeaconAceita coerentes - ele
+  // nao aceita beacon de ninguem enquanto o pulso vier. Se o PPS calar, o
+  // holdover ainda acende (o atalho do tdmaTick e so para o modo beacon) e ele
+  // volta a aceitar a rede como fonte.
+  t.anchorSrc = t.nodeId;
+  t.anchorSrcPps = true;
+  t.isAnchor = true;
   t.haveAnchor = true; t.holdover = false; t.anchorCount++;
 }
 
@@ -297,6 +515,28 @@ inline bool tdmaShouldTx(Tdma& t){
   if (!tdmaUsInFrame(t, usInFrame, frameIdx)) return false;
   if (t.haveTxFrame && t.txFrameDone == frameIdx) return false;   // ja falei neste frame
 
+  // ESCUTA SILENCIOSA - o desempate de duas ancoras surdas.
+  //
+  // Dois nos que assumem a ancora quase ao mesmo tempo ficam com as grades
+  // deslocadas por um valor qualquer. Se esse deslocamento calhar de ser
+  // ~1 slot, cada um transmite EXATAMENTE quando o outro transmite: os dois
+  // ficam surdos um para o outro e a rede permanece partida PARA SEMPRE, sem
+  // erro nenhum aparecer. O tdmaBeaconAceita nao salva - ele so age quando o
+  // beacon do outro CHEGA, e nesse arranjo ele nunca chega.
+  //
+  // Medido na bancada em 2026-08-29: slot 0 e slot 1 ambos com "fonte=EU", cada
+  // um recebendo so 1 pacote por quadro (o terceiro no) em vez de 2.
+  //
+  // Solucao: quem e ancora SEM ser o menor slot cala a boca um quadro a cada 16
+  // e escuta o quadro inteiro. Se existir uma ancora de slot menor, ela vai ser
+  // ouvida nesse quadro e o tdmaBeaconAceita faz o resto. Custa 6% das falas
+  // enquanto durar - e dura poucos segundos, porque e assim que termina. O no 0
+  // nunca cede (nao ha slot menor), entao nunca precisa se calar.
+  if (t.isAnchor && t.nodeId != 0 && (frameIdx % 16) == 15) {
+    t.txFrameDone = frameIdx; t.haveTxFrame = true;   // cedido de proposito, nao e falha
+    return false;
+  }
+
   uint32_t g = tdmaGuardNow(t);
   uint32_t half = g / 2;
   uint32_t start = tdmaSlotStartUs(t, t.nodeId);
@@ -335,6 +575,9 @@ inline uint32_t tdmaUsUntilMySlot(const Tdma& t){
 #define TDMA_FL_FIX    0x01
 #define TDMA_FL_ALERT  0x02
 #define TDMA_FL_LEADER 0x04
+// "eu estou na grade UTC" - quem ouve usa isto para preferir esta fonte a
+// qualquer beacon de grade arbitraria, mesmo de slot menor. Ver tdmaBeaconAceita.
+#define TDMA_FL_PPS    0x08
 
 struct TdmaPkt {
   uint32_t room;      // 24 bits

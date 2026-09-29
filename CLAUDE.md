@@ -111,18 +111,66 @@ Todas verificadas neste repo ou em fonte primária. Não redescubra:
   na tela**, use um devkit.
 - **Não use `setDio2AsRfSwitch`** no E22-900M30S: o PA externo precisa de RXEN e
   TXEN de verdade (`PLANO_IMPLEMENTACAO_MESH.md:99`).
-- **E22: VCC em 5 V** (não 3,3) com capacitor ≥470 µF, e **antena antes de
-  energizar**. Pico de TX > 600 mA reseta a placa sem o capacitor.
+- **E22: VCC em 5 V** (não 3,3; a lógica continua em 3,3), e **antena antes de
+  energizar**. Pico de TX > 600 mA reseta a placa sem desacoplamento local.
+  O capacitor: **nenhum manual da Ebyte da valor** — os "470 µF" desta base eram
+  folclore. O consenso dos seis projetos abertos que funcionam e **100–220 µF
+  eletrolitico + 10 µF ceramico + 100 nF, a menos de 10 mm dos pads 9/10**, e a nota de
+  aplicacao AN2023005 acrescenta: *"a frequencia de chaveamento do DC-DC afeta o sinal
+  de RF; recomenda-se um LDO em serie apos a saida do DC-DC"*.
+- **Nunca deixe RXEN e TXEN altos ao mesmo tempo** — danifica. A engenharia reversa do
+  modulo mediu isolamento do switch RF de apenas **29–30 dB**, e o manual da um
+  *blocking power* maximo de 10 dBm.
 - **`begin()` do SX1262 devolvendo −707** é TCXO: tente **2.2** → 1.8 → 1.6. O valor
   correto e o **2,2 V** — o manual E22-M V1.2 (2026-02-06) existe justamente para
   acrescentar a descricao do cristal, e o manual de 2018 dizia 1,8 V. O default do
   RadioLib e 1,6 V, o pior dos tres. **NAO use `radio.XTAL = true`**: esse flag diz
   "nao ha TCXO, e cristal passivo", e este modulo TEM TCXO no DIO3.
-- **`setCurrentLimit(140)` DEPOIS de `setOutputPower(22)`**, senao o radio entrega
-  ~19,6 dBm em vez de 29,4 — sem erro, sem aviso. O `begin()` do RadioLib deixa o OCP
-  em 60 mA e `setOutputPower()` reescreve o registrador, entao a ordem e normativa
-  (datasheet SX1261/2, tab. 5-2). O PA externo e um YP2233W de +7,25 dB: 22 + 7,25 =
-  29,3 dBm, e os "30 dBm" do nome sao arredondamento.
+- **`setCurrentLimit(140)` DEPOIS do `begin()`** — nao "depois do setOutputPower",
+  como esta regra dizia ate 2026-09-08. Com o OCP de fabrica (60 mA) a saida trava em
+  ~19,6 dBm sem erro nenhum. O `begin()` grava 60 mA em **tres** pontos
+  (`SX126x.cpp:55, 94, 147`); a ordem entre `setCurrentLimit` e `setOutputPower` e
+  **indiferente**, porque a RadioLib salva e restaura o OCP em volta do `SetPaConfig`
+  desde 2019 (commit `621da8a`). E **140 e o teto**: acima disso o `setCurrentLimit`
+  devolve erro e **nao aplica nada, em silencio** (o datasheet permite 157,5 mA, mas
+  so escrevendo o registrador `0x08E7` na mao).
+- **O ganho do PA e +10 dB, nao +7,25.** Os +7,25 sao do datasheet do CI (YP2233W); a
+  **tabela oficial do modulo montado** (manual E22-M V1.2, "RF output power control
+  table", VCC 5,0 V, 900 MHz) da: pedido −1 → 9 dBm, 2 → 12, 5 → 15, 7 → 18, 11 → 21,
+  14 → 24, 20 → 30. Consequencia pratica: **a frota a 6 dBm irradia ~16 dBm, nao
+  13,25**, e `RF_PWR 14` = **24 dBm na antena**.
+- **A `paOptTable` da RadioLib 7.5+ nao e monotonica, e sabota qualquer escada de
+  potencia.** O dBm pedido nao e o programado: +4 → `paVal +22`; +5 → +11; **+6 →
+  paDutyCycle 3, hpMax 1, paVal +21**; +7 → +17. A tabela foi medida num SX1262 **nu**
+  ([RadioLib #1628](https://github.com/jgromes/RadioLib/issues/1628)) e o Meshtastic a
+  desliga em toda placa com PA externo (`SX126X_NO_POWER_OPTIMIZATION_TABLE`, commit
+  `80f8611`). **Com PA externo, use `setOutputPower(p, false)`.**
+- **`setOutputPower()` reseta a rampa do PA para 200 us** (hardcoded,
+  `SX126x_config.cpp:730`). Qualquer `setPaRampTime()` tem de vir **depois** dele. A
+  variante T-Beam **1 W** do Meshtastic usa 800 us: *"requires >800us stabilization"*.
+- **`startTransmit()` pode pendurar o firmware para sempre.** Ele termina em
+  `while(digitalRead(BUSY)) yield();` **sem timeout** (`SX126x.cpp:1143`). Modulo em
+  brownout com BUSY alto = a chamada nunca retorna e o vigia de TX nunca roda. Ver
+  `radioBusyLivre()` em `radio.h`.
+- **`XOSC_START_ERR` no boot e ESPERADO, nao defeito.** O datasheet (13.3.6) diz que o
+  chip ainda nao sabe que ha TCXO e que *"o usuario deve simplesmente limpar essa flag
+  com ClearDeviceErrors"*. O registrador e **latcheado**: sem limpar, toda leitura
+  futura devolve o aviso de boot. **Foi um GetDeviceErrors lido sem clear que condenou
+  o modulo da tela A em 2026-08-24** — o veredito de "defeituoso" nao esta provado.
+- **Em runtime, −707 significa brownout, nao TCXO.** Depois que o `begin()` passou uma
+  vez, o Meshtastic reproduziu isso simulando queda de alimentacao
+  ([PR #11678](https://github.com/meshtastic/firmware/pull/11678)).
+- **30 dBm e ilegal no Brasil em BW125.** O Ato ANATEL 14.448/2017, item 10.3.3, limita
+  a densidade espectral a 8 dBm/3 kHz → teto conduzido de `8 + 10·log10(BW/3kHz)` =
+  **24,2 dBm em BW125** (27,2 em BW250; 30,2 em BW500). Nao impede testar em trilha
+  particular, mas fecha a porta de 1 W para produto.
+- **O header CAN/RS485 nao serve para alimentar o E22.** No esquematico oficial da 7B,
+  o `Core_5V` do pino 1 e ligacao direta ao trilho: **sem fusivel, sem diodo, sem
+  ferrite, e com 100 nF de capacitancia local**. O degrau de 620 mA afunda o trilho
+  antes de qualquer regulador reagir, e o buck do 3,3 V e o boost do backlight
+  penduram no mesmo no. **E nunca injete 5 V ali**: o diodo de corpo do FET do botao
+  (Q8) realimenta o `VCC_5V`, ignora o botao de desligar e briga com o VBUS do USB.
+  `J4`/`BAT` e entrada de celula 1S (3,0–4,2 V), nao 5 V.
 - **`huge_app` não tem partição OTA** (um slot só). O binário usa 14 % de 3 MB,
   então qualquer esquema de dois slots cabe — mas trocar o esquema exige uma
   gravação **por cabo**.
@@ -165,6 +213,10 @@ O que dá para fazer **sem hardware novo**, em ordem de valor (detalhes em
 
 | Arquivo | Para quê |
 |---|---|
+| `docs/ESTUDO_E22.md` | **Estudo 3** — o E22 na prática: oito projetos abertos com o mesmo módulo, o mecanismo do colapso lido no datasheet, e dois projetos que já fizeram o MTS (Spoke, race tracker) |
+| `docs/PLANO_7B.md` | **o plano da tela de 7"** — consolida 15 frentes de pesquisa: ANATEL, ganho real do PA, alimentação, antena, alcance medido, escala |
+| `docs/PROTOCOLO_FASE0.md` | **como executar sem se enganar** — uma variável por vez, com tabela de decisão por resultado |
+| `docs/AUDITORIA_RADIO.md` | os 12 achados da auditoria do caminho de rádio contra o datasheet e o Meshtastic |
 | `docs/MONTAGEM.md` | **passo a passo de bancada** — soldar o E22, chicote para as telas P4, GPS/PPS, e as 5 coisas que queimam |
 | `docs/RETOMAR.md` | **comece aqui** — passo a passo, pinagem, o que medir, compras |
 | `docs/AMBIENTE_BUILD.md` | versões de core/bibliotecas, FQBN, tamanhos de binário |

@@ -46,7 +46,10 @@ Copy-Item $bin "$srv\mts_p4_v$v.bin"
 "@ | Set-Content "$srv\version.json" -Encoding ascii
 
 Push-Location $srv
-try { vercel deploy --prod --yes | Select-Object -Last 2 } finally { Pop-Location }
+# via cmd /c: o vercel escreve avisos no stderr e, com ErrorActionPreference
+# Stop, o PowerShell transformava o aviso em excecao e ABORTAVA o deploy no
+# meio (aconteceu na v7 e na v8 - o manifesto ficava para tras no servidor).
+try { cmd /c "vercel deploy --prod --yes 2>&1" | Select-Object -Last 2 } finally { Pop-Location }
 
 Write-Host "`nfirmware v$v no ar: https://mts-ota.vercel.app/version.json" -ForegroundColor Green
 Write-Host "telas na tela inicial + WiFi atualizam sozinhas em ate 15 min (boot: 40 s)"

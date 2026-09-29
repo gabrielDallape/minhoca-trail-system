@@ -137,9 +137,17 @@ BAT  GND  3V3  VO4  GND  IO46  IO47  IO48  IO49  IO50  IO51  IO52
 - header **RS485** (pinos `GND` e `5V`)
 - **P1**, no pino `BAT`
 
-> **Não confirmei o que é o `VO4` do P1** — não consegui rastrear essa rede no
-> esquemático. Meça com multímetro antes de ligar qualquer coisa nele. Não é
-> necessário para o projeto: use o 5 V do header CAN ou RS485.
+> **O `VO4` do P1 é o `ESP_LDO_VO4`** — o LDO interno canal 4 do próprio ESP32-P4
+> (confirmado no esquemático oficial em 2026-09-08). Ele é quem alimenta o banco
+> `VDD_IO_5`, ou seja **os GPIO 44–48**, e por isso esses pinos ficam *mortos* até o
+> firmware habilitar o VO4 (`esp_ldo_vreg`). É também o canal que comuta o cartão SD
+> entre 3,3 V e 1,8 V em UHS-I. **Não use como fonte**: a corrente dele não é publicada
+> no datasheet.
+>
+> **E não use o `BAT` do P1 como 5 V** — é entrada de célula 1S (3,0–4,2 V), ligada ao
+> carregador ETA6098. O 5 V da placa está no header CAN ou RS485 (`Core_5V`), mas
+> **também não sirva o rádio por ali** — ver `CLAUDE.md`: ligação direta ao trilho, sem
+> proteção e com 100 nF de capacitância local.
 
 **Não use os pinos IO34 e IO36 do P3, nem IO46/47/48 do P1.** Os primeiros são
 strapping (o 35 tem o botão BOOT em paralelo, e 34–38 decidem o modo de boot); os

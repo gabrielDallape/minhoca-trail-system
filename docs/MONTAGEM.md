@@ -13,7 +13,7 @@ Detalhamento e fontes de cada número estão nos três estudos linkados no fim.
 | Você tem | Falta comprar |
 |---|---|
 | 3× E22-900M30S (chegaram) | GPS **ATGM336H-5N-31** — 3× |
-| 3× tela ESP32-P4 (1×5", 2×7") | Capacitor eletrolítico **≥470 µF / 10 V** — 3× |
+| 3× tela ESP32-P4 (1×5", 2×7") | Banco por rádio: **220 µF/16 V + 10 µF + 100 nF** — 3× (ver Passo 3) |
 | Antenas 3 dBi IPEX (vieram no kit) | Fio 26–28 AWG, ferro de ponta fina |
 | | Filtro **SAW GNSS L1** — 3× (~US$ 2 cada) |
 
@@ -92,7 +92,7 @@ você conta os pads uma vez só). Depois a direita.
 
 **Como fazer:**
 
-1. Estanhe os 15 pads **antes** de encostar qualquer fio. Ponta fina, ~320 °C, toque
+1. Estanhe os pads **antes** de encostar qualquer fio. Ponta fina, ~320 °C, toque
    curto. Pads vizinhos ficam a 2,54 mm.
 2. Fio 26–28 AWG, ~15 cm, todos do mesmo tamanho. Vermelho nos dois VCC, preto nos
    quatro GND.
@@ -109,7 +109,7 @@ não aparece a olho nu. Ponte entre 9 (VCC) e 8 (DIO2) queima o módulo.
 > |---|---|
 > | **Pino 21 `ANT`** | O desenho mecânico do datasheet traz o **conector IPX no canto inferior esquerdo** — **use ele**. O pino 21 é o pad castelado ("stamp hole", 50 Ω), alternativa para soldar o cabo direto. Não use os dois. |
 > | **Alimentação** | **2,5 a 5,5 V**, e *"com tensão **≥ 5 V** o requisito de potência de saída é atendido"*. Abaixo de 5 V ele funciona mas **não entrega os 30 dBm**. Acima de 5,5 V, risco de queima. |
-> | **Corrente** | **500 a 620 mA** instantâneos a 30 dBm. É esse pico que exige o capacitor de 470 µF na ponta do módulo. |
+> | **Corrente** | **500 a 620 mA** instantâneos a 30 dBm — e o manual pede *"margem de mais de 30%"*, ou seja **fonte de ≥0,8 A**. Projetos reais dimensionam para 1–1,2 A. É esse pico que exige o banco de capacitores na ponta do módulo. |
 > | **DIO3** | *"usado internamente, alimenta um **TCXO de 32 MHz**"*. Por isso **nunca** use `radio.XTAL = true` no firmware, e o `RF_TCXO` é 2,2 V. |
 >
 > **Por que nenhum dos 9 sinais é dispensável:** DIO1 é o TxDone (sem ele não existe
@@ -166,7 +166,8 @@ RS485 (H9)   1 Core_5V   2 GND   3 A      4 B
 | VCC | — | `3V3` | **P3 pino 12** | `3V3` |
 | GND | — | `GND` | **P3 pino 11** | `GND` |
 
-**São 16 fios**, não 15: o E22 tem 15 pads, mas os dois `VCC` viram um fio só e os
+**São 16 fios**: o E22 tem **22 pads** (o manual E22-M V1.2 corrige o "15" que esta
+base dizia), mas só 15 são sinal ou alimentação — e destes os dois `VCC` viram um fio só e os
 quatro `GND` viram outro — 11 fios saem do rádio, mais 5 do GPS.
 
 **O terra do rádio sai do mesmo header que o 5 V dele.** Não é capricho: o E22
@@ -179,8 +180,14 @@ caçaria no firmware sem nunca desconfiar do fio preto.
 
 - **Pull-down de 10 kΩ entre o TXEN e o GND**, do lado do rádio. Sem ele o PA pode
   acordar transmitindo antes de o firmware subir, com a antena ainda fora.
-- **O capacitor de ≥470 µF na ponta do rádio**, junto dos pads 9/10 — não na
-  placa. Ele combate a indutância do fio do chicote; na placa não faz o trabalho.
+- **O banco de capacitores na ponta do rádio**, junto dos pads 9/10 — não na placa.
+  **Corrigido em 2026-09-08:** os "470 µF" que estavam aqui eram folclore — *nenhum
+  manual da Ebyte dá valor de capacitor*. O consenso dos seis projetos abertos que
+  funcionam com E22 de 1 W é **100–220 µF eletrolítico + 10 µF cerâmico + 100 nF**, a
+  menos de 10 mm dos pads. O eletrolítico sozinho tem ESR alto demais para responder à
+  rampa do PA (200 µs por padrão); são os cerâmicos que fazem esse trabalho.
+  A nota de aplicação Ebyte AN2023005 acrescenta: *"a frequência de chaveamento do
+  DC-DC afeta o sinal de RF; recomenda-se um LDO em série após a saída do DC-DC"*.
 
 > ### ⚠️ Não use os GPIO 46, 47 e 48
 > Estão no banco `VDD_IO_5`, alimentado pelo **LDO interno** — o mesmo que comuta o
@@ -225,7 +232,7 @@ Quatro itens. Nenhum é opcional.
 
 - [ ] **Antena no IPX do rádio.** Transmitir 1 W sem antena destrói o PA. E vale toda
       vez, não só na primeira.
-- [ ] **Capacitor de 470 µF** nos pads 9/10.
+- [ ] **Banco de capacitores** (220 µF + 10 µF + 100 nF) nos pads 9/10.
 - [ ] **Nenhum sinal de 5 V** encostando em SCK, MOSI, NSS, NRST, TXEN ou RXEN. VCC
       aceita 5 V; a lógica é 3,3 V.
 - [ ] **Fonte de 5 V que dê 620 mA contínuos.** O capacitor cobre 0,23 ms de um
@@ -260,8 +267,11 @@ E22-900M30S **tem** TCXO. Não é fallback, é descrever o hardware errado.
 radio.begin(915.0, 125.0, 7, 5, 0x12, 22, 8, 2.2, false);
 radio.setRfSwitchPins(PIN_RXEN, PIN_TXEN);
 radio.setDio2AsRfSwitch(false);   // begin() liga isso sozinho; desfazer
-radio.setOutputPower(22);          // maximo do SX1262; +7,25 dB do PA = 29,3 dBm
-radio.setCurrentLimit(140.0);      // <-- DEPOIS do setOutputPower. Ver abaixo.
+radio.setOutputPower(14, false);   // 14 no chip = 24 dBm na antena (+10 dB do modulo)
+                                   // 'false' = NAO usar a paOptTable: ela e calibrada
+                                   // para SX126x nu e nao e monotonica (ver CLAUDE.md)
+radio.setCurrentLimit(140.0);      // <-- DEPOIS do begin(). 140 e o TETO: acima
+                                   // disso a chamada falha em silencio.
 radio.setRxBoostedGainMode(true);  // as sensibilidades do datasheet sao as boosted
 ```
 
@@ -351,7 +361,7 @@ no ar por ~5 dB. Gaste a folga em mais nós.
 Se você só ler uma seção, leia esta.
 
 1. **Antena antes de energizar.** Sempre. O limite do PA é desconhecido.
-2. **`setCurrentLimit(140)` depois de `setOutputPower`.** Sem isso, 1/10 da potência,
+2. **`setCurrentLimit(140)` depois do `begin()`.** Sem isso, 1/10 da potência,
    silenciosamente.
 3. **GPIO 46/47/48 não.** Banco do LDO, pode virar 1,8 V.
 4. **30 cm entre as antenas de GPS e LoRa.** Menos que isso é dano, não interferência.
