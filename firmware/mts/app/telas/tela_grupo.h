@@ -6,8 +6,11 @@
 //   CRIAR  - o aparelho propoe "Grupo do <nome do carro>" e sorteia um CODIGO de
 //            5 digitos. O codigo e a senha que os outros vao precisar. Quem cria
 //            vira o lider.
-//   ENTRAR - digitar o codigo que o lider ditou. NAO EXISTE LISTA DE GRUPOS POR
-//            PERTO, e nao e omissao: o pacote leva a sala como HASH, nunca o nome.
+//   ENTRAR - a LISTA DOS GRUPOS NO AR (core/vizinhos.h): um toque e entra. O
+//            pacote so leva a sala como hash, e e o hash que entra na sessao
+//            ("#79FD"). Digitar o codigo continua possivel, num botao.
+//            Ate 2026-09-30 era so o teclado - e no teste daquele dia as duas
+//            telas tocaram em CRIAR e ficaram em grupos diferentes sem saber.
 //   SALA   - depois de criar, antes de abrir a trilha: o codigo em destaque e a
 //            lista de quem ja entrou (QUEM ESTA NO AR, nao lista inventada).
 
@@ -143,9 +146,102 @@ bool telaCriarGrupo(TFT& tft, const char* nomeCarro, char* gNome, char* gCod)
   }
 }
 
+// ENTRAR. Devolve true com 'cod' preenchido ("13520" digitado, ou "#79FD" da
+// lista) e 'nome' com o nome para mostrar (vazio = o chamador inventa).
+#define ENTRAR_MAX_LISTA 3          // 3 cartoes de 96 px cabem acima dos botoes
 template <typename TFT>
-bool telaEntrarGrupo(TFT& tft, char* cod)
+bool telaEntrarGrupo(TFT& tft, char* cod, char* nome, size_t nNome)
 {
-  cod[0] = 0;
-  return tecladoNumero(tft, "entrar num grupo", "digite o codigo que o lider passou", cod, GRUPO_COD_DIG);
+  cod[0] = 0; nome[0] = 0;
+  Ret rVolta  = { M, (int16_t)(TELA_H - M - 88), 240, 88 };
+  Ret rCodigo = { (int16_t)(TELA_W - M - 380), (int16_t)(TELA_H - M - 88), 380, 88 };
+  auto cartaoRet = [&](int i) -> Ret { return Ret{ M, (int16_t)(166 + i * 100), (int16_t)(TELA_W - 2 * M), 88 }; };
+  int idx[ENTRAR_MAX_LISTA]; int n = 0;
+
+  auto pintaLista = [&]() {
+    tft.fillRect(0, 150, TELA_W, TELA_H - 150 - 88 - M - 6, C_BG);
+    if (n == 0) {
+      tft.setTextDatum(middle_center); tft.setFont(&fonts::FreeSansBold18pt7b); tft.setTextColor(C_INK2);
+      tft.drawString("procurando grupos no ar...", TELA_W / 2, 250);
+      tft.setFont(&fonts::FreeSans12pt7b); tft.setTextColor(C_INK3);
+      tft.drawString("o grupo aparece aqui quando a tela de quem guia transmitir", TELA_W / 2, 310);
+      tft.drawString("(radio ligado, a ate uns 300 m)", TELA_W / 2, 345);
+      tft.setFont(&fonts::Font0);
+      return;
+    }
+    for (int i = 0; i < n; i++) {
+      const GrupoNoAr& g = g_viz.g[idx[i]];
+      Ret r = cartaoRet(i);
+      tft.fillRoundRect(r.x, r.y, r.w, r.h, 16, C_SURF);
+      tft.drawRoundRect(r.x, r.y, r.w, r.h, 16, C_LINE);
+      tft.fillRoundRect(r.x, r.y, 6, r.h, 3, g.temLider ? C_SUN : C_INK3);
+      char titulo[40];
+      if (g.temNome) snprintf(titulo, sizeof(titulo), "%s", g.nome);
+      else           snprintf(titulo, sizeof(titulo), "grupo %04X", (unsigned)g.sala);
+      tft.setTextDatum(top_left); tft.setFont(&fonts::FreeSansBold18pt7b); tft.setTextColor(C_INK);
+      tft.drawString(titulo, r.x + 30, r.y + 12);
+      const char* sinal = g.rssi > -75 ? "sinal forte" : g.rssi > -95 ? "sinal bom" : "sinal fraco";
+      const int nc = vizinhosCarros(g);
+      char sub[96];
+      snprintf(sub, sizeof(sub), "%s  |  %s  |  %d carro%s  |  grupo %04X%s",
+               g.temLider ? "LIDER NO AR" : "sem lider ouvido", sinal, nc, nc == 1 ? "" : "s",
+               (unsigned)g.sala, g.temNome ? "" : "  |  nome a caminho");
+      tft.setFont(&fonts::FreeSans9pt7b); tft.setTextColor(g.temLider ? C_SUN : C_INK3);
+      tft.drawString(sub, r.x + 30, r.y + 56);
+      tft.setTextDatum(middle_right); tft.setFont(&fonts::FreeSansBold18pt7b); tft.setTextColor(C_SUN);
+      tft.drawString("ENTRAR >", r.x + r.w - 26, r.y + r.h / 2);
+    }
+    tft.setFont(&fonts::Font0);
+  };
+  auto desenha = [&]() {
+    tft.fillScreen(C_BG);
+    cabecalho(tft, "entrar num grupo", false);
+    tft.drawFastHLine(0, CAB_H, tft.width(), C_LINE);
+    tft.setTextDatum(top_left); tft.setFont(&fonts::FreeSans12pt7b); tft.setTextColor(C_INK2);
+    tft.drawString("Grupos no ar perto de voce - toque para entrar:", M, 112);
+    botao(tft, rVolta, "< VOLTAR", "", C_INK2, false);
+    botao(tft, rCodigo, "DIGITAR CODIGO", "", C_INK2, false);
+    tft.setFont(&fonts::Font0);
+    pintaLista();
+  };
+
+  // A lista repinta so quando MUDA (grupo, nome, lider, faixa de sinal, carros).
+  uint32_t assin = 0xFFFFFFFFu;
+  auto assinatura = [&]() -> uint32_t {
+    uint32_t a = (uint32_t)n;
+    for (int i = 0; i < n; i++) {
+      const GrupoNoAr& g = g_viz.g[idx[i]];
+      a = a * 31 + g.sala + (g.temLider ? 7u : 0u) + (uint32_t)vizinhosCarros(g) * 13u
+        + (uint32_t)(g.rssi > -75 ? 1 : g.rssi > -95 ? 2 : 3) * 101u;
+      for (const char* p = g.nome; *p; p++) a = a * 31 + (uint8_t)*p;
+    }
+    return a;
+  };
+  n = vizinhosOrdena(g_viz, idx, ENTRAR_MAX_LISTA);
+  assin = assinatura();
+  desenha();
+  while (true) {
+    int16_t x, y;
+    if (!esperaToque(tft, x, y, 500)) {
+      n = vizinhosOrdena(g_viz, idx, ENTRAR_MAX_LISTA);
+      uint32_t a = assinatura();
+      if (a != assin) { assin = a; pintaLista(); }
+      continue;
+    }
+    if (dentro(rVolta, x, y)) return false;
+    if (dentro(rCodigo, x, y)) {
+      if (tecladoNumero(tft, "entrar num grupo", "digite o codigo que o lider passou", cod, GRUPO_COD_DIG)) return true;
+      cod[0] = 0;
+      desenha();
+      continue;
+    }
+    for (int i = 0; i < n; i++) {
+      if (!dentro(cartaoRet(i), x, y)) continue;
+      const GrupoNoAr& g = g_viz.g[idx[i]];
+      snprintf(cod, 8, "#%04X", (unsigned)g.sala);
+      if (g.temNome) snprintf(nome, nNome, "Grupo de %s", g.nome);
+      else           snprintf(nome, nNome, "Grupo %04X", (unsigned)g.sala);
+      return true;
+    }
+  }
 }

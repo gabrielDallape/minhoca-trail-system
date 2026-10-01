@@ -18,6 +18,7 @@
 #include "../mts/core/trajeto.h"
 #include "../mts/core/rota.h"
 #include "../mts/core/frota.h"
+#include "../mts/core/vizinhos.h"
 
 static int g_pass = 0, g_fail = 0;
 #define CHECK(cond, nome) do { if (cond) { g_pass++; Serial.printf("PASS %s\n", nome); } \
@@ -168,6 +169,31 @@ void setup()
     CHECK(frotaAckMin(g_f, 500, am, dm, 1000) && am == 300, "topo mais que ROTA_OUVE_PONTOS atras = nao me ouve");
     frotaAck(g_f, 2, 100, 0, 495, 1000);
     CHECK(frotaAckMin(g_f, 500, am, dm, 1000) && am == 100, "topo perto do head: volta a contar (ack 100 manda)");
+  }
+
+  // [8] grupos no ar e entrar pelo hash (core/vizinhos.h, proto.h)
+  {
+    CHECK(protoSalaDoCodigo("13520") == protoSalaHash("13520"), "codigo digitado: a sala e o hash dele (como sempre)");
+    char cod[8]; snprintf(cod, sizeof(cod), "#%04X", (unsigned)protoSalaHash("13520"));
+    CHECK(protoSalaDoCodigo(cod) == protoSalaHash("13520"), "\"#XXXX\" da lista abre a MESMA sala do codigo");
+    CHECK(protoSalaDoCodigo("#79fd") == 0x79FD, "hex minusculo tambem vale");
+
+    static Vizinhos v;
+    const uint16_t neutra = protoSalaHash("SEMSALA");
+    vizinhosInicia(v, neutra);
+    vizinhosOuve(v, neutra, 3, false, "Fulano", -40, 1000);
+    CHECK(vizinhosEnvelhece(v, 1000) == 0, "a sala neutra (sem grupo) nao vira grupo na lista");
+    vizinhosOuve(v, 0x79FD, 1, false, "Seguidor", -60, 1000);          // um seguidor do grupo, com nome
+    vizinhosOuve(v, 0x79FD, 0, true, nullptr, -50, 2000);              // o lider, posicao (sem nome)
+    vizinhosOuve(v, 0x79FD, 0, true, "FaustoA", -50, 3000);            // o roster do lider
+    vizinhosOuve(v, 0x79FD, 1, false, "Seguidor", -60, 4000);          // o seguidor de novo: nao rouba o nome
+    vizinhosOuve(v, 0x1234, 2, false, nullptr, -30, 4000);             // outro grupo, sinal melhor, sem lider
+    int idx[4]; int n = vizinhosOrdena(v, idx, 4);
+    const GrupoNoAr& g0 = v.g[idx[0]];
+    CHECK(n == 2 && g0.sala == 0x79FD, "grupo com LIDER vem antes, mesmo com sinal pior");
+    CHECK(g0.temNome && strcmp(g0.nome, "FaustoA") == 0, "o nome mostrado e o do lider, nao o do seguidor");
+    CHECK(vizinhosCarros(g0) == 2, "dois carros ouvidos no grupo (slots 0 e 1)");
+    CHECK(vizinhosEnvelhece(v, 4000 + VIZ_TTL_MS) == 2 && vizinhosEnvelhece(v, 4001 + VIZ_TTL_MS) == 0, "grupo que calou some da lista apos VIZ_TTL_MS");
   }
 
   Serial.printf("\n%d PASS, %d FAIL\n", g_pass, g_fail);

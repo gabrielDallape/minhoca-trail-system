@@ -37,6 +37,7 @@
 #include "../core/rota.h"
 #include "../core/trajeto.h"
 #include "../core/orcamento.h"
+#include "../core/vizinhos.h"
 #include "../hal/pinos.h"
 #include "../hal/relogio.h"
 #include "../hal/caixa.h"
@@ -106,6 +107,8 @@ struct Rede {
 static Rede g_rede;
 // O orcamento de laco (core/orcamento.h): quem responde "cabe custoUs agora?".
 static Orcamento g_orc;
+// Os grupos que estao no ar e nao sao o meu (core/vizinhos.h): a tela ENTRAR lista.
+static Vizinhos g_viz;
 
 inline int8_t redePotencia()       { return MTS_TEM_RADIO ? g_rhw.pwr : g_rede.pwrConfig; }
 inline int8_t redePotenciaConfig() { return g_rede.pwrConfig; }
@@ -137,7 +140,8 @@ inline bool redeInicia(uint8_t meuSlot, const char* codigoSala, int8_t pwrConfig
   r.txAirMinUs = 0xFFFFFFFFu;
   r.ruidoFrame = 0xFFFFFFFFu;
   r.ruidoMax = -200; r.ruidoSlotProx = RUIDO_SLOT_INI;
-  r.sala = protoSalaHash(codigoSala);
+  r.sala = protoSalaDoCodigo(codigoSala);
+  vizinhosInicia(g_viz, protoSalaHash("SEMSALA"));
   const int8_t pwr = pwrConfig;
 
   tdmaInit(r.tdma, meuSlot, TDMA_SLOTS, TDMA_FRAME_S, TDMA_GUARD_US);
@@ -165,7 +169,7 @@ inline bool redeInicia(uint8_t meuSlot, const char* codigoSala, int8_t pwrConfig
 // no ar numa sala neutra. Trocar a sala e trocar o filtro.
 inline void redeTrocaSala(const char* cod)
 {
-  uint16_t nova = protoSalaHash(cod);
+  uint16_t nova = protoSalaDoCodigo(cod);
   if (nova == g_rede.sala) return;
   g_rede.sala = nova;
   g_rede.rxOk = g_rede.rxRuim = g_rede.rxForaDaSala = 0;
@@ -340,6 +344,13 @@ inline void redeRecebe(uint64_t rxUs)
   uint8_t slot = buf[3], seq = buf[4];
   if (sala != r.sala) {
     r.rxForaDaSala++;
+    // Antes de descartar: DE QUEM era. E o que a tela ENTRAR lista para entrar com
+    // um toque (core/vizinhos.h - o teste de 2026-09-30 ficou em grupos trocados).
+    {
+      char nomeViz[ROSTER_NOME_N + 1]; const char* pn = nullptr;
+      if (protoEhRoster(buf, n)) { protoRosterNome(buf, nomeViz, sizeof(nomeViz)); pn = nomeViz; }
+      vizinhosOuve(g_viz, sala, slot, n >= 6 && (buf[5] & FL_LIDER), pn, (int16_t)rssi, agora);
+    }
     registroLinha("R,%lu,%lu,%u,%u,%d,%.0f,%.1f,%.0f,1,0,sala 0x%04X", (unsigned long)agora, (unsigned long)redeUtc(),
                   (unsigned)slot, (unsigned)seq, n, rssi, snr, ferr, sala);
     radioHwRx();
@@ -591,7 +602,7 @@ inline bool redePodeGastar(uint32_t us)
 }
 
 #else   // !MTS_TEM_RADIO ---------------------------------------------------
-inline bool redeInicia(uint8_t, const char*, int8_t pwrConfig, bool seguro) { memset(&g_rede, 0, sizeof(g_rede)); g_rede.pwrConfig = pwrConfig; g_rede.seguro = seguro; return false; }
+inline bool redeInicia(uint8_t, const char*, int8_t pwrConfig, bool seguro) { memset(&g_rede, 0, sizeof(g_rede)); g_rede.pwrConfig = pwrConfig; g_rede.seguro = seguro; vizinhosInicia(g_viz, protoSalaHash("SEMSALA")); return false; }
 inline void redeTrocaSala(const char*) {}
 inline void redeTrocaSlot(uint8_t novo) { if (novo < FROTA_MAX_CARROS) g_frota.c[0].slot = novo; }
 inline void redeTrocaPotencia(int8_t nova) { g_rede.pwrConfig = nova; }

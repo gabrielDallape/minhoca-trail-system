@@ -160,6 +160,7 @@ void servico()
   redeAtualiza();
   // 5) frota envelhece; aviso de versao incompativel
   frotaEnvelhece(g_frota, agora);
+  vizinhosEnvelhece(g_viz, agora);
   if (g_frota.versaoErrada != g_regUltVersaoErrada) {
     g_regUltVersaoErrada = g_frota.versaoErrada;
     char t[64];

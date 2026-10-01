@@ -402,11 +402,14 @@ void loop()
   } else if (dentro(g_ini.entrar, x, y)) {
     desenhaInicial(tft, 1);
     estadoVai(EST_ENTRAR);
-    char cod[8] = {0};
-    if (telaEntrarGrupo(tft, cod)) {
+    char cod[8] = {0}, nomeGrupo[GRUPO_NOME_MAX] = {0};
+    if (telaEntrarGrupo(tft, cod, nomeGrupo, sizeof(nomeGrupo))) {
       g_ses.ativa = true; g_ses.lider = false;
-      // O nome do grupo nao viaja no ar - so o hash. O seguidor mostra o codigo.
-      snprintf(g_ses.gNome, sizeof(g_ses.gNome), "Grupo %s", cod);
+      // O nome do grupo nao viaja no ar - so o hash. Da LISTA vem "Grupo de <lider>";
+      // pelo codigo digitado, o seguidor mostra o codigo.
+      if (nomeGrupo[0]) strncpy(g_ses.gNome, nomeGrupo, sizeof(g_ses.gNome) - 1);
+      else snprintf(g_ses.gNome, sizeof(g_ses.gNome), "Grupo %s", cod);
+      g_ses.gNome[sizeof(g_ses.gNome) - 1] = 0;
       strncpy(g_ses.gCod, cod, sizeof(g_ses.gCod) - 1);
       nvsGravaSessao(g_ses);
       g_frota.c[0].lider = false;

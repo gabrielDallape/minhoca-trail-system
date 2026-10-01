@@ -67,6 +67,26 @@ inline uint16_t protoSalaHash(const char* cod)
   return (uint16_t)((h ^ (h >> 16)) & 0xFFFF);
 }
 
+// A sala de um CODIGO de sessao. Dois formatos:
+//   "13520"  o codigo de 5 digitos que o lider dita       -> protoSalaHash
+//   "#79FD"  o grupo escolhido NA LISTA do que esta no ar  -> o proprio hash, em hex
+// O segundo existe porque o ar so carrega o hash (core/vizinhos.h): quem entra
+// pela lista nunca soube o codigo, e a sessao gravada precisa reabrir o MESMO grupo
+// no RETOMAR. "#" nunca sai do teclado numerico, entao os dois nao se confundem.
+inline bool protoCodigoEhHash(const char* cod) { return cod && cod[0] == '#'; }
+inline uint16_t protoSalaDoCodigo(const char* cod)
+{
+  if (!protoCodigoEhHash(cod)) return protoSalaHash(cod);
+  uint16_t v = 0;
+  for (const char* p = cod + 1; *p; p++) {
+    char c = *p;
+    int d = (c >= '0' && c <= '9') ? c - '0' : (c >= 'A' && c <= 'F') ? c - 'A' + 10 : (c >= 'a' && c <= 'f') ? c - 'a' + 10 : -1;
+    if (d < 0) break;
+    v = (uint16_t)((v << 4) | d);
+  }
+  return v;
+}
+
 inline void protoCabecalho(uint8_t* p, uint16_t sala, uint8_t slot, uint8_t seq, uint8_t flags)
 {
   p[0] = PROTO_VERSAO;
