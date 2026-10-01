@@ -196,6 +196,22 @@ void setup()
     CHECK(vizinhosEnvelhece(v, 4000 + VIZ_TTL_MS) == 2 && vizinhosEnvelhece(v, 4001 + VIZ_TTL_MS) == 0, "grupo que calou some da lista apos VIZ_TTL_MS");
   }
 
+  // [9] o bug do campo de 2026-09-30: carro carimbado DEPOIS do 'agora' da volta
+  {
+    frotaInicia(g_f); frotaIdentidade(g_f, "gino", 0, 1);
+    ProtoPos k = { 1, 0, 1, (uint8_t)(FL_FIX | FL_LIDER), -23.5, -46.6, 90.0f, 36 };
+    bool al;
+    int i = frotaRecebePos(g_f, k, 100005, al);               // o radio carimbou em 100005 ms
+    CHECK(i > 0 && frotaQuantos(g_f) == 2, "o lider entrou na frota");
+    CHECK(frotaEnvelhece(g_f, 100000) == 0 && frotaQuantos(g_f) == 2,
+          "envelhecer com um 'agora' 5 ms ANTERIOR ao carimbo NAO apaga o carro (o bug do icone)");
+    CHECK(frotaSinal(g_f.c[i], 100000) == SINAL_VIVO, "sinal do carro carimbado no futuro = VIVO");
+    double la, lo; bool ext;
+    CHECK(frotaEstimativa(g_f.c[i], 100000, la, lo, ext) && !ext && la == k.lat,
+          "estimativa com carimbo no futuro nao extrapola 12 s a frente");
+    CHECK(tempoDesde(5, 0xFFFFFFF0u) == 21, "tempoDesde atravessa a rolagem do millis()");
+  }
+
   Serial.printf("\n%d PASS, %d FAIL\n", g_pass, g_fail);
 }
 

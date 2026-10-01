@@ -178,6 +178,11 @@ Todas verificadas neste repo ou em fonte primária. Não redescubra:
   O `firmware/mts` não depende disso: `hal/bus_dsi.h` escolhe o clock pela revisão
   do chip. Os firmwares antigos (`mts_p4`, `mts_campo`) usam o `Bus_DSI` da
   biblioteca e **vão entrar em boot-loop se forem recompilados neste PC**.
+- **Idade de carimbo no `firmware/mts`: sempre `tempoDesde()`** (`core/tempo.h`).
+  O `servico()` lia `agora` no começo e o rádio carimbava o pacote depois; o
+  `agora - ultimoMs` em `uint32_t` dava a volta e o carro era apagado da frota logo
+  após chegar. No carro (2026-09-30) o seguidor via o traçado e nunca o ícone do
+  líder. O `mts_core_test.js` reprova qualquer subtração crua que volte ao core.
 - **`huge_app` não tem partição OTA** (um slot só). O binário usa 14 % de 3 MB,
   então qualquer esquema de dois slots cabe — mas trocar o esquema exige uma
   gravação **por cabo**.

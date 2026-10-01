@@ -158,9 +158,12 @@ void servico()
   servicoPosicao();
   // 4) rede
   redeAtualiza();
-  // 5) frota envelhece; aviso de versao incompativel
-  frotaEnvelhece(g_frota, agora);
-  vizinhosEnvelhece(g_viz, agora);
+  // 5) frota envelhece; aviso de versao incompativel. Com o relogio LIDO DE NOVO:
+  //    o redeAtualiza acima carimba quem chegou com um millis() posterior ao
+  //    'agora' do comeco desta volta (core/tempo.h conta o estrago que isso fez).
+  const uint32_t agoraFrota = millis();
+  frotaEnvelhece(g_frota, agoraFrota);
+  vizinhosEnvelhece(g_viz, agoraFrota);
   if (g_frota.versaoErrada != g_regUltVersaoErrada) {
     g_regUltVersaoErrada = g_frota.versaoErrada;
     char t[64];

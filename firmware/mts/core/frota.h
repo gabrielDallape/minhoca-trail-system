@@ -25,7 +25,8 @@
 #include "proto.h"
 #include "geo.h"
 #include "rota.h"
-#include "cfg.h"          // CFG_N_CORES (so compilava pela ordem de quem incluia)
+#include "cfg.h"
+#include "tempo.h"         // tempoDesde: nenhum "agora - carimbo" cru aqui          // CFG_N_CORES (so compilava pela ordem de quem incluia)
 
 enum FrotaSinal : uint8_t { SINAL_NUNCA = 0, SINAL_VIVO, SINAL_VELHO, SINAL_SUMIU };
 
@@ -184,7 +185,7 @@ inline bool frotaAckMin(const Frota& f, uint16_t head, uint16_t& ackAteMin, uint
   uint16_t m = 0, de = 0;
   for (int i = 1; i < FROTA_MAX_CARROS; i++) {
     const Carro& c = f.c[i];
-    if (!c.ativo || !c.temAck || (agoraMs - c.ackMs) > ROTA_ACK_TTL_MS) continue;
+    if (!c.ativo || !c.temAck || tempoDesde(agoraMs, c.ackMs) > ROTA_ACK_TTL_MS) continue;
     if (c.ackTopo == ROTA_SEQ_NENHUMA || (int16_t)(c.ackTopo - head) < -ROTA_OUVE_PONTOS) continue;
     if (!tem) { m = c.ackAte; tem = true; }
     else if (c.ackAte == ROTA_SEQ_NENHUMA || m == ROTA_SEQ_NENHUMA) m = ROTA_SEQ_NENHUMA;
@@ -203,7 +204,7 @@ inline bool frotaAckMin(const Frota& f, uint16_t head, uint16_t& ackAteMin, uint
 inline FrotaSinal frotaSinal(const Carro& c, uint32_t agoraMs)
 {
   if (!c.ativo || !c.temPos) return SINAL_NUNCA;
-  uint32_t q = agoraMs - c.posMs;
+  uint32_t q = tempoDesde(agoraMs, c.posMs);
   if (q > FROTA_SOME_MS) return SINAL_SUMIU;
   if (q > FROTA_SINAL_VELHO_MS) return SINAL_VELHO;
   return SINAL_VIVO;
@@ -211,7 +212,7 @@ inline FrotaSinal frotaSinal(const Carro& c, uint32_t agoraMs)
 
 inline uint32_t frotaSilencioMs(const Carro& c, uint32_t agoraMs)
 {
-  return c.temPos ? (agoraMs - c.posMs) : 0xFFFFFFFFu;
+  return c.temPos ? tempoDesde(agoraMs, c.posMs) : 0xFFFFFFFFu;
 }
 
 // Envelhece a lista. DOIS ESTAGIOS de proposito: perder o sinal e reversivel
@@ -224,7 +225,7 @@ inline int frotaEnvelhece(Frota& f, uint32_t agoraMs)
   for (int i = 1; i < FROTA_MAX_CARROS; i++) {
     Carro& c = f.c[i];
     if (!c.ativo) continue;
-    uint32_t quieto = agoraMs - c.ultimoMs;
+    uint32_t quieto = tempoDesde(agoraMs, c.ultimoMs);
     if (quieto > FROTA_SOME_MS) { frotaLimpaCarro(c); sairam++; }
   }
   return sairam;
@@ -239,7 +240,7 @@ inline bool frotaEstimativa(const Carro& c, uint32_t agoraMs, double& lat, doubl
   extrapolada = false;
   if (!c.ativo || !c.temPos || !c.fix) return false;
   lat = c.lat; lon = c.lon;
-  uint32_t dt = agoraMs - c.posMs;
+  uint32_t dt = tempoDesde(agoraMs, c.posMs);
   if (dt > FROTA_EXTRAPOLA_MAX_MS) dt = FROTA_EXTRAPOLA_MAX_MS;
   if (c.vel == 0 || dt == 0) return true;
   double metros = (double)c.vel / 3.6 * (double)dt / 1000.0;

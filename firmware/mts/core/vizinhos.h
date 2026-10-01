@@ -21,6 +21,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "params.h"
+#include "tempo.h"
 
 #define VIZ_MAX        4                     // grupos lembrados ao mesmo tempo
 #define VIZ_TTL_MS     (5UL * TDMA_FRAME_MS) // sem ouvir por 30 s: some da lista
@@ -82,9 +83,9 @@ inline int vizinhosEnvelhece(Vizinhos& v, uint32_t agoraMs)
   for (int i = 0; i < VIZ_MAX; i++) {
     GrupoNoAr& g = v.g[i];
     if (!g.ativo) continue;
-    if (agoraMs - g.ultMs > VIZ_TTL_MS) { g.ativo = false; continue; }
+    if (tempoDesde(agoraMs, g.ultMs) > VIZ_TTL_MS) { g.ativo = false; continue; }
     for (int s = 0; s < 16; s++)
-      if ((g.slots & (1u << s)) && agoraMs - g.slotMs[s] > VIZ_TTL_MS) g.slots &= (uint16_t)~(1u << s);
+      if ((g.slots & (1u << s)) && tempoDesde(agoraMs, g.slotMs[s]) > VIZ_TTL_MS) g.slots &= (uint16_t)~(1u << s);
     n++;
   }
   return n;

@@ -305,6 +305,22 @@ sec('[6] hal/radio.h e app/rede.h: as armadilhas continuam no lugar');
   }
   const G = R('firmware/mts/hal/gps.h');
   ck(/idade < GPS_PAR_PPS_MAX_US/.test(G) && /backlogDescartado\+\+/.test(G), 'C1: o par PPS/NMEA confere idade e descarta backlog');
+  // 2026-09-30: o icone do lider sumia na tela do seguidor porque o servico
+  // envelhecia a frota com um 'agora' ANTERIOR ao carimbo do pacote, e
+  // 'agora - carimbo' em uint32_t dava a volta. Todo calculo de idade no core
+  // passa por tempoDesde() (core/tempo.h); nenhuma subtracao crua pode voltar.
+  {
+    let cruas = [];
+    for (const f of fs.readdirSync(path.join(__dirname, '..', '..', 'firmware', 'mts', 'core'))) {
+      if (f === 'tempo.h') continue;
+      const s = R('firmware/mts/core/' + f).replace(/\/\/.*$/gm, '');
+      for (const m of s.matchAll(/agora(Ms)?\s*-\s*[a-zA-Z_][\w.\[\]]*/g)) cruas.push(f + ': ' + m[0]);
+    }
+    ck(cruas.length === 0, 'core: nenhuma idade calculada com "agora - carimbo" cru (use tempoDesde)' + (cruas.length ? ' -> ' + cruas.join(' | ') : ''));
+    const SV = R('firmware/mts/app/servico.h');
+    const iR = SV.indexOf('redeAtualiza();'), iE = SV.indexOf('frotaEnvelhece(g_frota, agoraFrota)'), iM = SV.indexOf('const uint32_t agoraFrota = millis();');
+    ck(iR > 0 && iM > iR && iE > iM, 'servico: a frota envelhece com o relogio lido DEPOIS do radio');
+  }
   const T = R('firmware/mts/core/tdma.h');
   ck(/#include "\.\.\/tdma_core\.h"/.test(T), 'core/tdma.h inclui o tdma_core.h compartilhado (sem copia)');
   const W = R('firmware/mts/hal/pinos.h');
