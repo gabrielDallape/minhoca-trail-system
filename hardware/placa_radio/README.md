@@ -7,10 +7,15 @@ lá é de 40 × 70; o máximo aceito era 45 × 70). Ela junta:
 - **J2 → P1 da tela** e **J1 → P3 da tela**: JST-PH 2,0 mm, 12 vias, com a mesma
   numeração dos conectores da tela;
 - **J4 → GPS**, por cabo: 2,54 mm, 5 vias;
-- **J3 → entrada de 5,3 V** do step-down que já está no carro: JST-XH 2,54 mm, 2 vias;
+- **J3 → entrada de 5 V** do step-down que já está no carro: JST-XH 2,54 mm, 2 vias.
+  **Ajuste o step-down para 5,0–5,1 V** (medindo com o rádio ligado): o E22 queima acima
+  de 5,5 V, e step-down barato passa uns 20 % do valor ao ligar;
 - o desacoplamento do E22: C1 220 µF + C2 10 µF + C3 100 nF, encostados nos pads 9/10;
-- pull-downs de 10 kΩ em **TXEN** e **RXEN**. Com a tela em reset ou no boot, os pinos
-  dela ficam soltos, e TXEN e RXEN altos ao mesmo tempo danificam o módulo.
+- pull-downs de 10 kΩ em **TXEN** e **RXEN**. Do reset da tela até o firmware assumir,
+  os pinos dela ficam soltos (datasheet do ESP32-P4, tabela 2-1), e os dois resistores
+  seguram o rádio desligado.
+
+O porquê de cada peça, e o que foi descartado, está em **`ESTUDO_PECAS.md`**.
 
 Tudo sai de um script só, `gera_placa.py`, que roda o DRC antes de gerar os arquivos:
 
@@ -78,16 +83,19 @@ marcado** no guia. Os pads foram alongados 0,5 mm para fora para o ferro alcanç
 meio-furo do módulo. Solde primeiro um pad de canto, alinhe o módulo e depois solde os
 outros.
 
-**Não tem cobre debaixo do E22**, de propósito: a placa caseira não tem máscara de solda,
-e qualquer ponto de metal no fundo do módulo encostaria no plano de terra. O preço é que
-o terra de cima (J3, capacitores, pads 11/12) e o de baixo (pads 1–5, P3, GPS) só se juntam
-**por dentro do módulo**, cujos pads de terra são todos o mesmo nó. Os pads 20 e 22 ficam
-como ilhas aterradas só pelo módulo. Por isso o multímetro **só acusa continuidade entre
-os terras depois que o E22 está soldado**.
+**Debaixo do E22 tem cobre de terra**, como o manual da Ebyte pede (E22-M V1.5, §4.1). A
+placa caseira não tem máscara de solda, então **antes de soldar, olhe o fundo do módulo**:
+se for todo verniz (verde ou preto, sem ponto dourado), solde direto. Se tiver algum ponto
+de metal exposto, pinte a área debaixo dele com a mesma tinta da laser e deixe secar.
+Esse cobre também é o que junta o terra de cima com o de baixo da placa.
+Debaixo do módulo, cada pad de sinal tem **1,2 mm** de vão até o terra (o dobro do resto
+da placa): um E22 soldado um pouco torto não encosta o pad no terra. Ver `zoom_vao_e22.png`.
 
 **Antena soldada** (sem usar o IPEX): vivo do cabo no **pad 21**, malha no **pad 22** (ou
 no 20). As quatro trilhas do SPI passam a menos de 1 mm à esquerda do pad 21: desencape
-só ~2 mm e prenda o cabo com cola quente. Não use o IPEX e o pad 21 ao mesmo tempo. O **C2**, o **C3**, o **R1** e o **R2** (1206) também ficam deste lado.
+só ~2 mm e prenda o cabo com cola quente. Não use o IPEX e o pad 21 ao mesmo tempo.
+
+O **C2**, o **C3**, o **R1** e o **R2** (1206) também ficam deste lado.
 
 **Lado dos componentes (sem cobre):** J1, J2, J3, J4 e C1, soldados pelo lado do cobre.
 
@@ -113,9 +121,9 @@ o capacitor antes de soldar.
 | J1, J2 | JST-PH 2,0 mm, 12 vias, THT, vertical | 2 |
 | J3 | JST-XH 2,54 mm, 2 vias, THT | 1 |
 | J4 | barra de pinos 2,54 mm, 5 vias (ou XH 5 vias) | 1 |
-| C1 | 220 µF / 10 V eletrolítico, Ø 6,3 mm, passo 2,5 mm | 1 |
-| C2 | 10 µF cerâmico 1206 | 1 |
-| C3 | 100 nF cerâmico 1206 | 1 |
+| C1 | 220 µF / **16 V** eletrolítico, **105 °C, baixo ESR** (Panasonic EEU-FR1C221), Ø 6,3 mm, passo 2,5 mm. **Não troque por polímero** | 1 |
+| C2 | 10 µF cerâmico 1206 **X7R, 16 ou 25 V** (Murata GRM31CR71C106KAC7L). Não use de 6,3 V | 1 |
+| C3 | 100 nF cerâmico 1206 X7R, 25 V ou mais | 1 |
 | R1, R2 | 10 kΩ 1206 | 2 |
 | — | antena 915 MHz com cabo coaxial (soldado nos pads 21/22) | 1 |
 | — | 2 cabos PH2.0 12 vias "mesmo sentido", cabo para o GPS, fio para os jumpers | — |
@@ -139,5 +147,6 @@ o capacitor antes de soldar.
 3. Continuidade de cada pino do J1/J2 até o pad certo do E22, conferindo pela
    `conferencia_redes.png`. Nos pinos 1/2 do J1, 5–7/9/10/12 do J2: nada ligado.
 4. TXEN (J2 pino 1) e RXEN (J1 pino 7) até o GND: **~10 kΩ**, que são os pull-downs.
-5. **Ligue a antena antes de dar 5 V.**
-6. Primeiro boot a **10 dBm** (14 dBm resetou a FaustoA).
+5. **Step-down em 5,0–5,1 V**, medido antes de ligar no J3.
+6. **Ligue a antena antes de dar 5 V.**
+7. Primeiro boot a **10 dBm** (14 dBm resetou a FaustoA).
