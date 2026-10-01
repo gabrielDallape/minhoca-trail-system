@@ -1,4 +1,4 @@
-# Placa do rádio — MTS E22 v1
+# Placa do rádio — MTS E22 v2
 
 Placa de face simples, **40 × 70 mm**, que vai colada atrás da tela de 7" (o espaço livre
 lá é de 40 × 70; o máximo aceito era 45 × 70). Ela junta:
@@ -19,7 +19,9 @@ python gera_placa.py
 ```
 
 O DRC exige folga ≥ 0,4 mm entre redes, toda rede inteira (contando os jumpers) e cada
-pino na rede certa. A última execução mediu **folga mínima de 0,45 mm** e deu **DRC OK**.
+pino na rede certa. Ele também confere a **mecânica**: as carcaças reais dos conectores
+(medidas do footprint oficial do KiCad) não podem encostar umas nas outras nem cobrir furo
+de jumper, e nenhum nome gravado pode ficar debaixo de carcaça ou em cima de furo. A última execução mediu **folga mínima de 0,45 mm** e deu **DRC OK**.
 
 ## Arquivos (`saida/`)
 
@@ -27,9 +29,12 @@ pino na rede certa. A última execução mediu **folga mínima de 0,45 mm** e de
 |---|---|
 | `laser_queimar.png` / `.dxf` / `.svg` | **o que a laser queima** (preto = tira a tinta, o ácido come o cobre). PNG a 1200 dpi em escala 1:1 |
 | `cobre.png` / `.svg` | o cobre que fica, só para conferir |
-| `montagem.png` | os dois lados: onde vai cada peça e cada jumper |
+| `laser_serigrafia.png` / `.dxf` / `.svg` | **os nomes de cada fio**, gravados no lado SEM cobre (ver abaixo). Já vem espelhado, 40 × 70 exato |
+| **`guia_1_conectores.png`** | **montagem do lado dos conectores**: onde vai cada peça, o pino 1, os jumpers JP2 e JP4 |
+| **`guia_2_lado_do_cobre.png`** | **montagem do lado do cobre**: o E22 (e o pino 1 dele), C2, C3, R1, R2 e o fio do JP3 |
+| **`guia_3_ligacoes.png`** | **o que liga em quê**: cada pino do P1/P3 da tela, o GPS fio por fio, o step-down, a antena |
 | `conferencia_redes.png` | cada rede numa cor, para conferir contra o esquema |
-| `furos.csv` | posição (vista pelo lado do cobre), broca e descrição dos 41 furos |
+| `furos.csv` | posição (vista pelo lado do cobre), broca e descrição dos 37 furos |
 | `regua_100mm.png` | régua de 100 mm: grave antes e meça para conferir a escala da laser |
 
 ## Fabricação
@@ -45,26 +50,45 @@ pino na rede certa. A última execução mediu **folga mínima de 0,45 mm** e de
 5. Corte a placa **em cima da linha de corte** gravada em volta (0,3 mm sem cobre).
 6. Fure seguindo o `furos.csv`. Cada pad tem um furinho de 0,6 mm sem cobre no centro,
    que serve de guia para a broca:
-   - **0,8 mm**: J1, J2 e os jumpers. O lado B do JP3 usa **0,7 mm**;
+   - **0,8 mm**: J1, J2 e os jumpers JP2 e JP4. O JP3 não tem furo;
    - **0,9 mm**: J4 (GPS) e C1;
    - **1,0 mm**: J3.
 
+## Gravar os nomes (lado sem cobre)
+
+Depois de furar e cortar em 40 × 70, vire a placa e grave a `laser_serigrafia` no lado
+sem cobre. É ali que os cabos encaixam, e cada pino fica com o nome do fio do lado.
+No cobre os nomes não cabem: o passo do conector é 2 mm, e o ácido come letra de cobre
+menor que ~1,2 mm.
+
+- O arquivo já está espelhado e tem o tamanho exato da placa. Encoste a placa no canto
+  da laser e confira com a função de enquadrar (frame) antes de gravar.
+- Dá para gravar direto na fibra, que escurece. Para mais contraste, pinte esse lado: a
+  laser tira a tinta nas letras e a tinta fica como fundo.
+- O ▶ ao lado do J1 e do J2 marca o **pino 1**.
+- Os nomes estão em pé: vire a cabeça para a esquerda para ler.
+
 ## Montagem
 
-**Lado do cobre:** o **E22**. Os pads foram alongados 0,5 mm para fora para o ferro
-alcançar o meio-furo do módulo. Solde primeiro um pad de canto, alinhe o módulo e depois
-solde os outros. O **C2**, o **C3**, o **R1** e o **R2** (1206) também ficam deste lado.
+Siga os guias: `guia_2_lado_do_cobre.png` primeiro, depois `guia_1_conectores.png`.
 
-**Lado dos componentes (sem cobre):** J1, J2, J3, J4 e C1, soldados por baixo.
+**Lado do cobre:** o **E22**, virado com a etiqueta para fora e o **pino 1 no canto
+marcado** no guia. Os pads foram alongados 0,5 mm para fora para o ferro alcançar o
+meio-furo do módulo. Solde primeiro um pad de canto, alinhe o módulo e depois solde os
+outros. O **C2**, o **C3**, o **R1** e o **R2** (1206) também ficam deste lado.
 
-**4 jumpers** (fio fino encapado, do lado dos componentes, posições na `montagem.png`):
+**Lado dos componentes (sem cobre):** J1, J2, J3, J4 e C1, soldados pelo lado do cobre.
 
-| Jumper | Rede | Observação |
-|---|---|---|
-| JP1 | TXEN | o mais comprido (~42 mm): passa por cima do módulo, use fio **encapado** |
-| JP2 | BUSY | passa por cima do DIO1 |
-| JP3 | SCK | passa por cima do MOSI |
-| JP4 | GND | junta os dois lados do plano de terra. **Sem ele a placa não funciona** |
+**3 jumpers** de fio fino encapado:
+
+| Jumper | Rede | Lado | Observação |
+|---|---|---|---|
+| JP2 | BUSY | conectores | passa por cima do DIO1 |
+| JP3 | SCK | **cobre** | soldado **deitado** nos dois pads, que não têm furo. Um furo cairia debaixo da carcaça do J1 |
+| JP4 | GND | conectores | fio curto: junta os dois lados do plano de terra. **Sem ele a placa não funciona** |
+
+O TXEN não tem mais jumper: a trilha contorna a placa pela borda. Na versão anterior o
+jumper passava por cima do J2 e o cabo do P1 não encaixaria.
 
 O C1 (eletrolítico de 6,3 mm) é a peça mais alta. Se faltar altura atrás da tela, deite
 o capacitor antes de soldar.
@@ -89,8 +113,10 @@ o capacitor antes de soldar.
 - **J2 ↔ P1** e **J1 ↔ P3**: cabo PH2.0 de 12 vias, **pino 1 com pino 1**. Antes de
   ligar, confira com o multímetro em continuidade. Um cabo "invertido" leva o 3,3 V da tela
   (P3 pino 12) ao pino 1 da placa e troca todos os sinais de lugar.
-- **GPS (J4)**, na ordem da placa: **TX, RX, PPS, GND, 3V3**. Marque cada fio. O TX do
-  GPS entra no IO4 da tela pelo J1 pino 8, e o PPS vai no pino 10.
+- **GPS (J4)**: cada fio vai no **nome igual** gravado na placa (TXD, RXD, PPS, GND,
+  VCC: os mesmos nomes impressos no GPS). A ordem da placa **não** é a do GPS, então um
+  cabo de 5 vias reto não serve: ligue fio por fio. O TXD do GPS entra no IO4 da tela
+  pelo J1 pino 8, e o PPS vai no pino 10.
 - **J3**: + e − estão gravados no cobre. O XH tem trava e não entra invertido.
 
 ## Antes de energizar (multímetro)
