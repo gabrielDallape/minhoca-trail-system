@@ -87,6 +87,13 @@ static void statusTexto(char* fora, size_t n)
   if (!t.haveAnchor) strcpy(fonte, "ninguem");
   else if (t.isAnchor) strcpy(fonte, "EU");
   else snprintf(fonte, sizeof(fonte), "slot %u%s", t.anchorSrc, t.anchorSrcPps ? " UTC" : "");
+#if MTS_TEM_RADIO
+  if (g_rede.ok && !g_rede.txEmVoo) {
+    int dio1; uint32_t fl; radioHwDiag(dio1, fl);
+    ACUM(u, fora, n, "[dio1] pino=%d eventos no chip=0x%04lX | chip %s | vigia pegou TX sem IRQ: %lu (com o pino ALTO: %lu)\n", dio1, (unsigned long)fl,
+         radioHwConfigOk() ? "configurado" : "DE FABRICA", (unsigned long)g_rede.txSemIrq, (unsigned long)g_rede.txSemIrqPinoAlto);
+  }
+#endif
   ACUM(u, fora, n, "[rede] slot=%u sinc=%s%s fonte=%s | pwr=%d dBm (~%d) cfg=%d%s | tx=%lu perdi=%lu preso=%lu | "
                 "rx=%lu ruim=%lu outraSala=%lu conflito=%lu versao=%lu | rssi=%.0f snr=%.1f | ruido=%.0f | air=%lu/%lu\n",
                 t.nodeId, sinc, t.holdover ? " HOLDOVER" : "", fonte, redePotencia(), radioHwPotenciaAntena(redePotencia()),
@@ -96,6 +103,25 @@ static void statusTexto(char* fora, size_t n)
                 (unsigned long)g_frota.versaoErrada, g_rede.rxRssi, g_rede.rxSnr, g_rede.ruidoUlt,
                 (unsigned long)g_rede.txAirUltUs, (unsigned long)REDE_AIRTIME_US);
 #endif
+  {
+    // [trilha] O QUE A TELA DA TRILHA MOSTRARIA - pelas mesmas funcoes do mapa
+    // (frotaParaDesenhar) e da rota. Para testar por cabo, sem olhar a tela.
+    const uint32_t ag = millis();
+    const int li = frotaLider(g_frota);
+    bool des = false, vz = false; double la, lo;
+    if (li > 0) des = frotaParaDesenhar(g_frota.c[li], ag, la, lo, vz);
+    int vaos = 0;
+    for (int i = 1; i < g_rotaC.n; i++)
+      if (rotaVaoAntes(g_rotaC, i) && !(g_rotaC.temPiso && g_rotaC.p[i].vseq <= g_rotaC.pisoV)) vaos++;
+    int idx[4]; const int nv = vizinhosOrdena(g_viz, idx, 4);
+    ACUM(u, fora, n, "[trilha] %s %s | carros %d | lider %s%s%s | rota %d pts %d vaos ack %u topo %u | meu rastro %d pts | grupos no ar %d%s%s%s\n",
+         g_ses.ativa ? g_ses.gNome : "(sem grupo)", g_frota.c[0].lider ? "LIDER" : "segue", frotaQuantos(g_frota),
+         li > 0 ? (des ? "DESENHADO" : "na frota mas NAO desenhado") : "-", vz ? " vazado" : "",
+         (li > 0 && g_frota.c[li].semGps) ? " SEM GPS" : "",
+         g_rotaC.n, vaos, (unsigned)rotaAck16(g_rotaC), (unsigned)rotaTopo16(g_rotaC), g_traj.n,
+         nv, nv ? ": " : "", nv ? (g_viz.g[idx[0]].temNome ? g_viz.g[idx[0]].nome : "(nome a caminho)") : "",
+         (nv && g_viz.g[idx[0]].temLider) ? " LIDER NO AR" : "");
+  }
   ACUM(u, fora, n, "[log] %s | %lu linhas | %lu KB | perdidas=%lu | flushes=%lu pior=%lu us adiados=%lu | laco pior=%lu us negados=%lu estouros=%lu | rota %d pts prefixo %d catchups %lu | relogioVoltou %lu\n",
                 registroAtivo() ? "gravando" : "PARADO", (unsigned long)g_reg.anel.linhas, (unsigned long)(g_reg.bytesGravados / 1024),
                 (unsigned long)g_reg.anel.descartadas, (unsigned long)g_reg.flushes, (unsigned long)g_reg.piorFlushUs,
@@ -193,7 +219,31 @@ static void serialComandos()
     if (c == 's' || c == 'S') { esperandoSlot = true; continue; }
     if (c == 'x' || c == 'X') { sessaoEncerra(); Serial.println("sessao descartada - sala neutra"); if (g_estado == EST_INICIAL) desenhaInicial(tft); continue; }
     if (c == 'a' || c == 'A') { g_frota.c[0].alerta = !g_frota.c[0].alerta; Serial.printf("alerta %s\n", g_frota.c[0].alerta ? "LIGADO" : "desligado"); continue; }
-    if (c == 'd' || c == 'D') { char b[1200]; statusTexto(b, sizeof(b)); Serial.print(b); continue; }
+    if (c == 'd' || c == 'D') { char b[1400]; statusTexto(b, sizeof(b)); Serial.print(b); continue; }
+    // BANCADA POR CABO: CRIAR+ABRIR e ENTRAR pela lista, pelas MESMAS funcoes dos
+    // toques (app/sessao.h). A tela fica na inicial (a da trilha so desenha); a
+    // linha [trilha] do status ('d') diz o que ela mostraria.
+    if ((c == 'c' || c == 'C') && g_estado == EST_INICIAL) {
+      char gc[8], gn[GRUPO_NOME_MAX];
+      snprintf(gc, sizeof(gc), "%05lu", (unsigned long)(esp_random() % 90000 + 10000));
+      snprintf(gn, sizeof(gn), "Grupo do %s", g_cfg.nome);
+      sessaoCriaSala(gc); sessaoAbreComoLider(gn, gc); sessaoComecaTrilha();
+      Serial.printf("bancada: CRIOU %s (codigo %s) - LIDER, trilha aberta\n", gn, gc);
+      desenhaInicial(tft);
+      continue;
+    }
+    if ((c == 'e' || c == 'E') && g_estado == EST_INICIAL) {
+      int idx[4]; const int nv = vizinhosOrdena(g_viz, idx, 3);
+      if (!nv) { Serial.println("bancada: nenhum grupo no ar para entrar"); continue; }
+      const GrupoNoAr& gr = g_viz.g[idx[0]];
+      char cod[8], nome[GRUPO_NOME_MAX];
+      snprintf(cod, sizeof(cod), "#%04X", (unsigned)gr.sala);
+      if (gr.temNome) snprintf(nome, sizeof(nome), "Grupo de %s", gr.nome); else snprintf(nome, sizeof(nome), "Grupo %04X", (unsigned)gr.sala);
+      sessaoEntra(cod, nome); sessaoComecaTrilha();
+      Serial.printf("bancada: ENTROU em %s (%s)\n", nome, cod);
+      desenhaInicial(tft);
+      continue;
+    }
     if (esperandoSlot && c >= '0' && c <= '9') {
       esperandoSlot = false;
       uint8_t novo = c - '0';
@@ -265,7 +315,7 @@ void loop()
   otaNuvemChecar();     // so aqui, na tela inicial
 #endif
   static uint32_t tRel = 0;
-  if (millis() - tRel > 5000) { tRel = millis(); char b[1200]; statusTexto(b, sizeof(b)); Serial.print(b); }
+  if (millis() - tRel > 5000) { tRel = millis(); char b[1400]; statusTexto(b, sizeof(b)); Serial.print(b); }
 
   int16_t x, y;
   if (!esperaToque(tft, x, y, 400)) return;

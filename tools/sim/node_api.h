@@ -65,7 +65,7 @@ static void simEventos()
   if (s_chip.emTx && s_us >= s_chip.txFimLocal) {
     s_chip.emTx = false;
     s_chip.flags |= RADIOLIB_SX126X_IRQ_TX_DONE;
-    g_loraIrqUs = s_chip.txFimLocal; g_loraIrq = true;
+    if (!s_chip.dio1Morto) { g_loraIrqUs = s_chip.txFimLocal; g_loraIrq = true; }
   }
   if (g > s_ultColetaG) {
     std::vector<ar::Rx> v;
@@ -73,13 +73,14 @@ static void simEventos()
     s_ultColetaG = g;
     for (auto& r : v) s_filaRx.push_back(r);
   }
-  if (!g_loraIrq && !s_chip.emTx && !s_filaRx.empty()) {
+  // com o DIO1 morto o chip guarda o pacote e acende a flag, mas a ISR nao roda
+  if (!g_loraIrq && !s_chip.emTx && !s_filaRx.empty() && !(s_chip.flags & RADIOLIB_SX126X_IRQ_RX_DONE)) {
     ar::Rx r = s_filaRx.front(); s_filaRx.pop_front();
     s_chip.pktN = (int)r.b.size();
     memcpy(s_chip.pkt, r.b.data(), r.b.size());
     s_chip.rssi = r.rssi; s_chip.snr = r.snr;
     s_chip.flags |= RADIOLIB_SX126X_IRQ_RX_DONE;
-    g_loraIrqUs = simLocal(r.fimG); g_loraIrq = true;
+    if (!s_chip.dio1Morto) { g_loraIrqUs = simLocal(r.fimG); g_loraIrq = true; }
   }
   while (s_proxSegG <= g) {
     const uint64_t b = s_proxSegG;
@@ -163,6 +164,7 @@ static void simApi_passo()
 // SX1262 de verdade. Quem tem de perceber e reconfigurar e o FIRMWARE.
 static void simApi_energiaRadio(bool liga) { s_chip.energia = liga; if (!liga) { s_chip.configurado = false; s_chip.emTx = false; } }
 static void simApi_gpsFix(bool f) { s_gpsFix = f; }
+static void simApi_dio1Morto(bool m) { s_chip.dio1Morto = m; }
 static void simApi_criar(const char* cod) { strncpy(s_salaCod, cod, sizeof(s_salaCod) - 1); sessaoCriaSala(cod); }
 static void simApi_abrir()
 {

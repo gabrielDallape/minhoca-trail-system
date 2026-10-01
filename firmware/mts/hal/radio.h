@@ -225,6 +225,11 @@ inline bool radioHwRebegin(int8_t pwr)
 // GetPacketType custa um comando SPI: configurado = LoRa (0x01); de fabrica = 0x00.
 inline bool radioHwConfigOk() { return g_lora.getPacketType() == RADIOLIB_SX126X_PACKET_TYPE_LORA; }
 
+// DIAGNOSTICO: o nivel do pino DIO1 AGORA e os eventos pendentes no chip (SPI).
+// Separa "a linha ficou alta com um evento parado" (ninguem limpou) de "o chip
+// tem o evento mas o pino nao sobe" (o sinal nao chega a placa).
+inline void radioHwDiag(int& dio1, uint32_t& flags) { dio1 = digitalRead(PIN_LORA_DIO1); flags = g_lora.getIrqFlags(); }
+
 // ------------------------------------------------------------------- TX
 // O BUSY PRECISA ESTAR BAIXO ANTES DE MANDAR TRANSMITIR (armadilha 10). 5 ms e
 // folga larga: apos um comando o SX1262 solta o BUSY em dezenas de us; a espera

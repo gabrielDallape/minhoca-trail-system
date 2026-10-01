@@ -558,6 +558,27 @@ static void cen_entra_tarde()
   for (int i = 0; i < 2; i++) NOS[i]->fecha();
 }
 
+// 14) O DIO1 DO LIDER MORRE (a FaustoA na bancada de 2026-10-01): o chip termina o
+//     TX e recebe pacotes, mas o pino nao avisa a placa. A tela tem de perceber,
+//     passar a consultar o chip pelo SPI e continuar recebendo.
+static void cen_dio1_morto()
+{
+  comeca("dio1_morto", 2);
+  const char* nomes[] = { "FaustoA", "gino" };
+  basePar(30, 80);
+  em(150, []() { NOS[0]->dio1Morto(true); });
+  Taxa carrosL, icone;
+  roda(600, [&](double t) {
+    if (t > 240) { carrosL.conta(obs(0).carros == 2); icone.conta(obs(1).liderDesenhado); }
+  });
+  NoObs f = obs(0), g = obs(1);
+  ck(carrosL.pct() >= 97.0, "com o DIO1 morto, o lider CONTINUA recebendo (ve o seguidor)", fmt("%.1f%%", carrosL.pct()));
+  ck(icone.ok == icone.n, "o seguidor continua vendo o lider todos os segundos", fmt("%d de %d s", icone.ok, icone.n));
+  ck(g.rotaVaos == 0 && (int16_t)(f.trajHead - g.ack) <= 12, "o caminho segue inteiro e em dia", fmt("vaos %d head %u ack %u", g.rotaVaos, f.trajHead, g.ack));
+  resumoAr(2, nomes);
+  for (int i = 0; i < 2; i++) NOS[i]->fecha();
+}
+
 // ============================================================ main
 int main(int argc, char** argv)
 {
@@ -568,7 +589,7 @@ int main(int argc, char** argv)
     { "grupos_trocados", cen_grupos_trocados }, { "tres_carros", cen_tres_carros },
     { "gps_perde", cen_gps_perde }, { "alerta", cen_alerta }, { "trilha_longa", cen_trilha_longa },
     { "perda_pesada", cen_perda_pesada }, { "quatro_carros", cen_quatro_carros }, { "rapido", cen_rapido },
-    { "entra_tarde", cen_entra_tarde },
+    { "entra_tarde", cen_entra_tarde }, { "dio1_morto", cen_dio1_morto },
   };
   // "todos": CADA CENARIO NUM PROCESSO NOVO. As telas simuladas sao o firmware
   // inteiro, com NVS, sessao gravada e variaveis static - rodar um cenario depois

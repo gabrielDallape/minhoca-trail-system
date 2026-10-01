@@ -79,6 +79,10 @@
 // A cada tanto, fora de TX, pergunta ao chip se ele ainda esta configurado
 // (radioHwConfigOk): um E22 que reiniciou sozinho volta de fabrica e fica surdo.
 #define RADIO_CONFERE_MS   5000UL
+// DIO1 que nao avisa: depois de tantos TX SEGUIDOS terminados sem interrupcao (o
+// vigia teve de perguntar ao chip), a rede passa a CONSULTAR os eventos do chip
+// pelo SPI a cada volta (app/rede.h, modo consulta).
+#define RADIO_SEM_DIO1_TX  3
 
 // ------------------------------------------------------------- trajeto / rota
 // PASSO DE 10 m (era 5). A conta que manda: o pacote leva TRILHA_PONTOS_PKT

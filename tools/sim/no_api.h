@@ -42,4 +42,5 @@ struct NoApi {
   void     (*obs)(NoObs&);
   void     (*fecha)();
   void     (*alerta)(bool);             // o botao de ALERTA da trilha
+  void     (*dio1Morto)(bool);          // o sinal do DIO1 deixa de chegar a placa
 };

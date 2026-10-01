@@ -88,6 +88,11 @@ struct Rede {
   // contadores
   uint32_t txPreso;
   uint32_t chipReiniciou;      // o chip voltou de fabrica sozinho (queda do 5 V entre dois TX)
+  uint32_t txSemIrq;           // TX que terminou e o DIO1 NAO avisou (o vigia perguntou ao chip)
+  uint32_t txSemIrqPinoAlto;   // ... e o pino DIO1 ESTAVA ALTO (o sinal chegou; a interrupcao nao disparou)
+  uint8_t  txSemIrqSeguidos;   // TX SEGUIDOS sem interrupcao (zera no primeiro que avisar)
+  bool     modoConsulta;       // DIO1 nao chega: os eventos do chip sao lidos pelo SPI a cada volta
+  bool     txPeloVigia;        // o TX_DONE desta volta foi FORCADO pelo vigia (nao veio do DIO1)
   uint32_t rxOk, rxRuim, rxForaDaSala, rxTamanho;
   float    rxRssi, rxSnr;
   bool     seqTem[FROTA_MAX_CARROS];
@@ -518,7 +523,23 @@ inline void redeAtualiza()
   //    parado mais que o vigia, um TX que COMPLETOU chega aqui parecendo travado.
   //    E se o chip diz que terminou mas a ISR nao correu, assume-se o evento.
   bool venceu = r.txEmVoo && (agora - r.txDesdeMs > RADIO_VIGIA_MS) && !g_loraIrq;
-  if (venceu && radioHwTxDoneNoChip()) { radioHwIrqForca(relogioUs()); venceu = false; }
+  if (venceu && radioHwTxDoneNoChip()) {
+    // o chip TEM o TX_DONE pendente: o pino DIO1 deveria estar alto AGORA
+    int dio1; uint32_t fl; radioHwDiag(dio1, fl);
+    if (dio1) r.txSemIrqPinoAlto++;
+    radioHwIrqForca(relogioUs()); venceu = false; r.txSemIrq++; r.txPeloVigia = true;
+    // MODO CONSULTA (2026-10-01, a tela FaustoA na bancada): o chip terminava o TX
+    // e o pino DIO1 da placa ficava em 0 - o sinal nao chegava ao GPIO. Sem a
+    // interrupcao a tela transmitia mas NAO RECEBIA NADA, e so o vigia via o fim de
+    // cada TX, 617 ms depois. Em vez de ficar surda, ela passa a perguntar ao chip.
+    if (!r.modoConsulta && ++r.txSemIrqSeguidos >= RADIO_SEM_DIO1_TX) {
+      r.modoConsulta = true;
+      Serial.printf("rede: *** o DIO1 do radio NAO AVISA (%u TX seguidos, pino %s) - MODO CONSULTA pelo SPI ***\n",
+                    (unsigned)r.txSemIrqSeguidos, dio1 ? "alto" : "baixo");
+      registroLinha("!,%lu,radio sem DIO1 - modo consulta,pino %d", (unsigned long)agora, dio1);
+      avisoDefine("RADIO SEM DIO1 - CONFERIR O FIO (funcionando por consulta)");
+    }
+  }
   if (venceu) {
     r.txEmVoo = false;
     r.txPreso++;
@@ -556,12 +577,22 @@ inline void redeAtualiza()
   //     agora. E o valor do USUARIO, nunca um recuo.
   if (!r.txEmVoo && g_rhw.pwr != r.pwrConfig) redeAplicaPotencia(r.pwrConfig);
 
-  // 3) o que o radio tem a dizer
+  // 3) o que o radio tem a dizer. No MODO CONSULTA (DIO1 nao chega), pergunta ao
+  //    chip pelo SPI se ha evento - o carimbo vira 'agora' (a latencia e uma volta
+  //    do laco, poucos ms: a guarda do TDMA e de 20).
+  if (r.modoConsulta && !g_loraIrq) {
+    const uint32_t fl = radioHwIrqFlags();
+    if (fl & (RADIOLIB_SX126X_IRQ_TX_DONE | RADIOLIB_SX126X_IRQ_RX_DONE)) radioHwIrqForca(relogioUs());
+  }
   uint64_t irqUs;
   if (radioHwIrqPega(irqUs)) {
     uint32_t flags = radioHwIrqFlags();
     if (flags & RADIOLIB_SX126X_IRQ_TX_DONE) {
       r.txEmVoo = false;
+      // so o DIO1 de verdade acaba a serie - o TX_DONE forcado pelo vigia passa por
+      // aqui tambem, e zerar nele impedia o modo consulta de ligar (simulador, dio1_morto)
+      if (!r.txPeloVigia && !r.modoConsulta) r.txSemIrqSeguidos = 0;
+      r.txPeloVigia = false;
       radioHwFimTx();
       // LINHA T: o air-time MEDIDO (startTransmit -> TX_DONE), o numero de que o
       // slot inteiro depende. Se vier acima de airtimeUs(len), AIRTIME_EXTRA_US esta curto.
