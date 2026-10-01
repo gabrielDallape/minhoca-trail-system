@@ -41,6 +41,8 @@
 #include "app/wifi_ota.h"
 #endif
 #include "app/servico.h"
+#include "app/sessao.h"
+#include "app/boot.h"
 #include "esp_system.h"
 #include "esp_rom_sys.h"
 #include "esp_random.h"
@@ -51,24 +53,10 @@
 LGFX_P4     tft;
 LGFX_Sprite g_cv(&tft);        // o quadro do mapa: criado UMA vez no boot, na PSRAM
 static bool g_temSprite = false;
-static CaixaPreta g_caixaAnterior;
 
 // chamados pelas telas quando o usuario troca tema/zoom (nunca por quadro)
 void salvaTema() { g_cfg.tema = g_tema; nvsGravaUChar("theme", g_cfg.tema); }
 void salvaZoom() { nvsGravaUChar("zoom", g_cfg.zoom); }
-
-static void sessaoEncerra()
-{
-  g_ses.ativa = false; g_ses.gNome[0] = 0; g_ses.gCod[0] = 0;
-  nvsGravaSessao(g_ses);
-  redeTrocaSala("SEMSALA");        // sai do grupo = sai da sala: para de falar nele
-  frotaLimpaOutros(g_frota);
-  rotaLimpaCore(g_rotaC);
-  // Fora do grupo eu nao guio nem peco socorro: sem isto o aparelho seguia
-  // anunciando LIDER (e talvez ALERTA) na sala neutra.
-  g_frota.c[0].lider = false;
-  g_frota.c[0].alerta = false;
-}
 
 // ---------------------------------------------------------------- telemetria
 // snprintf ACUMULADO que nunca passa do fim. O retorno do snprintf e o que ele
@@ -166,34 +154,10 @@ static void desenhaOta(int pct)
 }
 #endif
 
-// ---------------------------------------------------------------- caixa-preta
-static void relataCaixa(const CaixaPreta& c, esp_reset_reason_t motivo, bool paraLog)
-{
-  const int rom = (int)esp_rom_get_reset_reason(0);
-  if (paraLog) {
-    registroLinha("C,%lu,motivo %d,rom 0x%02X,seguidos %lu,etapa %s,antes %s,ha %lu ms,ultimoMs %lu,tx %lu,rx %lu,presos %lu,flushes %lu,utc %lu,pwr %d,txTipo %c,txHa %lu ms",
-                  (unsigned long)millis(), (int)motivo, rom, (unsigned long)c.resetsViolentos,
-                  caixaNomeEtapa(c.etapa), caixaNomeEtapa(c.etapaAnt), (unsigned long)(c.ultimoMs - c.etapaMs),
-                  (unsigned long)c.ultimoMs, (unsigned long)c.txCount, (unsigned long)c.rxCount, (unsigned long)c.presos,
-                  (unsigned long)c.flushes, (unsigned long)c.utc, (int)c.pwr, c.txTipo ? (char)c.txTipo : '-',
-                  (unsigned long)(c.txTipo ? (c.ultimoMs - c.txDesdeMs) : 0));
-    return;
-  }
-  Serial.printf("\n*** CAIXA-PRETA: o boot anterior morreu (motivo %d, rom 0x%02X, %lu seguidos) ***\n", (int)motivo, rom, (unsigned long)c.resetsViolentos);
-  Serial.printf("***   etapa em curso: %s (antes: %s), iniciada ha %lu ms; ultima volta em %lu ms\n",
-                caixaNomeEtapa(c.etapa), caixaNomeEtapa(c.etapaAnt), (unsigned long)(c.ultimoMs - c.etapaMs), (unsigned long)c.ultimoMs);
-  Serial.printf("***   tx=%lu rx=%lu presos=%lu flushes=%lu utc=%lu pwr=%d tx em voo=%c ha %lu ms\n",
-                (unsigned long)c.txCount, (unsigned long)c.rxCount, (unsigned long)c.presos, (unsigned long)c.flushes,
-                (unsigned long)c.utc, (int)c.pwr, c.txTipo ? (char)c.txTipo : '-', (unsigned long)(c.txTipo ? (c.ultimoMs - c.txDesdeMs) : 0));
-  Serial.println("***   motivo: 4=PANIC 5=INT_WDT 6=TASK_WDT 7=outro WDT (LP/RTC/super) 9=BROWNOUT 14=PWR_GLITCH");
-  Serial.println("***   rom (P4): 0x07 MWDT 0x09/0x0D RWDT 0x0F brownout 0x10 LP_WDT 0x12 super WDT 0x13 glitch 0x1B PSDET\n");
-}
-
 // ---------------------------------------------------------------- trilha
 static void rodaTrilha()
 {
-  g_frota.c[0].lider = g_ses.lider;
-  g_frota.c[0].alerta = false;        // pedido de socorro nao atravessa sessoes
+  sessaoComecaTrilha();
   estadoVai(EST_TRILHA);
   if (telaTrilha(tft, g_cv, g_temSprite, g_ses)) {
     estadoVai(EST_SAIR);
@@ -251,56 +215,13 @@ void setup()
   Serial.printf("\n=== MTS - Minhoca Trail System (fw v%d, proto v%d, quadro %d s x %d slots) ===\n",
                 MTS_VERSAO, PROTO_VERSAO, TDMA_FRAME_S, TDMA_SLOTS);
 
-#if MTS_TEM_GPS
-  // ANTES do painel: a primeira fixacao e o gargalo de ligar o aparelho.
-  gpsInicia();
-  Serial.printf("gps: Serial1 a %d bps (RX=%d TX=%d PPS=%d)\n", GPS_BAUD, PIN_GPS_RX, PIN_GPS_TX, PIN_GPS_PPS);
-#endif
-
-  char relatoCfg[96];
-  configCarrega(relatoCfg, sizeof(relatoCfg));
-  if (relatoCfg[0]) Serial.println(relatoCfg);
+  // Tudo que nao e tela, na ordem certa (app/boot.h) - o simulador chama o mesmo.
+  appBootNucleo();
   aplicaTema(g_cfg.tema);
-  frotaInicia(g_frota);
-  frotaIdentidade(g_frota, g_cfg.nome, g_cfg.cor, g_cfg.slot);
-  rotaLimpaCore(g_rotaC);
-  orcamentoInicia(g_orc);
-
-  // CAIXA-PRETA DO BOOT ANTERIOR: le antes de qualquer coisa que possa demorar,
-  // e decide o modo seguro ANTES de o radio subir.
-  const esp_reset_reason_t motivoBoot = esp_reset_reason();
-  uint32_t violentos = 0;
-  const bool temCaixa = caixaBoot(motivoBoot, g_caixaAnterior, violentos);
-  // Depois do caixaBoot: a epoca grava na NVS, e o carimbo CP_NVS nao pode cair
-  // na caixa do boot anterior antes de ela ser lida.
-  trajetoInicia(g_traj, nvsProximaEpoca((uint8_t)(esp_random() & 0xFF)));   // epoca nova a cada boot
-  if (temCaixa) relataCaixa(g_caixaAnterior, motivoBoot, false);
-  else if (caixaMotivoViolento(motivoBoot))
-    Serial.printf("*** o boot anterior morreu (motivo %d, rom 0x%02X) e a caixa-preta nao estava valida ***\n",
-                  (int)motivoBoot, (int)esp_rom_get_reset_reason(0));
-  // ALARME DE REINICIOS: so avisa. A potencia continua a do usuario.
-  bool seguro = false;
-  if (violentos >= RADIO_SEGURO_APOS) {
-    seguro = true;
-    char av[64];
-    snprintf(av, sizeof(av), "%lu REINICIOS SEGUIDOS - CONFERIR O 5V DO RADIO", (unsigned long)violentos);
-    avisoDefine(av);
-    Serial.printf("rede: *** %s (potencia %d dBm, NAO alterada) ***\n", av, (int)g_cfg.pwr);
-  }
-
-  Serial.printf("wdt: %s (%d s, loopTask)\n", wdtInicia() ? "ativo" : "NAO configurou", WDT_TIMEOUT_S);
-
 #if MTS_TEM_WIFI
   g_otaDesenha = desenhaOta; g_statusTexto = statusTexto; g_diagQuery = diagQuery;
   wifiInicia();
 #endif
-
-  // O radio sobe AQUI, nao ao entrar na trilha: estar no ar e estado do aparelho.
-  // ATENCAO: daqui em diante ele TRANSMITE quando chegar o slot. Antena antes.
-  {
-    Sessao s0; nvsLeSessao(s0);
-    redeInicia(g_cfg.slot, s0.ativa ? s0.gCod : "SEMSALA", g_cfg.pwr, seguro);
-  }
 
   if (!tft.init()) { Serial.println("ERRO: painel nao inicializou."); while (true) { delay(1000); wdtAlimenta(); } }
   telaTamanho(tft.width(), tft.height());
@@ -322,29 +243,12 @@ void setup()
     Serial.printf("mapa: %s%s | leitura %s | psram livre %u\n", g_fundo.temVec ? "vetor " : "", g_fundo.temDem ? "relevo" : "",
                   g_sd.multi ? "multi-setor" : "setor a setor (lenta)", (unsigned)ESP.getFreePsram());
   }
-  {
-    uint32_t bootId = nvsIncrementaBoots();
-    if (registroInicia(redeUtc(), bootId)) Serial.printf("log: %s\n", registroCaminho());
-    else Serial.println("log: NAO ABRIU - o teste vai voltar sem dado (confira o cartao)");
-    registroLinha("!,%lu,boot,%s,slot %d,pwr %d,motivo %d,rom 0x%02X,pwrCfg %d,seguro %d,fw %d,proto %d,epoca %u,cfgv %u",
-                  (unsigned long)millis(), g_cfg.nome, (int)g_cfg.slot, (int)redePotencia(), (int)motivoBoot,
-                  (int)esp_rom_get_reset_reason(0), (int)g_cfg.pwr, seguro ? 1 : 0, (int)MTS_VERSAO, (int)PROTO_VERSAO,
-                  (unsigned)g_traj.epoca, (unsigned)g_cfgEsquema);
-    if (relatoCfg[0]) registroLinha("!,%lu,%s", (unsigned long)millis(), relatoCfg);
-    if (temCaixa) relataCaixa(g_caixaAnterior, motivoBoot, true);
-    if (avisoAtivo()) registroLinha("!,%lu,REINICIOS SEGUIDOS,%s", (unsigned long)millis(), g_avisoTexto);
-  }
+  appBootDiario();
 #endif
 
-  // RELIGOU NO MEIO DA TRILHA: a sessao vira uma OFERTA (RETOMAR) na tela
-  // inicial, nunca entra sozinha - uma tela presa numa sessao velha parecia
-  // travada e so saia regravando.
-  nvsLeSessao(g_ses);
-  if (g_ses.ativa) {
-    g_frota.c[0].lider = g_ses.lider;
+  // RELIGOU NO MEIO DA TRILHA: oferta de RETOMAR (app/sessao.h)
+  if (sessaoRecuperaNoBoot())
     Serial.printf("sessao guardada: %s (%s) - oferecendo RETOMAR\n", g_ses.gNome, g_ses.lider ? "lider" : "seguidor");
-    redeTrocaSala(g_ses.gCod);
-  }
   estadoVai(EST_INICIAL);
   desenhaInicial(tft);
 }
@@ -376,22 +280,11 @@ void loop()
     estadoVai(EST_CRIAR);
     char gn[GRUPO_NOME_MAX] = "", gc[8] = "";
     if (telaCriarGrupo(tft, g_cfg.nome, gn, gc)) {
-      g_frota.c[0].lider = true;       // o roster do criador ja diz LIDER na sala de espera
-      redeTrocaSala(gc);
-      frotaLimpaOutros(g_frota);       // a sala nova nasce vazia
-      rotaLimpaCore(g_rotaC);
+      sessaoCriaSala(gc);
       estadoVai(EST_SALA);
       if (telaSalaEspera(tft, gn, gc)) {
-        g_ses.ativa = true; g_ses.lider = true;
-        strncpy(g_ses.gNome, gn, sizeof(g_ses.gNome) - 1);
-        strncpy(g_ses.gCod,  gc, sizeof(g_ses.gCod) - 1);
-        nvsGravaSessao(g_ses);
+        sessaoAbreComoLider(gn, gc);
         Serial.printf("trilha aberta: %s | codigo %s\n", gn, gc);
-        // Trilha nova, rastro novo (como o v101): sem isto o lider transmitia tudo
-        // desde o boot - o caminho ate a entrada da trilha, ou a trilha anterior -
-        // e quem entrasse passava ~20 min recebendo historico. A numeracao
-        // continua (so a EPOCA diz "recomecei"), entao ninguem ve um vao falso.
-        trajetoLimpa(g_traj);
         rodaTrilha();
       } else {
         sessaoEncerra();
@@ -404,20 +297,8 @@ void loop()
     estadoVai(EST_ENTRAR);
     char cod[8] = {0}, nomeGrupo[GRUPO_NOME_MAX] = {0};
     if (telaEntrarGrupo(tft, cod, nomeGrupo, sizeof(nomeGrupo))) {
-      g_ses.ativa = true; g_ses.lider = false;
-      // O nome do grupo nao viaja no ar - so o hash. Da LISTA vem "Grupo de <lider>";
-      // pelo codigo digitado, o seguidor mostra o codigo.
-      if (nomeGrupo[0]) strncpy(g_ses.gNome, nomeGrupo, sizeof(g_ses.gNome) - 1);
-      else snprintf(g_ses.gNome, sizeof(g_ses.gNome), "Grupo %s", cod);
-      g_ses.gNome[sizeof(g_ses.gNome) - 1] = 0;
-      strncpy(g_ses.gCod, cod, sizeof(g_ses.gCod) - 1);
-      nvsGravaSessao(g_ses);
-      g_frota.c[0].lider = false;
-      redeTrocaSala(cod);
-      frotaLimpaOutros(g_frota);
-      rotaLimpaCore(g_rotaC);
-      Serial.printf("entrou no grupo de codigo %s\n", cod);
-      trajetoLimpa(g_traj);
+      sessaoEntra(cod, nomeGrupo);
+      Serial.printf("entrou no grupo %s (%s)\n", g_ses.gNome, cod);
       rodaTrilha();
     }
     estadoVai(EST_INICIAL);

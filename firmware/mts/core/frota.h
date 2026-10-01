@@ -249,6 +249,19 @@ inline bool frotaEstimativa(const Carro& c, uint32_t agoraMs, double& lat, doubl
   return true;
 }
 
+// O ICONE DESTE CARRO VAI PARA O MAPA? E onde, e se vazado (sinal velho). E a
+// decisao que o mapa (app/telas/mapa.h) toma para cada carro, aqui fora do
+// desenho para o simulador (tools/sim) conferir exatamente o que a tela mostraria.
+inline bool frotaParaDesenhar(const Carro& c, uint32_t agoraMs, double& lat, double& lon, bool& vazada)
+{
+  bool ext;
+  if (!frotaEstimativa(c, agoraMs, lat, lon, ext)) return false;
+  const FrotaSinal s = frotaSinal(c, agoraMs);
+  if (s == SINAL_SUMIU) return false;
+  vazada = (s == SINAL_VELHO);
+  return true;
+}
+
 inline int frotaQuantos(const Frota& f)
 {
   int n = 0;

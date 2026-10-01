@@ -46,6 +46,16 @@ node web\bancada-trilha\audit.js         # 70 checagens da bancada CONTRA o firm
 node web\bancada-trilha\tdma_replay.js   # 43: os testes do tdma_selftest, em Node
 ```
 
+### Simulador — `tools/sim/` (o firmware/mts DE VERDADE, várias telas, no PC)
+
+```powershell
+.\tools\sim\build.ps1        # 6 cenários de trilha: criar/entrar pela lista, perder sinal, líder reiniciando...
+```
+
+Compila `firmware/mts` (core, app e quase todo o hal) num container Docker, uma cópia
+por tela, e faz as telas conversarem por um "ar" calibrado com o teste no carro.
+**Rode antes de gravar qualquer mudança no `firmware/mts`.** Detalhes em `tools/sim/README.md`.
+
 > **Se mexer no firmware, rode o `audit.js`.** Ele lê os `.h`/`.ino` de verdade e
 > acusa quando a bancada divergir — inclusive quando um bug reproduzido de propósito
 > for "consertado" sem aviso.
@@ -183,6 +193,10 @@ Todas verificadas neste repo ou em fonte primária. Não redescubra:
   `agora - ultimoMs` em `uint32_t` dava a volta e o carro era apagado da frota logo
   após chegar. No carro (2026-09-30) o seguidor via o traçado e nunca o ícone do
   líder. O `mts_core_test.js` reprova qualquer subtração crua que volte ao core.
+- **Smart App Control (Windows 11) bloqueia compilador não assinado.** O MinGW
+  instalado saía com `0xC0E90002` sem mensagem nenhuma, e o `cc1plus` do Arduino já
+  deu "Permission denied" intermitente pelo mesmo motivo. O simulador compila no Docker.
+  Não desligue o SAC: só volta reinstalando o Windows.
 - **`huge_app` não tem partição OTA** (um slot só). O binário usa 14 % de 3 MB,
   então qualquer esquema de dois slots cabe — mas trocar o esquema exige uma
   gravação **por cabo**.

@@ -23,3 +23,6 @@ desktop.ini
 # Vercel (deploy da bancada web)
 .vercel/
 web/**/node_modules/
+
+# Simulador (tools/sim): binarios e diarios gerados
+tools/sim/out/

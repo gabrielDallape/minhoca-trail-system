@@ -226,11 +226,8 @@ void mapaDesenha(G& g, int w, int h, double mPorPx, uint32_t agoraMs)
   int lx[FROTA_MAX_CARROS], ly[FROTA_MAX_CARROS], nL = 0;
   for (int k = 1; k < FROTA_MAX_CARROS; k++) {
     const Carro& c = g_frota.c[k];
-    double la, lo; bool ext;
-    if (!frotaEstimativa(c, agoraMs, la, lo, ext)) continue;
-    const FrotaSinal sinal = frotaSinal(c, agoraMs);
-    if (sinal == SINAL_SUMIU) continue;
-    const bool vazada = (sinal == SINAL_VELHO);
+    double la, lo; bool vazada;
+    if (!frotaParaDesenhar(c, agoraMs, la, lo, vazada)) continue;   // a decisao mora no core
     int x, y; paraTela(la, lo, cx, cy, mPorPx, x, y);
     if (x < -30 || x > w + 30 || y < -30 || y > h + 30) continue;
     uint16_t cor = c.alerta ? C_RED : CORES_MAPA[c.cor % N_CORES];
