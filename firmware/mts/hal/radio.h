@@ -55,6 +55,7 @@ class SX1262Mts : public SX1262 {
   SX1262Mts(Module* m) : SX1262(m) {}
   using SX126x::getDeviceErrors;
   using SX126x::clearDeviceErrors;
+  using SX126x::getPacketType;
   Module* modulo() { return getMod(); }
 };
 
@@ -215,6 +216,14 @@ inline bool radioHwRebegin(int8_t pwr)
   caixaEtapa(CP_LACO);
   return ok;
 }
+
+// O CHIP AINDA ESTA CONFIGURADO? Um E22 que perdeu o 5 V e voltou ENTRE dois TX
+// reinicia com a configuracao de fabrica (pacote GFSK, outra frequencia, outro
+// sync word). O TX seguinte COMPLETA normalmente - com os parametros errados - e
+// a tela fica transmitindo para o nada e surda, sem nenhum TX preso para o vigia
+// ver. Achado no simulador (tools/sim, cenario 'rapido'), 2026-10-01. Um
+// GetPacketType custa um comando SPI: configurado = LoRa (0x01); de fabrica = 0x00.
+inline bool radioHwConfigOk() { return g_lora.getPacketType() == RADIOLIB_SX126X_PACKET_TYPE_LORA; }
 
 // ------------------------------------------------------------------- TX
 // O BUSY PRECISA ESTAR BAIXO ANTES DE MANDAR TRANSMITIR (armadilha 10). 5 ms e

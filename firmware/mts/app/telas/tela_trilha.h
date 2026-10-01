@@ -144,6 +144,11 @@ bool telaTrilha(TFT& tft, SPR& cv, bool temSprite, const Sessao& s)
         g.setTextColor(m.alerta ? C_INK : C_WARN);
         if (sinal == SINAL_NUNCA) strcpy(t, "SEM POS");
         else snprintf(t, sizeof(t), "SEM SINAL %lus", (unsigned long)(frotaSilencioMs(m, agora) / 1000));
+      } else if (m.semGps) {
+        // o radio dele fala, o GPS dele nao: o icone fica no ultimo ponto, vazado
+        g.setFont(&fonts::FreeSansBold12pt7b);
+        g.setTextColor(m.alerta ? C_INK : C_WARN);
+        strcpy(t, "SEM GPS");
       } else if (fora) {
         g.setFont(&fonts::FreeSansBold12pt7b);
         g.setTextColor(m.alerta ? C_INK : C_WARN);
@@ -235,7 +240,7 @@ bool telaTrilha(TFT& tft, SPR& cv, bool temSprite, const Sessao& s)
       const Carro& c = g_frota.c[i];
       if (!c.ativo) continue;
       outros = outros * 31 + (uint32_t)(int32_t)(c.lat * 1e4) + (uint32_t)(int32_t)(c.lon * 1e4)
-             + (c.temNome ? 7u : 0u) + (c.fix ? 3u : 0u) + (uint32_t)frotaSinal(c, agora) * 13u;
+             + (c.temNome ? 7u : 0u) + (c.fix ? 3u : 0u) + (c.semGps ? 17u : 0u) + (uint32_t)frotaSinal(c, agora) * 13u;
       const uint8_t sn = frotaSinal(c, agora);
       if (c.vel > 0 && sn == SINAL_VIVO) alguemAnda = true;
       if (sn != SINAL_VIVO) alguemMudo = true;

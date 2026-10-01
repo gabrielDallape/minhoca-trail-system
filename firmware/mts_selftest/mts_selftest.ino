@@ -118,15 +118,23 @@ void setup()
     CHECK(g_t.n == 40 && g_t.seqUlt == 39, "40 pontos de 10+ m entram numerados");
     CHECK(!trajetoTalvezAdicione(g_t, -23.15 + 39 * 0.0001 + 1e-6, -46.55 + 39 * 0.0001), "passo menor que ROTA_PASSO_M nao entra");
     uint16_t base; int n;
-    bool c = trilhaEscolheBloco(g_t.seqUlt, g_t.n, ROTA_SEQ_NENHUMA, ROTA_SEQ_NENHUMA, false, 0, TRILHA_PONTOS_PKT, base, n);
+    bool c = trilhaEscolheBloco(g_t.seqUlt, g_t.n, ROTA_SEQ_NENHUMA, ROTA_SEQ_NENHUMA, false, ROTA_SEQ_NENHUMA, 0, 0, TRILHA_PONTOS_PKT, base, n);
     CHECK(!c && n == 10 && base == 30, "sem ack: bloco recente de 10 a partir de 30");
     uint8_t pkt[80];
     int len = trilhaCodifica(pkt, g_t.epoca, base, 0, 0, n, [&](int i, double& la, double& lo) { trajetoPontoSeq(g_t, (uint16_t)(base + i), la, lo); });
     uint8_t ep; uint16_t b2, a1, a2; int novos = 0;
     trilhaDecodifica(pkt, len, ep, b2, a1, a2, [&](uint16_t s, double la, double lo) { if (rotaInsere(g_r, rotaSeqVirtual(g_r, ep, s), la, lo)) novos++; });
     CHECK(novos == 10 && g_r.n == 10 && rotaAck16(g_r) == 39 && rotaAckDe16(g_r) == 30, "seguidor recebe 10 pontos e acusa ackAte=39 ackDe=30");
-    c = trilhaEscolheBloco(g_t.seqUlt, g_t.n, 39, 30, true, 1, TRILHA_PONTOS_PKT, base, n);
-    CHECK(c && base == 20 && n == 10, "com historico faltando, o quadro impar traz o bloco 20..29");
+    c = trilhaEscolheBloco(g_t.seqUlt, g_t.n, 39, 30, true, ROTA_SEQ_NENHUMA, 0, 1, TRILHA_PONTOS_PKT, base, n);
+    CHECK(c && base == 20 && n == 10, "com historico faltando (topo desconhecido), o quadro impar traz o bloco 20..29");
+    // A REGRA DA FRENTE (2026-10-01): com topo conhecido, o catch-up so sai se a
+    // frente aguenta pular um quadro; e o bloco da frente e CONTIGUO ao topo.
+    c = trilhaEscolheBloco(39, 40, 39, 30, true, 39, 5, 0, TRILHA_PONTOS_PKT, base, n);
+    CHECK(c && base == 20, "frente em dia (topo = head) e producao 5: sobra folga, sai o historico");
+    c = trilhaEscolheBloco(52, 53, 39, 30, true, 39, 7, 0, TRILHA_PONTOS_PKT, base, n);
+    CHECK(!c && base == 40 && n == 10, "frente de 13 (o quadro do roster): bloco CONTIGUO 40..49, sem catch-up");
+    c = trilhaEscolheBloco(90, 91, 39, 30, true, 39, 7, 0, TRILHA_PONTOS_PKT, base, n);
+    CHECK(!c && base == 81 && n == 10, "frente de 51 (sem sinal): vai o MAIS RECENTE 81..90");
   }
 
   // [7] as travas do catch-up (revisao de 2026-09-29), com os headers de verdade
@@ -163,12 +171,12 @@ void setup()
     frotaRecebePos(g_f, k, 1000, al); k.slot = 2; frotaRecebePos(g_f, k, 1000, al);
     frotaAck(g_f, 1, 300, 0, 500, 1000);                       // ouve (topo = meu head)
     frotaAck(g_f, 2, ROTA_SEQ_NENHUMA, ROTA_SEQ_NENHUMA, ROTA_SEQ_NENHUMA, 1000);   // surdo
-    uint16_t am, dm;
-    CHECK(frotaAckMin(g_f, 500, am, dm, 1000) && am == 300, "o surdo fica fora: o bloco e o do que ouve (ack 300)");
+    uint16_t am, dm, tm;
+    CHECK(frotaAckMin(g_f, 500, am, dm, 1000, tm) && am == 300 && tm == 500, "o surdo fica fora: o bloco e o do que ouve (ack 300, topo 500)");
     frotaAck(g_f, 2, 100, 0, (uint16_t)(500 - ROTA_OUVE_PONTOS - 1), 1000);
-    CHECK(frotaAckMin(g_f, 500, am, dm, 1000) && am == 300, "topo mais que ROTA_OUVE_PONTOS atras = nao me ouve");
+    CHECK(frotaAckMin(g_f, 500, am, dm, 1000, tm) && am == 300, "topo mais que ROTA_OUVE_PONTOS atras = nao me ouve");
     frotaAck(g_f, 2, 100, 0, 495, 1000);
-    CHECK(frotaAckMin(g_f, 500, am, dm, 1000) && am == 100, "topo perto do head: volta a contar (ack 100 manda)");
+    CHECK(frotaAckMin(g_f, 500, am, dm, 1000, tm) && am == 100 && tm == 495, "topo perto do head: volta a contar (ack 100 manda, topo 495)");
   }
 
   // [8] grupos no ar e entrar pelo hash (core/vizinhos.h, proto.h)

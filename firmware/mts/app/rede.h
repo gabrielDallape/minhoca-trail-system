@@ -84,8 +84,10 @@ struct Rede {
   uint8_t  seq;
   uint32_t falas;              // minhas falas desde a ultima troca de slot/sala
   uint32_t quadroTx, catchups;
+  uint16_t headUltBloco;       // o meu head quando montei o ultimo bloco: producao = head - isto
   // contadores
   uint32_t txPreso;
+  uint32_t chipReiniciou;      // o chip voltou de fabrica sozinho (queda do 5 V entre dois TX)
   uint32_t rxOk, rxRuim, rxForaDaSala, rxTamanho;
   float    rxRssi, rxSnr;
   bool     seqTem[FROTA_MAX_CARROS];
@@ -283,9 +285,14 @@ inline void redeTransmitePosicao()
   if (eu.lider && g_traj.n > 0) {
     uint16_t ackAteMin = ROTA_SEQ_NENHUMA, ackDeMax = ROTA_SEQ_NENHUMA;
     // so conta quem me ouve (o topo dele perto do meu head) - ver frotaAckMin
-    bool temAck = frotaAckMin(g_frota, g_traj.seqUlt, ackAteMin, ackDeMax, millis());
-    catchup = trilhaEscolheBloco(g_traj.seqUlt, g_traj.n, ackAteMin, ackDeMax, temAck, r.quadroTx,
-                                 TRILHA_PONTOS_PKT, base, nPts);
+    uint16_t topoMin;
+    bool temAck = frotaAckMin(g_frota, g_traj.seqUlt, ackAteMin, ackDeMax, millis(), topoMin);
+    // producao: quantos pontos gravei desde o ultimo bloco (com o quadro do roster
+    // no meio, sao dois quadros) - e quanto a frente cresce se eu pular um quadro
+    const int producao = (int)(int16_t)(g_traj.seqUlt - r.headUltBloco);
+    r.headUltBloco = g_traj.seqUlt;
+    catchup = trilhaEscolheBloco(g_traj.seqUlt, g_traj.n, ackAteMin, ackDeMax, temAck, topoMin,
+                                 producao, r.quadroTx, TRILHA_PONTOS_PKT, base, nPts);
   }
   // O LIDER nao tem ack a dar: no lugar do ackDe vai o seq do ponto MAIS ANTIGO
   // que ele guarda - o piso de quem segue (core/rota.h, rotaDefinePiso).
@@ -526,6 +533,23 @@ inline void redeAtualiza()
     else
       Serial.println("rede: TX preso e begin() falhou - tentando de novo no proximo ciclo");
     // NAO HA RECUO DE POTENCIA AQUI (params.h / README): quem decide e quem le o numero.
+  }
+
+  // 2a) O CHIP AINDA ESTA CONFIGURADO? (radioHwConfigOk) Um E22 que perdeu o 5 V
+  //     entre dois TX volta de fabrica: transmite errado e nao ouve, sem nunca
+  //     travar um TX - o vigia acima nao o pega. Confere a cada RADIO_CONFERE_MS.
+  {
+    static uint32_t tConfere = 0;
+    if (!r.txEmVoo && agora - tConfere >= RADIO_CONFERE_MS) {
+      tConfere = agora;
+      if (!radioHwConfigOk()) {
+        r.chipReiniciou++;
+        Serial.printf("rede: *** o chip VOLTOU DE FABRICA sozinho (%lu) - o 5V do modulo caiu? reconfigurando ***\n",
+                      (unsigned long)r.chipReiniciou);
+        registroLinha("!,%lu,chip voltou de fabrica,%lu", (unsigned long)agora, (unsigned long)r.chipReiniciou);
+        radioHwRebegin(g_rhw.pwr);
+      }
+    }
   }
 
   // 2b) potencia pedida que nao pode ser aplicada na hora (TX em voo): aplica

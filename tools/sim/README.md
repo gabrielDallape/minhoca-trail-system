@@ -53,6 +53,26 @@ telas e deixava as duas conversarem. Este simulador faz isso.
 | `radio_tarde` | o 5 V do E22 chega 45 s depois do boot | o rádio entra sozinho |
 | `grupos_trocados` | os dois tocam em CRIAR (o teste de 09-30) | cada um vê o outro na lista; SAIR + ENTRAR junta |
 | `tres_carros` | três carros em fila | ícone nas duas seguidoras, líder vê 3 |
+| `gps_perde` | o GPS do líder cai 60 s | o ícone FICA (último ponto, vazado, "SEM GPS"); o líder segue transmitindo |
+| `alerta` | seguidor e depois líder apertam ALERTA e cancelam | chega e some na outra tela em ≤ 13 s |
+| `trilha_longa` | 40 min a 40 km/h (~27 km): rastro e rota enchem e giram | ícone sempre; caminho contínuo ≤ 40 pontos atrás DURANTE o percurso |
+| `perda_pesada` | ruído alto: ~50 % de entrega a 80 m (o campo de 09-28) | ícone ≥ 98 %; parados no fim, o caminho fecha |
+| `quatro_carros` | quatro carros em fila | ícone nas três seguidoras, líder vê 4 |
+| `rapido` | 60 km/h com o rádio do seguidor sem 5 V por 60 s | o chip volta configurado; ao reduzir, o caminho fecha |
+| `entra_tarde` | o seguidor espera no km 6 e entra quando o líder passa | caminho recente em ≤ 30 s, 6 km de histórico sem vão |
+
+## O que o simulador já achou (2026-10-01)
+
+1. **Rádio que volta "de fábrica"** (`rapido`): um E22 que perde o 5 V entre dois TX
+   reinicia sem configuração e transmite/escuta errado sem nunca travar um TX — a
+   tela ficava surda a trilha inteira. Correção: `radioHwConfigOk()` a cada 5 s.
+2. **Ícone some sem GPS** (`gps_perde`): pacote sem fix apagava a posição do líder.
+   Agora fica o último ponto, vazado, e a faixa diz SEM GPS.
+3. **Catch-up desperdiçando metade da capacidade** (`trilha_longa`): a 40 km/h, sem
+   perder um pacote, metade dos quadros ia em preenchimento e a frente do caminho
+   ficava atrasada. Causa: o quadro do roster. Agora a frente vai contígua ao topo
+   do seguidor e o preenchimento só usa sobra (`trilhaEscolheBloco`).
+4. **Bug do ícone de 2026-09-30** — o simulador o pega (com o custo de CPU modelado).
 
 **Prova de que pega bug:** com o bug do ícone recolocado na cópia do simulador,
 `grupo_lista` falha em 3 checagens; com o código atual, passa.

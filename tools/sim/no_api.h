@@ -20,6 +20,10 @@ struct NoObs {
   int      vizN; char vizNome[24]; bool vizLider; uint16_t vizSala;
   bool     radioOk, naTrilha, lider;
   uint16_t sala;
+  bool     euAlerta;          // o MEU botao de alerta
+  int      alertasVistos;     // quantos OUTROS carros a minha tela mostra em alerta
+  uint32_t liderSilencioMs;   // ha quanto tempo nao ouco o lider
+  double   distLiderM;        // distancia do icone do lider ate mim, como desenhado
 };
 
 struct NoApi {
@@ -37,4 +41,5 @@ struct NoApi {
   bool     (*retomar)();                        // RETOMAR na tela inicial
   void     (*obs)(NoObs&);
   void     (*fecha)();
+  void     (*alerta)(bool);             // o botao de ALERTA da trilha
 };

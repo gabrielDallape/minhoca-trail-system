@@ -2,6 +2,27 @@
 
 Histórico das fases do projeto. As datas são aproximadas (marcos, não releases formais).
 
+## 2026-10-01 — simulador (tools/sim) e o que ele achou
+
+`tools/sim/`: o firmware/mts DE VERDADE (core, app, quase todo o hal) compilado uma vez
+por tela num container Docker, as telas conversando por um "ar" calibrado com o carro de
+09-30. 13 cenários de trilha, todos passando; com o bug do ícone recolocado, falha.
+Refatoração para tela e simulador usarem o mesmo código: `app/boot.h`, `app/sessao.h`,
+`frotaParaDesenhar()`.
+
+- **Ícone do líder sumia no seguidor** (o dia perdido de 09-30): `agora - carimbo` em
+  `uint32_t` dava a volta e apagava o carro da frota. `core/tempo.h` (`tempoDesde`).
+- **ENTRAR lista os grupos no ar** (`core/vizinhos.h`): um toque entra, sem código.
+- **Rádio que volta de fábrica** depois de perder o 5 V entre dois TX: transmitia e
+  escutava errado sem travar nada. `radioHwConfigOk()` (GetPacketType) a cada 5 s.
+- **GPS do líder caindo** apagava o ícone dele no seguidor: agora fica o último ponto,
+  vazado, "SEM GPS". `frotaSinal` passou a medir o RÁDIO (ultimoMs), não o ponto.
+- **Catch-up**: a frente do caminho manda (contígua ao topo do seguidor); preenchimento
+  só com sobra. Antes, a 40 km/h e sem perda nenhuma, 173 de 352 quadros iam em
+  preenchimento e a frente ficava 1-2 quadros atrasada; agora 11 de 352.
+- Menor, não corrigido: o contador `perdi` do tdma_core sobe quando a âncora muda de
+  fase sem que um TX tenha faltado (só diagnóstico).
+
 ## 2026-09-29 — firmware/mts: revisao depois das duas quedas de sessao
 
 A sessao que escreveu o `firmware/mts` caiu duas vezes. Tres revisores leram as 42

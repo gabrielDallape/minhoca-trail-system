@@ -17,5 +17,5 @@ NoApi SIM_CAT(api_, NO_NS) = {
   NO_NS::simApi_boot, NO_NS::simApi_religa, NO_NS::simApi_agoraG, NO_NS::simApi_passo,
   NO_NS::simApi_energiaRadio, NO_NS::simApi_gpsFix, NO_NS::simApi_criar, NO_NS::simApi_abrir,
   NO_NS::simApi_entrarLista, NO_NS::simApi_entrarCodigo, NO_NS::simApi_sair, NO_NS::simApi_retomar,
-  NO_NS::simApi_obs, NO_NS::simApi_fecha
+  NO_NS::simApi_obs, NO_NS::simApi_fecha, NO_NS::simApi_alerta
 };

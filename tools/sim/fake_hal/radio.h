@@ -32,6 +32,7 @@ static RadioHw g_rhw;
 // O "chip": o simulador liga e desliga a ENERGIA (o 5 V do E22) por cenario.
 struct SimChip {
   bool     energia = true;
+  bool     configurado = false;   // perdeu o 5 V = volta de fabrica (GFSK): nao fala com ninguem
   bool     emTx = false;
   uint64_t txFimLocal = 0;
   uint32_t flags = 0;
@@ -52,6 +53,7 @@ inline bool radioHwBegin(int8_t pwr, bool avisaMudo = true)
   }
   g_rhw.beginSt = 0; g_rhw.pwr = pwr;
   s_chip.emTx = false; s_chip.flags = 0;
+  s_chip.configurado = true;
   return true;
 }
 inline bool radioHwInicia(int8_t pwr) { g_rhw.fiosOk = true; g_rhw.ok = radioHwBegin(pwr); return g_rhw.ok; }
@@ -79,7 +81,7 @@ inline int radioHwTransmite(const uint8_t* buf, int n)
   const uint64_t dur = airtimeUs((uint32_t)n);
   s_chip.emTx = true;
   s_chip.txFimLocal = s_us + dur;
-  simTransmiteNoAr(buf, n, dur);
+  if (s_chip.configurado) simTransmiteNoAr(buf, n, dur);   // de fabrica: completa, mas ninguem decodifica
   caixaEtapa(CP_TX_VOO);
   return RADIOLIB_ERR_NONE;
 }
@@ -106,6 +108,7 @@ inline int radioHwLeRx(uint8_t* buf, int max, int& n, float& rssi, float& snr, f
   return RADIOLIB_ERR_NONE;
 }
 
+inline bool radioHwConfigOk() { return s_chip.energia && s_chip.configurado; }
 inline float radioHwRssiInst() { return (float)ar::cfg.ruidoDbm; }
 inline uint16_t radioHwErrosChip() { return 0; }
 inline const char* radioHwErroNome(uint16_t err, char* fora, size_t n) { snprintf(fora, n, "0x%04X (sim)", err); return fora; }

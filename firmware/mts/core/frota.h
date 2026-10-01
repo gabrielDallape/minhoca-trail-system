@@ -43,9 +43,10 @@ struct Carro {
   double   lat, lon;
   float    rumo;               // graus, 0 = norte
   uint8_t  vel;                // km/h
-  bool     temPos;             // ja recebi ao menos uma posicao
-  uint32_t posMs;              // quando a ultima posicao chegou
-  uint32_t ultimoMs;           // ultimo sinal de vida (posicao); roster nao conta
+  bool     temPos;             // ja recebi ao menos uma posicao COM FIX
+  uint32_t posMs;              // quando a ultima posicao COM FIX chegou (idade do ponto)
+  uint32_t ultimoMs;           // ultimo sinal de vida (pacote de posicao, com ou sem fix); roster nao conta
+  bool     semGps;             // o ultimo pacote veio SEM fix: o radio fala, o GPS dele caiu
   uint8_t  versaoAlheia;       // 0 = ok; senao a versao de protocolo que este slot anunciou
   // catch-up (core/rota.h): ate onde este carro diz ter a MINHA trilha
   bool     temAck;
@@ -114,10 +115,19 @@ inline int frotaRecebePos(Frota& f, const ProtoPos& k, uint32_t agoraMs, bool& a
   if (i < 0) i = frotaVaga(f, k.slot, agoraMs);
   if (i < 0) return -1;
   Carro& c = f.c[i];
-  c.lat = k.lat; c.lon = k.lon;
-  c.fix = (k.flags & FL_FIX) != 0;
-  c.rumo = k.rumo; c.vel = k.vel;
-  c.temPos = true; c.posMs = agoraMs;
+  if (k.flags & FL_FIX) {
+    c.lat = k.lat; c.lon = k.lon; c.rumo = k.rumo; c.vel = k.vel;
+    c.fix = true; c.temPos = true; c.posMs = agoraMs; c.semGps = false;
+  } else if (c.temPos) {
+    // O GPS DELE CAIU (mata fechada, tunel): o pacote chega, mas sem posicao
+    // valida. Fica o ULTIMO PONTO CONHECIDO, parado (vel 0: nada de extrapolar
+    // um chute) e vazado (frotaParaDesenhar). Ate 2026-10-01 o pacote sem fix
+    // APAGAVA a posicao e o icone do lider sumia da tela de quem segue
+    // (simulador, cenario gps_perde: 7 % do tempo visivel).
+    c.vel = 0; c.semGps = true;
+  } else {
+    c.fix = false;                 // nunca soube onde ele esta: nada a desenhar
+  }
   bool al = (k.flags & FL_ALERTA) != 0;
   alertaMudou = (c.alerta != al);
   c.alerta = al;
@@ -179,14 +189,19 @@ inline void frotaAck(Frota& f, int i, uint16_t ackAte, uint16_t ackDe, uint16_t 
 // mundo: o lider repetia para ele o mesmo bloco inutil e o vao dos outros nunca
 // fechava (revisao de 2026-09-29). Quando volta a ouvir, o primeiro bloco recente
 // ja poe o topo dele no presente e ele volta a contar - sem relogio nenhum.
-inline bool frotaAckMin(const Frota& f, uint16_t head, uint16_t& ackAteMin, uint16_t& ackDeMax, uint32_t agoraMs)
+// topoMin: o MENOR topo entre os que contam - o que falta na FRENTE ao mais
+// atrasado (trilhaEscolheBloco, core/rota.h). ROTA_SEQ_NENHUMA se ninguem conta.
+inline bool frotaAckMin(const Frota& f, uint16_t head, uint16_t& ackAteMin, uint16_t& ackDeMax, uint32_t agoraMs,
+                        uint16_t& topoMin)
 {
   bool tem = false, temDe = false;
   uint16_t m = 0, de = 0;
+  topoMin = ROTA_SEQ_NENHUMA;
   for (int i = 1; i < FROTA_MAX_CARROS; i++) {
     const Carro& c = f.c[i];
     if (!c.ativo || !c.temAck || tempoDesde(agoraMs, c.ackMs) > ROTA_ACK_TTL_MS) continue;
     if (c.ackTopo == ROTA_SEQ_NENHUMA || (int16_t)(c.ackTopo - head) < -ROTA_OUVE_PONTOS) continue;
+    if (topoMin == ROTA_SEQ_NENHUMA || (int16_t)(c.ackTopo - topoMin) < 0) topoMin = c.ackTopo;
     if (!tem) { m = c.ackAte; tem = true; }
     else if (c.ackAte == ROTA_SEQ_NENHUMA || m == ROTA_SEQ_NENHUMA) m = ROTA_SEQ_NENHUMA;
     else if ((int16_t)(c.ackAte - m) < 0) m = c.ackAte;
@@ -201,10 +216,12 @@ inline bool frotaAckMin(const Frota& f, uint16_t head, uint16_t& ackAteMin, uint
 }
 
 // ---------------------------------------------------------------- tempo
+// O SINAL DE RADIO (ultimo pacote de posicao, com ou sem fix) - nao a idade do
+// ponto. Um carro sem GPS mas no ar esta VIVO; quem diz "sem GPS" e c.semGps.
 inline FrotaSinal frotaSinal(const Carro& c, uint32_t agoraMs)
 {
   if (!c.ativo || !c.temPos) return SINAL_NUNCA;
-  uint32_t q = tempoDesde(agoraMs, c.posMs);
+  uint32_t q = tempoDesde(agoraMs, c.ultimoMs);
   if (q > FROTA_SOME_MS) return SINAL_SUMIU;
   if (q > FROTA_SINAL_VELHO_MS) return SINAL_VELHO;
   return SINAL_VIVO;
@@ -212,7 +229,7 @@ inline FrotaSinal frotaSinal(const Carro& c, uint32_t agoraMs)
 
 inline uint32_t frotaSilencioMs(const Carro& c, uint32_t agoraMs)
 {
-  return c.temPos ? tempoDesde(agoraMs, c.posMs) : 0xFFFFFFFFu;
+  return c.temPos ? tempoDesde(agoraMs, c.ultimoMs) : 0xFFFFFFFFu;
 }
 
 // Envelhece a lista. DOIS ESTAGIOS de proposito: perder o sinal e reversivel
@@ -258,7 +275,7 @@ inline bool frotaParaDesenhar(const Carro& c, uint32_t agoraMs, double& lat, dou
   if (!frotaEstimativa(c, agoraMs, lat, lon, ext)) return false;
   const FrotaSinal s = frotaSinal(c, agoraMs);
   if (s == SINAL_SUMIU) return false;
-  vazada = (s == SINAL_VELHO);
+  vazada = (s == SINAL_VELHO) || c.semGps;      // ponto velho ou sem GPS: vazado, mas NA TELA
   return true;
 }
 

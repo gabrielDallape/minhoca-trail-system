@@ -267,15 +267,35 @@ inline bool rotaVaoAntes(const Rota& r, int i)
 //               nada, ou se ninguem informou)
 //   ackDeMax  = o maior ackDe dos seguidores que tem alguma coisa
 //   temAck    = pelo menos um seguidor informou ack
-//   quadro    = contador de quadros, para alternar recente / preenchimento
+//   topoMin   = o MENOR topo (ultimo ponto meu que ele tem) dos seguidores que me
+//               ouvem; ROTA_SEQ_NENHUMA = nao sei
+//   producao  = quantos pontos eu gravei desde o meu ultimo bloco (estimativa do
+//               que um quadro produz; inclui o quadro do roster, que nao leva ponto)
+//   quadro    = contador de quadros (so usado quando o topo nao e conhecido)
 // Saidas: base (seq16 do primeiro ponto) e n. Devolve true se e um bloco de
 // preenchimento (catch-up), so para o log.
 //
-// Prioridade: buraco do MEIO (ackAte muito atras do head) antes do historico
-// (ackDe acima do meu mais antigo). O do meio e o caminho logo a frente de quem
-// perdeu sinal; o historico e conforto.
+// A REGRA (2026-10-01, achada no simulador, cenario trilha_longa): a FRENTE do
+// caminho manda. Ate entao o lider alternava "recentes" e "preenchimento" sempre
+// que alguem tinha um buraco - e a 40 km/h, sem PERDER UM PACOTE, gastava metade
+// dos quadros em preenchimento (173 de 352), o seguidor via a frente do caminho
+// 1-2 quadros atrasada e com vaos permanentes. O buraco nascia do roster: o quadro
+// dele nao leva ponto, o seguinte tinha 13 pontos novos para um pacote de 10.
+//   1. FRENTE CONTINUA: o bloco de recentes comeca logo depois do topo do
+//      seguidor mais atrasado (se o que falta cabe em ate 2 blocos). O quadro do
+//      roster deixa de abrir buraco: o bloco seguinte cobre o acumulado.
+//   2. PREENCHIMENTO SO COM FOLGA: um quadro de catch-up sai se a frente aguenta
+//      pular um quadro sem estourar um bloco (frente + producao <= maxPontos) - a
+//      30 km/h e a alternancia de antes - OU, 1 quadro em 4, se ha sobra ao longo
+//      do tempo (producao < bloco) e a frente cabe em 2 blocos. A 60 km/h (10
+//      pontos/quadro) nao ha sobra: o buraco de tras espera o lider reduzir.
+//   3. Frente atrasada demais (> 2 blocos: o seguidor ficou sem sinal): vai o MAIS
+//      RECENTE (ver onde o lider esta agora) e o buraco e preenchido depois.
+// Prioridade do preenchimento: buraco do MEIO (ackAte muito atras do head) antes do
+// historico (ackDe acima do meu mais antigo).
 inline bool trilhaEscolheBloco(uint16_t head, int trajN, uint16_t ackAteMin, uint16_t ackDeMax,
-                               bool temAck, uint32_t quadro, int maxPontos, uint16_t& base, int& n)
+                               bool temAck, uint16_t topoMin, int producao, uint32_t quadro,
+                               int maxPontos, uint16_t& base, int& n)
 {
   if (trajN <= 0) { base = 0; n = 0; return false; }
   uint16_t oldest = (uint16_t)(head - (uint16_t)(trajN - 1));
@@ -303,16 +323,40 @@ inline bool trilhaEscolheBloco(uint16_t head, int trajN, uint16_t ackAteMin, uin
       // d > 0 = ack de uma epoca minha anterior (eu reiniciei): ignora
     }
   }
-  bool catchup = atras && (quadro & 1);
+
+  // A FRENTE: quantos pontos do fim do caminho o seguidor mais atrasado nao tem.
+  int frente = -1;                                    // -1 = nao sei (ninguem mandou topo)
+  if (temAck && topoMin != ROTA_SEQ_NENHUMA) {
+    int16_t d = (int16_t)(head - topoMin);
+    frente = d < 0 ? 0 : d;
+  }
+  if (producao < 0) producao = 0;
+
+  bool catchup;
+  if (frente < 0) catchup = atras && (quadro & 1);    // sem topo: a alternancia de sempre
+  else            catchup = atras && (frente + producao <= maxPontos ||
+                                      // com SOBRA ao longo do tempo (producao < bloco), 1 em 4 mesmo
+                                      // sem folga agora: a frente atrasa um pouco e o bloco contiguo
+                                      // recupera. Sem isto, a 40 km/h um buraco de tras nao fechava
+                                      // nunca (simulador: prefixo parado 20 min no ponto 20).
+                                      ((quadro & 3) == 1 && producao < maxPontos && frente + producao <= 2 * maxPontos));
   if (catchup) {
     base = inicioCatch;
     int disp = (int)(uint16_t)(head - base) + 1;
     n = disp < nCatch ? disp : nCatch;
+    return true;
+  }
+  if (frente > 0 && frente <= 2 * maxPontos) {
+    // contiguo a partir do que falta ao mais atrasado (sem abrir buraco)
+    base = (uint16_t)(topoMin + 1);
+    if ((int16_t)(base - oldest) < 0) base = oldest;
+    int disp = (int)(uint16_t)(head - base) + 1;
+    n = disp < maxPontos ? disp : maxPontos;
   } else {
     n = trajN < maxPontos ? trajN : maxPontos;
     base = (uint16_t)(head - (uint16_t)(n - 1));
   }
-  return catchup;
+  return false;
 }
 
 // ------------------------------------------------------------ codificacao

@@ -76,6 +76,9 @@
 #define RADIO_SEGURO_APOS  3
 // Radio que nao respondeu no boot: nova tentativa a cada tanto (app/rede.h).
 #define RADIO_RETENTA_MS   3000UL
+// A cada tanto, fora de TX, pergunta ao chip se ele ainda esta configurado
+// (radioHwConfigOk): um E22 que reiniciou sozinho volta de fabrica e fica surdo.
+#define RADIO_CONFERE_MS   5000UL
 
 // ------------------------------------------------------------- trajeto / rota
 // PASSO DE 10 m (era 5). A conta que manda: o pacote leva TRILHA_PONTOS_PKT

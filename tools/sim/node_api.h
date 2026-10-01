@@ -69,7 +69,7 @@ static void simEventos()
   }
   if (g > s_ultColetaG) {
     std::vector<ar::Rx> v;
-    ar::coleta(s_no, g_rhw.ok && s_chip.energia, s_ultColetaG, g, v);
+    ar::coleta(s_no, s_chip.energia && s_chip.configurado, s_ultColetaG, g, v);
     s_ultColetaG = g;
     for (auto& r : v) s_filaRx.push_back(r);
   }
@@ -159,7 +159,9 @@ static void simApi_passo()
   }
 }
 
-static void simApi_energiaRadio(bool liga) { s_chip.energia = liga; if (!liga) g_rhw.ok = false; }
+// O 5 V do E22. Ao cair, o chip esquece a configuracao (volta de fabrica) - como o
+// SX1262 de verdade. Quem tem de perceber e reconfigurar e o FIRMWARE.
+static void simApi_energiaRadio(bool liga) { s_chip.energia = liga; if (!liga) { s_chip.configurado = false; s_chip.emTx = false; } }
 static void simApi_gpsFix(bool f) { s_gpsFix = f; }
 static void simApi_criar(const char* cod) { strncpy(s_salaCod, cod, sizeof(s_salaCod) - 1); sessaoCriaSala(cod); }
 static void simApi_abrir()
@@ -208,5 +210,18 @@ static void simApi_obs(NoObs& o)
   }
   o.radioOk = g_rede.ok; o.naTrilha = s_naTrilha; o.lider = g_frota.c[0].lider;
   o.sala = g_rede.sala;
+  o.euAlerta = g_frota.c[0].alerta;
+  for (int i = 1; i < FROTA_MAX_CARROS; i++) if (g_frota.c[i].ativo && g_frota.c[i].alerta) o.alertasVistos++;
+  if (li > 0) {
+    o.liderSilencioMs = frotaSilencioMs(g_frota.c[li], agora);
+    double la, lo; bool vz;
+    if (frotaParaDesenhar(g_frota.c[li], agora, la, lo, vz) && g_eu.fix) o.distLiderM = geoHaversine(g_eu.lat, g_eu.lon, la, lo);
+  }
+}
+// O botao de ALERTA da tela da trilha (tela_trilha.h faz exatamente isto).
+static void simApi_alerta(bool liga)
+{
+  g_frota.c[0].alerta = liga;
+  registroLinha("!,%lu,alerta meu,%d", (unsigned long)millis(), liga ? 1 : 0);
 }
 static void simApi_fecha() { registroFecha(); sdArquivoFecha(); if (s_console) { fclose(s_console); s_console = nullptr; } }

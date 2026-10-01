@@ -26,8 +26,8 @@
 #include "ar.h"
 #include "no_api.h"
 
-extern NoApi api_no0, api_no1, api_no2;
-static NoApi* NOS[3] = { &api_no0, &api_no1, &api_no2 };
+extern NoApi api_no0, api_no1, api_no2, api_no3;
+static NoApi* NOS[4] = { &api_no0, &api_no1, &api_no2, &api_no3 };
 
 // ------------------------------------------------------------------ placar
 static int g_pass = 0, g_fail = 0;
@@ -47,7 +47,7 @@ static std::string fmt(const char* f, ...)
 // Uma estrada para leste com curvas suaves. Cada carro esta a 's' metros do
 // inicio dela, dado por uma funcao do tempo (segundos) definida no cenario.
 static const double LAT0 = -23.150, LON0 = -46.550;
-static std::function<double(double)> g_s[3];
+static std::function<double(double)> g_s[4];
 
 static void estradaXY(double s, double& x, double& y) { x = s; y = 40.0 * std::sin(s / 250.0); }
 static ar::Pose pose(int no, uint64_t tG)
@@ -73,7 +73,7 @@ static std::function<double(double)> anda(double t0, double s0, double kmh)
 // ------------------------------------------------------------------ o relogio do mundo
 struct Evento { double t; std::function<void()> f; bool feito = false; };
 static std::vector<Evento> g_ev;
-static bool g_ligado[3];
+static bool g_ligado[4];
 static int g_nNos = 2;
 
 static void em(double t, std::function<void()> f) { g_ev.push_back({ t, f }); }
@@ -115,7 +115,8 @@ static NoObs obs(int no) { NoObs o; NOS[no]->obs(o); return o; }
 static void comeca(const char* nome, int nNos)
 {
   g_cen = nome; g_nNos = nNos; g_ev.clear();
-  for (int i = 0; i < 3; i++) { g_ligado[i] = false; g_s[i] = nullptr; }
+  for (int i = 0; i < 4; i++) { g_ligado[i] = false; g_s[i] = nullptr; }
+  ar::cfg = ar::Cfg{};
   for (auto& e : ar::est) e = ar::Est{};
   std::filesystem::remove_all(nome);
   printf("\n=== %s ===\n", nome);
@@ -332,6 +333,231 @@ static void cen_tres_carros()
   for (int i = 0; i < 3; i++) NOS[i]->fecha();
 }
 
+// ------------------------------------------------------------------ base comum
+// Lider (no 0) e seguidor (no 1) prontos na trilha: ligam, pegam GPS, o lider
+// cria, o seguidor entra pela lista, o lider abre. Os dois andando a 'kmh' a
+// partir de t=60, o seguidor 'atras' metros atras.
+static void basePar(double kmh, double atras)
+{
+  liga(0, 0.0, "FaustoA", 0, 0, +3.0);
+  liga(1, 2.3, "gino", 1, 1, -4.0);
+  g_s[0] = anda(60, atras, kmh); g_s[1] = anda(60, 0, kmh);
+  em(12, []() { NOS[0]->gpsFix(true); NOS[1]->gpsFix(true); });
+  em(40, []() { NOS[0]->criar("13520"); });
+  em(52, []() { NOS[1]->entrarLista(); });
+  em(55, []() { NOS[0]->abrir(); });
+}
+
+// 7) O GPS DO LIDER CAI 60 s (mata fechada, tunel). O seguidor nao pode perder o
+//    lider de vista: o icone fica no ultimo ponto conhecido (vazado se demorar).
+static void cen_gps_perde()
+{
+  comeca("gps_perde", 2);
+  const char* nomes[] = { "FaustoA", "gino" };
+  basePar(30, 80);
+  em(300, []() { NOS[0]->gpsFix(false); });
+  em(360, []() { NOS[0]->gpsFix(true); });
+  Taxa durante, depois; double volta = -1;
+  uint32_t txAnt = 0; double tUltTx = 0, maiorVaoTx = 0;
+  roda(600, [&](double t) {
+    NoObs g = obs(1);
+    NoObs fl = obs(0);
+    if (t > 120) { if (fl.tx != txAnt) { if (tUltTx > 0 && t - tUltTx > maiorVaoTx) maiorVaoTx = t - tUltTx; tUltTx = t; txAnt = fl.tx; } }
+    else txAnt = fl.tx;
+    if (t > 302 && t < 360) durante.conta(g.liderDesenhado);
+    if (t > 360 && volta < 0 && g.liderDesenhado && !g.liderVazado) volta = t;
+    if (t > 380) depois.conta(g.liderDesenhado);
+  });
+  NoObs f = obs(0), g = obs(1);
+  ck(durante.pct() >= 95.0, "com o GPS do lider fora, o icone dele CONTINUA na tela (ultimo ponto)", fmt("%.1f%% dos %d s", durante.pct(), durante.n));
+  ck(volta > 0 && volta - 360 <= 15, "quando o GPS volta, o icone volta firme em ate 15 s", fmt("voltou em t=%.0f", volta));
+  ck(depois.pct() >= 99.0, "depois, icone todos os segundos", fmt("%.1f%%", depois.pct()));
+  // O contador 'perdidas' do tdma_core sobe quando a ancora muda de fase (o lider
+  // passa a seguir o relogio do seguidor, que tem PPS, e depois volta) SEM que um
+  // TX tenha faltado - o que importa e medido aqui: buraco entre transmissoes.
+  ck(maiorVaoTx <= 7.0, "o lider transmitiu todo quadro sem o PPS (sem buraco > 7 s)", fmt("maior intervalo %.1f s", maiorVaoTx));
+  ck(g.rotaVaos == 0, "o caminho continua sem vao", fmt("vaos %d", g.rotaVaos));
+  resumoAr(2, nomes);
+  for (int i = 0; i < 2; i++) NOS[i]->fecha();
+}
+
+// 8) ALERTA: quem aperta tem de aparecer em alerta na tela do outro em ate dois
+//    quadros (12 s), e o cancelamento tambem.
+static void cen_alerta()
+{
+  comeca("alerta", 2);
+  const char* nomes[] = { "FaustoA", "gino" };
+  basePar(25, 80);
+  em(200, []() { NOS[1]->alerta(true); });
+  em(260, []() { NOS[1]->alerta(false); });
+  em(320, []() { NOS[0]->alerta(true); });
+  em(380, []() { NOS[0]->alerta(false); });
+  double liderViu = -1, liderViuFim = -1, segViu = -1, segViuFim = -1;
+  roda(450, [&](double t) {
+    NoObs f = obs(0), g = obs(1);
+    if (t >= 200 && liderViu < 0 && f.alertasVistos > 0) liderViu = t;
+    if (t >= 260 && liderViuFim < 0 && f.alertasVistos == 0) liderViuFim = t;
+    if (t >= 320 && segViu < 0 && g.alertasVistos > 0) segViu = t;
+    if (t >= 380 && segViuFim < 0 && g.alertasVistos == 0) segViuFim = t;
+  });
+  ck(liderViu > 0 && liderViu - 200 <= 13, "o ALERTA do seguidor chega ao lider em ate 13 s", fmt("em %.0f s", liderViu - 200));
+  ck(liderViuFim > 0 && liderViuFim - 260 <= 13, "o cancelamento chega ao lider em ate 13 s", fmt("em %.0f s", liderViuFim - 260));
+  ck(segViu > 0 && segViu - 320 <= 13, "o ALERTA do lider chega ao seguidor em ate 13 s", fmt("em %.0f s", segViu - 320));
+  ck(segViuFim > 0 && segViuFim - 380 <= 13, "o cancelamento chega ao seguidor em ate 13 s", fmt("em %.0f s", segViuFim - 380));
+  resumoAr(2, nomes);
+  for (int i = 0; i < 2; i++) NOS[i]->fecha();
+}
+
+// 9) TRILHA LONGA: 40 min a 40 km/h (~27 km). O rastro do lider (1200 pontos) e
+//    a rota do seguidor (1400) enchem e passam a girar.
+static void cen_trilha_longa()
+{
+  comeca("trilha_longa", 2);
+  const char* nomes[] = { "FaustoA", "gino" };
+  basePar(40, 80);
+  Taxa icone; int piorAtraso = 0;
+  roda(60 + 40 * 60, [&](double t) {
+    if (t > 90) icone.conta(obs(1).liderDesenhado);
+    // o atraso do ACK (o caminho continuo) DURANTE o percurso, nao so no fim: um
+    // buraco do comeco que so some quando a rota gira e empurra ele para fora
+    // passava despercebido (prefixo parado 20 min no ponto 20)
+    if (t > 300 && ((int)t % 30) == 0) { int a = (int16_t)(obs(0).trajHead - obs(1).ack); if (a > piorAtraso) piorAtraso = a; }
+  });
+  NoObs f = obs(0), g = obs(1);
+  ck(piorAtraso <= 40, "o caminho continuo nunca fica mais de 40 pontos atras do lider DURANTE o percurso", fmt("pior atraso %d pontos", piorAtraso));
+  ck(f.trajN >= 1200, "o rastro do lider encheu (o teste chegou onde queria)", fmt("trajN %d", f.trajN));
+  ck(g.rotaN >= 1390, "a rota do seguidor encheu e esta girando", fmt("rotaN %d", g.rotaN));
+  ck(icone.ok == icone.n, "o icone do lider todos os segundos, 40 min", fmt("%d de %d s", icone.ok, icone.n));
+  ck(g.rotaVaos == 0, "o caminho sem vao depois de girar", fmt("vaos %d", g.rotaVaos));
+  ck((int16_t)(f.trajHead - g.ack) <= 12, "o seguidor em dia no fim", fmt("head %u ack %u", f.trajHead, g.ack));
+  resumoAr(2, nomes);
+  for (int i = 0; i < 2; i++) NOS[i]->fecha();
+}
+
+// 10) PERDA PESADA (o campo de 2026-09-28: 46-62 % de entrega): ruido de fundo
+//     alto o bastante para perder ~metade a 80 m. Andando, o icone nao pode sumir
+//     (no maximo vazado); parados no fim, o caminho tem de fechar.
+static void cen_perda_pesada()
+{
+  comeca("perda_pesada", 2);
+  const char* nomes[] = { "FaustoA", "gino" };
+  basePar(25, 80);
+  g_s[0] = [](double t) { double tt = t < 600 ? t : 600; return tt <= 60 ? 80.0 : 80 + (tt - 60) * 25 / 3.6; };
+  g_s[1] = [](double t) { double tt = t < 600 ? t : 600; return tt <= 60 ? 0.0 : (tt - 60) * 25 / 3.6; };
+  em(100, []() { ar::cfg.ruidoDbm = -61.0; });
+  Taxa icone, firme;
+  roda(900, [&](double t) {
+    if (t > 120 && t < 600) { NoObs g = obs(1); icone.conta(g.liderDesenhado); firme.conta(g.liderDesenhado && !g.liderVazado); }
+  });
+  NoObs f = obs(0), g = obs(1);
+  uint64_t tot = ar::est[1].entregues + ar::est[1].alcance + ar::est[1].colisao;
+  double entrega = tot ? 100.0 * ar::est[1].entregues / tot : 0;
+  ck(entrega > 35 && entrega < 75, "o cenario reproduz a entrega do campo (~50 %)", fmt("entrega %.0f %%", entrega));
+  ck(icone.pct() >= 98.0, "com metade dos pacotes perdidos, o icone do lider fica na tela", fmt("%.1f%% (firme %.1f%%)", icone.pct(), firme.pct()));
+  ck(g.rotaVaos == 0, "parados no fim, o caminho FECHA", fmt("vaos %d", g.rotaVaos));
+  ck((int16_t)(f.trajHead - g.ack) <= 12, "e o seguidor fica em dia", fmt("head %u ack %u", f.trajHead, g.ack));
+  resumoAr(2, nomes);
+  for (int i = 0; i < 2; i++) NOS[i]->fecha();
+}
+
+// 11) QUATRO CARROS em fila, 80 m entre cada um.
+static void cen_quatro_carros()
+{
+  comeca("quatro_carros", 4);
+  const char* nomes[] = { "FaustoA", "gino", "tela_c", "tela_d" };
+  const double ppm[] = { +2, -3, +5, -6 };
+  for (int i = 0; i < 4; i++) {
+    liga(i, 0.9 * i, nomes[i], (uint8_t)i, (uint8_t)i, ppm[i]);
+    g_s[i] = anda(80, 80.0 * (3 - i), 30);
+  }
+  em(14, []() { for (int i = 0; i < 4; i++) NOS[i]->gpsFix(true); });
+  em(40, []() { NOS[0]->criar("44444"); });
+  bool e[4] = { true, false, false, false };
+  em(52, [&]() { e[1] = NOS[1]->entrarLista(); });
+  em(55, [&]() { e[2] = NOS[2]->entrarLista(); });
+  em(58, [&]() { e[3] = NOS[3]->entrarLista(); });
+  em(62, []() { NOS[0]->abrir(); });
+  Taxa ic[4], c0;
+  roda(600, [&](double t) {
+    if (t < 110) return;
+    for (int i = 1; i < 4; i++) ic[i].conta(obs(i).liderDesenhado);
+    c0.conta(obs(0).carros == 4);
+  });
+  ck(e[1] && e[2] && e[3], "os tres seguidores entram pela lista");
+  ck(ic[1].ok == ic[1].n && ic[2].ok == ic[2].n && ic[3].ok == ic[3].n, "o icone do lider nas TRES telas seguidoras, todos os segundos",
+     fmt("%.1f / %.1f / %.1f %%", ic[1].pct(), ic[2].pct(), ic[3].pct()));
+  ck(c0.pct() >= 98.0, "o lider ve os 4 carros", fmt("%.1f%%", c0.pct()));
+  int vaos = 0; for (int i = 1; i < 4; i++) vaos += obs(i).rotaVaos;
+  ck(vaos == 0, "caminho inteiro nas tres seguidoras", fmt("vaos %d", vaos));
+  resumoAr(4, nomes);
+  for (int i = 0; i < 4; i++) NOS[i]->fecha();
+}
+
+// 12) 60 km/h COM UMA QUEDA DE 60 s. O catch-up foi dimensionado para 30 km/h
+//     (params.h, VEL_PROJETO_KMH): a 60, o vao pode nao fechar andando. Ao reduzir
+//     para 20 km/h ele tem de fechar.
+static void cen_rapido()
+{
+  comeca("rapido", 2);
+  const char* nomes[] = { "FaustoA", "gino" };
+  basePar(60, 100);
+  auto perfil = [](double s0) {
+    return [=](double t) {
+      if (t <= 60) return s0;
+      if (t <= 420) return s0 + (t - 60) * 60 / 3.6;
+      return s0 + 360 * 60 / 3.6 + (t - 420) * 20 / 3.6;    // reduz para 20 km/h
+    };
+  };
+  g_s[0] = perfil(100); g_s[1] = perfil(0);
+  em(200, []() { NOS[1]->energiaRadio(false); });
+  em(260, []() { NOS[1]->energiaRadio(true); });
+  int vaosA60 = 0; double fechou = -1;
+  roda(1000, [&](double t) {
+    NoObs g = obs(1);
+    if (t > 300 && t < 420 && g.rotaVaos > vaosA60) vaosA60 = g.rotaVaos;
+    if (t > 270 && fechou < 0 && g.rotaVaos == 0 && g.rotaN > 50) fechou = t;
+  });
+  NoObs f = obs(0), g = obs(1);
+  printf("  info: a 60 km/h o maior numero de vaos abertos foi %d; fechou em t=%.0f s\n", vaosA60, fechou);
+  ck(g.rotaVaos == 0, "depois de reduzir para 20 km/h o caminho FECHA", fmt("vaos %d", g.rotaVaos));
+  ck((int16_t)(f.trajHead - g.ack) <= 12, "e o seguidor fica em dia", fmt("head %u ack %u", f.trajHead, g.ack));
+  resumoAr(2, nomes);
+  for (int i = 0; i < 2; i++) NOS[i]->fecha();
+}
+
+// 13) ENTRA TARDE: o lider ja andou 5 km quando o seguidor entra. O caminho a
+//     frente aparece logo; o historico chega de tras para a frente.
+static void cen_entra_tarde()
+{
+  comeca("entra_tarde", 2);
+  const char* nomes[] = { "FaustoA", "gino" };
+  liga(0, 0.0, "FaustoA", 0, 0, +3.0);
+  liga(1, 2.3, "gino", 1, 1, -4.0);
+  // o lider sai do km 0 a 30 km/h; o seguidor ESPERA no km 6 e, quando o lider
+  // passa por ele, vai atras a 30 km/h (80 m atras)
+  g_s[0] = anda(60, 0, 30);
+  const double tPassa = 60 + 6000 / (30 / 3.6);                 // ~780 s: o lider chega ao km 6
+  g_s[1] = [=](double t) { return t <= tPassa + 10 ? 6000.0 : 6000 + (t - tPassa - 10) * 30 / 3.6; };
+  em(12, []() { NOS[0]->gpsFix(true); NOS[1]->gpsFix(true); });
+  em(40, []() { NOS[0]->criar("55555"); NOS[0]->abrir(); });
+  bool entrou = false;
+  em(tPassa - 10, [&]() { entrou = NOS[1]->entrarLista(); });   // o lider ~80 m antes de chegar
+  Taxa icone; double frenteOk = -1;
+  roda(tPassa + 1500, [&](double t) {
+    if (t < tPassa + 20) return;
+    NoObs g = obs(1);
+    icone.conta(g.liderDesenhado);
+    if (frenteOk < 0 && (int16_t)(obs(0).trajHead - g.topoRota) <= 12) frenteOk = t;
+  });
+  NoObs f = obs(0), g = obs(1);
+  ck(entrou, "quem espera mais a frente ve o grupo chegando e entra pela lista");
+  ck(icone.ok == icone.n, "o icone do lider todos os segundos depois de entrar", fmt("%d de %d s", icone.ok, icone.n));
+  ck(frenteOk > 0 && frenteOk - tPassa <= 30, "o caminho RECENTE do lider aparece em ate 30 s", fmt("em %.0f s", frenteOk - tPassa));
+  ck(g.rotaN >= 590 && g.rotaVaos == 0, "o historico de ~6 km chega inteiro, sem vao", fmt("rotaN %d vaos %d", g.rotaN, g.rotaVaos));
+  resumoAr(2, nomes);
+  for (int i = 0; i < 2; i++) NOS[i]->fecha();
+}
+
 // ============================================================ main
 int main(int argc, char** argv)
 {
@@ -340,6 +566,9 @@ int main(int argc, char** argv)
     { "grupo_lista", cen_grupo_lista }, { "perde_e_volta", cen_perde_e_volta },
     { "lider_reinicia", cen_lider_reinicia }, { "radio_tarde", cen_radio_tarde },
     { "grupos_trocados", cen_grupos_trocados }, { "tres_carros", cen_tres_carros },
+    { "gps_perde", cen_gps_perde }, { "alerta", cen_alerta }, { "trilha_longa", cen_trilha_longa },
+    { "perda_pesada", cen_perda_pesada }, { "quatro_carros", cen_quatro_carros }, { "rapido", cen_rapido },
+    { "entra_tarde", cen_entra_tarde },
   };
   // "todos": CADA CENARIO NUM PROCESSO NOVO. As telas simuladas sao o firmware
   // inteiro, com NVS, sessao gravada e variaveis static - rodar um cenario depois

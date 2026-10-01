@@ -118,7 +118,7 @@ function rotaAckDe16(r) {
 }
 function rotaVaoAntes(r, i) { return i > 0 && i < r.n && (r.p[i].vseq - r.p[i - 1].vseq) > 1; }
 
-function trilhaEscolheBloco(head, trajN, ackAteMin, ackDeMax, temAck, quadro, maxPontos) {
+function trilhaEscolheBloco(head, trajN, ackAteMin, ackDeMax, temAck, quadro, maxPontos, topoMin = ROTA_SEQ_NENHUMA, producao = 0) {
   if (trajN <= 0) return { base: 0, n: 0, catchup: false };
   const oldest = u16(head - u16(trajN - 1));
   let atras = false, inicioCatch = oldest, nCatch = maxPontos;
@@ -139,12 +139,21 @@ function trilhaEscolheBloco(head, trajN, ackAteMin, ackDeMax, temAck, quadro, ma
       }
     }
   }
-  const catchup = atras && ((quadro & 1) === 1);
+  let frente = -1;
+  if (temAck && topoMin !== ROTA_SEQ_NENHUMA) { const d = i16(head - topoMin); frente = d < 0 ? 0 : d; }
+  if (producao < 0) producao = 0;
+  const catchup = frente < 0 ? (atras && ((quadro & 1) === 1))
+    : (atras && (frente + producao <= maxPontos || ((quadro & 3) === 1 && producao < maxPontos && frente + producao <= 2 * maxPontos)));
   let base, n;
   if (catchup) {
     base = inicioCatch;
     const disp = u16(head - base) + 1;
     n = disp < nCatch ? disp : nCatch;
+  } else if (frente > 0 && frente <= 2 * maxPontos) {
+    base = u16(topoMin + 1);
+    if (i16(base - oldest) < 0) base = oldest;
+    const disp = u16(head - base) + 1;
+    n = disp < maxPontos ? disp : maxPontos;
   } else {
     n = trajN < maxPontos ? trajN : maxPontos;
     base = u16(head - u16(n - 1));
@@ -325,10 +334,11 @@ function frotaAck(c, ackAte, ackDe, topo, agoraMs) {
   c.temAck = true; c.ackAte = ackAte; c.ackDe = ackDe; c.ackTopo = topo; c.ackMs = agoraMs;
 }
 function frotaAckMin(carros, head, agoraMs) {
-  let tem = false, temDe = false, m = 0, de = 0;
+  let tem = false, temDe = false, m = 0, de = 0, topoMin = ROTA_SEQ_NENHUMA;
   for (const c of carros) {
     if (!c.ativo || !c.temAck || (agoraMs - c.ackMs) > ROTA_ACK_TTL_MS) continue;
     if (c.ackTopo === ROTA_SEQ_NENHUMA || i16(c.ackTopo - head) < -ROTA_OUVE_PONTOS) continue;
+    if (topoMin === ROTA_SEQ_NENHUMA || i16(c.ackTopo - topoMin) < 0) topoMin = c.ackTopo;
     if (!tem) { m = c.ackAte; tem = true; }
     else if (c.ackAte === ROTA_SEQ_NENHUMA || m === ROTA_SEQ_NENHUMA) m = ROTA_SEQ_NENHUMA;
     else if (i16(c.ackAte - m) < 0) m = c.ackAte;
@@ -337,7 +347,7 @@ function frotaAckMin(carros, head, agoraMs) {
       else if (i16(c.ackDe - de) > 0) de = c.ackDe;
     }
   }
-  return { tem, ackAteMin: m, ackDeMax: temDe ? de : ROTA_SEQ_NENHUMA };
+  return { tem, ackAteMin: m, ackDeMax: temDe ? de : ROTA_SEQ_NENHUMA, topoMin };
 }
 function rotaTopo16(r) {
   if (!r.temEpoca || r.n === 0) return ROTA_SEQ_NENHUMA;
@@ -351,7 +361,9 @@ function rotaTopo16(r) {
 function quadroRede(L, segs, q, ouve) {
   const agora = q * TDMA_FRAME_MS;
   const a = frotaAckMin(segs.map(s => s.carro), L.head, agora);
-  const { base, n, catchup } = trilhaEscolheBloco(L.head, L.guarda(), a.ackAteMin, a.ackDeMax, a.tem, q, TRILHA_PONTOS_PKT);
+  const producao = L.headUlt === undefined ? 0 : i16(L.head - L.headUlt);
+  L.headUlt = L.head;
+  const { base, n, catchup } = trilhaEscolheBloco(L.head, L.guarda(), a.ackAteMin, a.ackDeMax, a.tem, q, TRILHA_PONTOS_PKT, a.topoMin, producao);
   const { pkt, len } = pacoteLider(L, base, n);
   segs.forEach((s, i) => {
     if (ouve(i, q)) recebeDoLider(s.R, pkt, len);
@@ -433,7 +445,10 @@ console.log('\n--- fidelidade: o firmware/mts diz o mesmo que este espelho ---')
   check(F.includes('if (c.ackTopo == ROTA_SEQ_NENHUMA || (int16_t)(c.ackTopo - head) < -ROTA_OUVE_PONTOS) continue;'), 'frota.h: quem nao ouve o lider sai da conta');
   check(N.includes('base = rotaTopo16(g_rotaC);'), 'rede.h: o seguidor manda o topo no campo base');
   check(N.includes('frotaAck(g_frota, idx, ackAte, ackDe, base, agora);'), 'rede.h: o lider guarda o topo de cada seguidor');
-  check(N.includes('frotaAckMin(g_frota, g_traj.seqUlt, ackAteMin, ackDeMax, millis())'), 'rede.h: o lider compara o topo com o proprio head');
+  check(N.includes('frotaAckMin(g_frota, g_traj.seqUlt, ackAteMin, ackDeMax, millis(), topoMin)'), 'rede.h: o lider compara o topo com o proprio head');
+  check(C.includes('else catchup = atras && (frente + producao <= maxPontos ||'), 'rota.h: preenchimento com folga na frente');
+  check(C.includes('((quadro & 3) == 1 && producao < maxPontos && frente + producao <= 2 * maxPontos));'), 'rota.h: ou 1 em 4 com sobra ao longo do tempo');
+  check(C.includes('if (frente > 0 && frente <= 2 * maxPontos) {'), 'rota.h: bloco da frente contiguo ao topo');
   check(N.includes('if (lider) rotaDefinePiso(g_rotaC, epoca, ackDe);'), 'rede.h: o seguidor aplica o piso do pacote do lider');
   check(N.includes('ackDe = g_traj.n > 0 ? (uint16_t)(g_traj.seqUlt - (uint16_t)(g_traj.n - 1)) : ROTA_SEQ_NENHUMA;'), 'rede.h: o lider anuncia o ponto mais antigo que guarda');
 }

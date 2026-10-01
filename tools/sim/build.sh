@@ -10,7 +10,7 @@ cd /w
 SIM=tools/sim
 OUT=$SIM/out
 SRC=$OUT/src
-N=${NOS:-3}
+N=${NOS:-4}
 
 rm -rf "$SRC"; mkdir -p "$SRC/mts"
 cp -r firmware/mts/core firmware/mts/app firmware/mts/hal "$SRC/mts/"
