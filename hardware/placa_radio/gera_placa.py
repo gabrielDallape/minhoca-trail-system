@@ -282,6 +282,10 @@ por_net = {n: unary_union(gs) for n, gs in por_net.items()}
 # o PLANO DE TERRA: tudo que sobra, longe das outras redes
 outras = unary_union([g for n, g in por_net.items() if n != "GND"])
 pour = area_util.difference(outras.buffer(FOLGA_POUR, join_style=1))
+# SEM COBRE DEBAIXO DO E22: placa caseira nao tem mascara de solda, e qualquer
+# ponto de metal exposto no fundo do modulo encostaria no plano de terra. Os pads
+# continuam (entram abaixo, na uniao com por_net["GND"]); so o plano sai.
+pour = pour.difference(box(E22X - 12, E22Y - 17.84, E22X + 12, E22Y + 20.66))
 gnd_total = unary_union([pour, por_net.get("GND")])
 # so fica a parte do plano que encosta num pad de terra (ilha solta e lixo)
 pads_gnd = por_net["GND"]
@@ -318,7 +322,13 @@ for n in nets:
         continue
     ps = pedacos(por_net[n])
     grupos = [[p] for p in ps]
-    for a, b, jn, _ in jumpers:
+    # Os pads de terra do E22 sao o MESMO no dentro do modulo (plano de terra
+    # interno dele). Sem cobre debaixo do modulo, o terra da placa so se fecha por
+    # ali: o de cima (pads 11/12, J3, capacitores) e o de baixo (pads 1-5, P3, GPS),
+    # e os pads 20 e 22 viram ilhas que so o modulo aterra.
+    gnd_e22 = [E22_PAD[p] for p, nn in NET_E22.items() if nn == "GND"]
+    internos = [(gnd_e22[0], q, "GND", "interno") for q in gnd_e22[1:]]
+    for a, b, jn, _ in jumpers + internos:
         if jn != n:
             continue
         ia = next((k for k, gr in enumerate(grupos) if any(p.contains(Point(a)) for p in gr)), None)

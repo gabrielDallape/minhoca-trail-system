@@ -32,6 +32,7 @@ de jumper, e nenhum nome gravado pode ficar debaixo de carcaça ou em cima de fu
 | `laser_serigrafia.png` / `.dxf` / `.svg` | **os nomes de cada fio**, gravados no lado SEM cobre (ver abaixo). Já vem espelhado, 40 × 70 exato |
 | **`guia_1_conectores.png`** | **montagem do lado dos conectores**: onde vai cada peça, o pino 1, os jumpers JP2 e JP4 |
 | **`guia_2_lado_do_cobre.png`** | **montagem do lado do cobre**: o E22 (e o pino 1 dele), C2, C3, R1, R2 e o fio do JP3 |
+| **`guia_4_placa_montada.png`** | **a placa pronta**, os dois lados lado a lado, com cada peça desenhada no lugar e no tamanho real |
 | **`guia_3_ligacoes.png`** | **o que liga em quê**: cada pino do P1/P3 da tela, o GPS fio por fio, o step-down, a antena |
 | `conferencia_redes.png` | cada rede numa cor, para conferir contra o esquema |
 | `furos.csv` | posição (vista pelo lado do cobre), broca e descrição dos 37 furos |
@@ -75,7 +76,18 @@ Siga os guias: `guia_2_lado_do_cobre.png` primeiro, depois `guia_1_conectores.pn
 **Lado do cobre:** o **E22**, virado com a etiqueta para fora e o **pino 1 no canto
 marcado** no guia. Os pads foram alongados 0,5 mm para fora para o ferro alcançar o
 meio-furo do módulo. Solde primeiro um pad de canto, alinhe o módulo e depois solde os
-outros. O **C2**, o **C3**, o **R1** e o **R2** (1206) também ficam deste lado.
+outros.
+
+**Não tem cobre debaixo do E22**, de propósito: a placa caseira não tem máscara de solda,
+e qualquer ponto de metal no fundo do módulo encostaria no plano de terra. O preço é que
+o terra de cima (J3, capacitores, pads 11/12) e o de baixo (pads 1–5, P3, GPS) só se juntam
+**por dentro do módulo**, cujos pads de terra são todos o mesmo nó. Os pads 20 e 22 ficam
+como ilhas aterradas só pelo módulo. Por isso o multímetro **só acusa continuidade entre
+os terras depois que o E22 está soldado**.
+
+**Antena soldada** (sem usar o IPEX): vivo do cabo no **pad 21**, malha no **pad 22** (ou
+no 20). As quatro trilhas do SPI passam a menos de 1 mm à esquerda do pad 21: desencape
+só ~2 mm e prenda o cabo com cola quente. Não use o IPEX e o pad 21 ao mesmo tempo. O **C2**, o **C3**, o **R1** e o **R2** (1206) também ficam deste lado.
 
 **Lado dos componentes (sem cobre):** J1, J2, J3, J4 e C1, soldados pelo lado do cobre.
 
@@ -105,7 +117,7 @@ o capacitor antes de soldar.
 | C2 | 10 µF cerâmico 1206 | 1 |
 | C3 | 100 nF cerâmico 1206 | 1 |
 | R1, R2 | 10 kΩ 1206 | 2 |
-| — | pigtail IPEX → SMA + antena 915 MHz | 1 |
+| — | antena 915 MHz com cabo coaxial (soldado nos pads 21/22) | 1 |
 | — | 2 cabos PH2.0 12 vias "mesmo sentido", cabo para o GPS, fio para os jumpers | — |
 
 ## Cabos

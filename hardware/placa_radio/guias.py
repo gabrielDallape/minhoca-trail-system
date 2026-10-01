@@ -161,7 +161,7 @@ def _guia_cobre(g):
     LARG, ALT = g["LARG"], g["ALT"]
     fig, ax = plt.subplots(figsize=(15, 11))
     _eixos(ax, g, -44, 84, -9, 76, "LADO DO COBRE  (o lado que vai na laser e no ácido)",
-           "Aqui ficam o E22, os quatro SMD (C2, C3, R1, R2) e o fio do JP3. Os pinos dos conectores "
+           "Aqui ficam o E22, os quatro SMD (C2, C3, R1, R2), o fio do JP3 e a antena. Os pinos dos conectores "
            "também são soldados deste lado.")
     _placa(ax, g)
     _pinta(ax, g["cobre_final"], COBRE, z=2)
@@ -215,8 +215,8 @@ def _guia_cobre(g):
              (g["J1X"][3], g["J1Y"]), (-42, 64), "#777777")
     _chamada(ax, "TXEN: a trilha contorna a placa\npela borda (não tem mais jumper)",
              (g["X_TXEN"], 12), (48, 1.5), "#777777")
-    _chamada(ax, "Antena: conector IPEX do E22\n→ pigtail → SMA.\nLIGUE A ANTENA ANTES DO 5 V",
-             (u1.centroid.x - 6, u1.centroid.y - 3), (-42, 14), "#d62728")
+    _chamada(ax, "Antena SOLDADA: vivo no pad 21,\nmalha no pad 22 (o IPEX fica vazio).\nLIGUE A ANTENA ANTES DO 5 V",
+             (g["E22_PAD"][21][0] - 1.1, g["E22_PAD"][21][1]), (-42, 30), "#d62728")
     fig.savefig(os.path.join(g["SAIDA"], "guia_2_lado_do_cobre.png"), dpi=170, bbox_inches="tight")
     plt.close(fig)
 
@@ -306,10 +306,177 @@ def _guia_ligacoes(g):
         a = j3[k]
         ax.plot([a[1] + 0.3, 127.5], [a[2], 55 if k == "+" else 59], color=DESTAQUE["J3"], lw=1.8)
     ax.add_patch(FancyBboxPatch((124, 28), 42, 14, boxstyle="round,pad=0.4", fc="#fff3f3", ec="#d62728", lw=2))
-    ax.text(145, 35, "ANTENA 915 MHz\n→ cabo SMA → pigtail → IPEX do E22\nLIGUE ANTES DO 5 V",
+    ax.text(145, 35, "ANTENA 915 MHz\ncabo soldado: vivo no pad 21,\nmalha no pad 22\nLIGUE ANTES DO 5 V",
             ha="center", va="center", fontsize=9.5, color="#a01010", weight="bold")
     ax.plot([103.3, 123.5], [39, 35], color="#d62728", lw=1.8)
     fig.savefig(os.path.join(g["SAIDA"], "guia_3_ligacoes.png"), dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------- 4: a placa montada
+SOLDA = "#c9cdd2"
+SOLDA_BORDA = "#8a9099"
+BLINDAGEM = "#aeb4bb"
+
+
+def _ref(ax, x, y, t, cor=TINTA, fs=8, **kw):
+    ax.text(x, y, t, ha="center", va="center", fontsize=fs, weight="bold", color=cor, zorder=30,
+            bbox=dict(boxstyle="round,pad=0.18", fc="white", ec="none", alpha=0.85), **kw)
+
+
+def _montada_conectores(ax, g):
+    LARG, ALT, cx, cc = g["LARG"], g["ALT"], g["cx"], g["corpos_c"]
+    _placa(ax, g)
+    _pinta(ax, g["serigrafia"], GRAVADO, z=3)
+    for x, y, d in g["furos_c"]:
+        ax.add_patch(Circle((x, y), d / 2, fc=FURO, zorder=4))
+    # PH 2,0 vertical visto de cima: corpo, a boca onde o cabo entra, os pinos dentro
+    for r, ys, xs in (("J2", g["J2Y"], g["J2X"]), ("J1", g["J1Y"], g["J1X"])):
+        _pinta(ax, cc[r], JST, z=5, borda=JST_BORDA, lw=1.2)
+        b = cc[r].bounds
+        ax.add_patch(Rectangle((b[0] + 0.5, ys - 1.0), b[2] - b[0] - 1.0, 2.0, fc="#d9d2bb", ec=JST_BORDA,
+                               lw=0.6, zorder=6))
+        for x in xs.values():
+            ax.add_patch(Rectangle((cx(x) - 0.25, ys - 0.25), 0.5, 0.5, fc=OURO, zorder=7))
+        _ref(ax, (b[0] + b[2]) / 2, b[1] + 0.9, r, fs=7)
+    # XH 2 vias
+    _pinta(ax, cc["J3"], JST, z=5, borda=JST_BORDA, lw=1.2)
+    b = cc["J3"].bounds
+    ax.add_patch(Rectangle((b[0] + 0.6, b[1] + 1.4), b[2] - b[0] - 1.2, b[3] - b[1] - 2.0, fc="#d9d2bb",
+                           ec=JST_BORDA, lw=0.6, zorder=6))
+    for x, y, _ in g["J3"]:
+        ax.add_patch(Rectangle((cx(x) - 0.32, y - 0.32), 0.64, 0.64, fc=OURO, zorder=7))
+    _ref(ax, (b[0] + b[2]) / 2, b[1] + 0.8, "J3", fs=7)
+    # barra de pinos do GPS
+    _pinta(ax, cc["J4"], "#262626", z=5)
+    for x in g["J4X"]:
+        ax.add_patch(Rectangle((cx(x) - 0.32, g["J4Y"] - 0.32), 0.64, 0.64, fc=OURO, zorder=7))
+    # C1 visto de cima: tampa com a cruz de alivio e a faixa do -
+    c1 = cc["C1"]
+    _pinta(ax, c1, "#2a4f9e", z=5, borda="#16295a", lw=1.2)
+    _pinta(ax, c1.intersection(box(cx(g["C1"][0][0]) - 0.9, 0, LARG, ALT)), "#c9d4f0", z=6)
+    c = c1.centroid
+    ax.plot([c.x - 1.6, c.x + 1.6], [c.y, c.y], color="#9fb0d8", lw=0.8, zorder=7)
+    ax.plot([c.x, c.x], [c.y - 1.6, c.y + 1.6], color="#9fb0d8", lw=0.8, zorder=7)
+    _ref(ax, c.x, c1.bounds[3] + 0.9, "C1 220µF", fs=7)
+    # jumpers: fio encapado vermelho, ponta de solda nos furos
+    for a, b2, n, desc in g["jumpers"]:
+        if "COBRE" in desc:
+            continue
+        A, B = (cx(a[0]), a[1]), (cx(b2[0]), b2[1])
+        ax.plot([A[0], B[0]], [A[1], B[1]], color="#a31515", lw=6, solid_capstyle="round", zorder=8)
+        ax.plot([A[0], B[0]], [A[1], B[1]], color=FIO, lw=4, solid_capstyle="round", zorder=9)
+
+
+def _montada_cobre(ax, g):
+    _placa(ax, g)
+    _pinta(ax, g["cobre_final"], COBRE, z=2)
+    # pinos dos conectores atravessando e soldados deste lado
+    for x, y, d, desc in g["furos"]:
+        ax.add_patch(Circle((x, y), 0.75 if d < 0.95 else 0.9, fc=SOLDA, ec=SOLDA_BORDA, lw=0.6, zorder=3))
+        ax.add_patch(Circle((x, y), 0.22, fc="#6d737b", zorder=4))
+    # E22: blindagem metalica por cima, a parte do pad que fica para fora coberta de solda
+    pads = g["E22_PAD"]
+    u1 = next(c for r, c, _ in g["pecas"] if r == "U1")
+    ub = u1.bounds
+    for p, (x, y) in pads.items():
+        if g["NET_E22"][p] is None and p != 21:
+            continue                    # DIO2 (pad 8): nao se solda
+        x0, x1 = (ub[2], x + 1.5) if p <= 11 else (x - 1.5, ub[0])
+        ax.add_patch(Rectangle((x0, y - 0.6), x1 - x0, 1.2, fc=SOLDA, ec=SOLDA_BORDA, lw=0.5, zorder=4))
+    ax.add_patch(Rectangle((ub[0], ub[1]), ub[2] - ub[0], ub[3] - ub[1], fc="#1f6f4a", ec="#0f3b27", lw=1.2, zorder=5))
+    ax.add_patch(Rectangle((ub[0] + 1.6, ub[1] + 1.4), ub[2] - ub[0] - 3.2, 28.5, fc=BLINDAGEM, ec="#6b7178",
+                           lw=1.0, zorder=6))
+    m = ub[0] + (ub[2] - ub[0]) / 2
+    ax.text(m, ub[1] + 9.0, "EBYTE", ha="center", va="center", fontsize=11, weight="bold", color="#30353b", zorder=7)
+    ax.text(m, ub[1] + 13.0, "E22-900M30S", ha="center", va="center", fontsize=10, weight="bold", color="#30353b", zorder=7)
+    ax.text(m, ub[1] + 16.5, "SX1262  915 MHz  1 W", ha="center", va="center", fontsize=7, color="#30353b", zorder=7)
+    # o IPEX fica no canto do pino 22 (manual E22-M, desenho mecanico) - VAZIO: a antena e soldada
+    ix, iy = ub[0] + 3.2, ub[3] - 3.0
+    ax.add_patch(Circle((ix, iy), 1.1, fc="#d8c070", ec="#7a6a2a", lw=0.8, zorder=7))
+    ax.add_patch(Circle((ix, iy), 0.4, fc="#7a6a2a", zorder=8))
+    ax.text(ix + 1.6, iy, "IPEX vazio", ha="left", va="center", fontsize=6.5, color="#e8f2ec", zorder=8)
+    x1p, y1p = pads[1]
+    ax.add_patch(Circle((ub[2] - 1.2, y1p), 0.55, fc="white", zorder=8))
+    ax.text(ub[2] - 2.4, y1p, "1", ha="center", va="center", fontsize=8, weight="bold", color="white", zorder=8)
+    # SMD 1206
+    for r, c, _ in g["pecas"]:
+        if r not in ("C2", "C3", "R1", "R2"):
+            continue
+        b = c.bounds
+        w, h = b[2] - b[0], b[3] - b[1]
+        cxm, cym = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+        L, W = (3.2, 1.6) if w > h else (1.6, 3.2)
+        corpo = "#c8a26a" if r.startswith("C") else "#1e1e1e"
+        ax.add_patch(Rectangle((cxm - L / 2, cym - W / 2), L, W, fc=SOLDA, ec=SOLDA_BORDA, lw=0.5, zorder=6))
+        if w > h:
+            ax.add_patch(Rectangle((cxm - L / 2 + 0.55, cym - W / 2), L - 1.1, W, fc=corpo, zorder=7))
+        else:
+            ax.add_patch(Rectangle((cxm - L / 2, cym - W / 2 + 0.55), L, W - 1.1, fc=corpo, zorder=7))
+        if r.startswith("R"):
+            ax.text(cxm, cym, "103", ha="center", va="center", fontsize=4.5, color="white", zorder=8,
+                    rotation=0 if w > h else 90)
+    # JP3: fio encapado deitado deste lado
+    for a, b2, n, desc in g["jumpers"]:
+        if "COBRE" not in desc:
+            continue
+        ax.plot([a[0], b2[0]], [a[1], b2[1]], color="#a31515", lw=6, solid_capstyle="round", zorder=9)
+        ax.plot([a[0], b2[0]], [a[1], b2[1]], color=FIO, lw=4, solid_capstyle="round", zorder=10)
+        for p in (a, b2):
+            ax.add_patch(Circle(p, 0.7, fc=SOLDA, ec=SOLDA_BORDA, lw=0.5, zorder=11))
+    # ANTENA SOLDADA: vivo no pad 21, malha no pad 22; o cabo sai pela borda esquerda
+    x21, y21 = pads[21]
+    x22, y22 = pads[22]
+    xp = x21 - 1.1                                  # ponta do pad, fora do modulo
+    ax.plot([xp, xp - 2.0], [y21, y21 + 1.2], color="#d9a441", lw=1.6, zorder=12)          # vivo
+    ax.plot([xp, xp - 2.0], [y22, y21 + 1.6], color="#9a9a9a", lw=3.0, zorder=12)          # malha
+    ax.add_patch(Circle((xp, y21), 0.55, fc=SOLDA, ec=SOLDA_BORDA, lw=0.5, zorder=13))
+    ax.add_patch(Circle((xp, y22), 0.65, fc=SOLDA, ec=SOLDA_BORDA, lw=0.5, zorder=13))
+    cabo = [(xp - 2.0, y21 + 1.4), (-1.0, y21 + 1.4), (-5.0, y21 + 3.5)]
+    ax.plot(*zip(*cabo), color="#151515", lw=4.5, solid_capstyle="round", zorder=12)
+    ax.add_patch(Circle((xp - 2.4, y21 + 1.4), 0.9, fc="#ededed", ec="#888888", lw=0.6, zorder=13))   # cola quente
+
+
+def _guia_montada(g):
+    LARG, ALT = g["LARG"], g["ALT"]
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(16, 13.5))
+    for ax in (a1, a2):
+        ax.set_xlim(-9, LARG + 9)
+        ax.set_ylim(ALT + 6, -7)
+        ax.set_aspect("equal")
+        ax.axis("off")
+        ax.plot([0, 10], [ALT + 2.2, ALT + 2.2], color=TINTA, lw=2)
+        ax.text(5, ALT + 3.0, "10 mm", ha="center", va="top", fontsize=8, color=TINTA)
+    a1.text(LARG / 2, -5.5, "LADO DOS CONECTORES", ha="center", fontsize=15, weight="bold", color=TINTA)
+    a1.text(LARG / 2, -2.8, "é o lado de fora: os cabos encaixam aqui", ha="center", fontsize=10, color="#555555")
+    a2.text(LARG / 2, -5.5, "LADO DO COBRE", ha="center", fontsize=15, weight="bold", color=TINTA)
+    a2.text(LARG / 2, -2.8, "a mesma placa virada (esquerda e direita trocam)", ha="center", fontsize=10,
+            color="#555555")
+    _montada_conectores(a1, g)
+    _montada_cobre(a2, g)
+
+    # nomes das pecas fora da placa, com uma linha fina ate ela
+    def fora(ax, txt, xy, xyt, ha):
+        ax.annotate(txt, xy=xy, xytext=xyt, ha=ha, va="center", fontsize=8.5, color=TINTA, zorder=40,
+                    arrowprops=dict(arrowstyle="-", color="#777777", lw=0.8))
+    cx, cc = g["cx"], g["corpos_c"]
+    fora(a1, "5,3 V", (cc["J3"].bounds[0], g["J3"][0][1]), (-8.5, 1.0), "left")
+    fora(a1, "P1 da tela", (cc["J2"].bounds[2], g["J2Y"]), (LARG + 8.5, 3.0), "right")
+    fora(a1, "P3 da tela", (cc["J1"].bounds[2], g["J1Y"]), (LARG + 8.5, 56.0), "right")
+    fora(a1, "GPS", (cc["J4"].bounds[0], g["J4Y"]), (-8.5, 66.0), "left")
+    fora(a1, "JP2", (cx(9.0), 11.0), (LARG + 8.5, 14.0), "right")
+    fora(a1, "JP4", (cx(g["jumpers"][-1][0][0]), 55.5), (-8.5, 52.0), "left")
+    pads = g["E22_PAD"]
+    fora(a2, "antena\n(cabo soldado)", (-5.0, pads[21][1] + 3.5), (-8.5, pads[21][1] + 8.0), "left")
+    for r, xyt in (("C2", (LARG + 8.5, 11.5)), ("C3", (LARG + 8.5, 17.5)), ("R1", (LARG + 8.5, 31.5)),
+                   ("R2", (LARG + 8.5, 40.5))):
+        c = next(c for rr, c, _ in g["pecas"] if rr == r)
+        val = {"C2": "C2 10µF", "C3": "C3 100nF", "R1": "R1 10k", "R2": "R2 10k"}[r]
+        fora(a2, val, (c.bounds[2], c.centroid.y), xyt, "right")
+    j3 = next(j for j in g["jumpers"] if "COBRE" in j[3])
+    fora(a2, "JP3", ((j3[0][0] + j3[1][0]) / 2, (j3[0][1] + j3[1][1]) / 2), (-8.5, 58.0), "left")
+    plt.tight_layout()
+    fig.savefig(os.path.join(g["SAIDA"], "guia_4_placa_montada.png"), dpi=170, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -317,3 +484,4 @@ def gera(g):
     _guia_conectores(g)
     _guia_cobre(g)
     _guia_ligacoes(g)
+    _guia_montada(g)
