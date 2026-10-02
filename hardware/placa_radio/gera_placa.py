@@ -373,6 +373,10 @@ def png(geom, nome, larg, alt):
             dm.polygon([(x * PX, y * PX) for x, y in r.coords], fill=0)
         img.paste(0, mask=m)
     img.save(os.path.join(SAIDA, nome), dpi=(DPI, DPI))
+    # a laser do usuario so aceita BMP: o arquivo da laser sai tambem em BMP, com o
+    # mesmo dpi gravado
+    if nome.startswith("laser"):
+        img.save(os.path.join(SAIDA, nome.replace(".png", "_bmp.bmp")), dpi=(DPI, DPI))
 
 
 def svg(geom, nome, larg, alt):
@@ -423,6 +427,11 @@ img = Image.new("1", (W, H), 1); d = ImageDraw.Draw(img)
 for p in pedacos(reg):
     d.polygon([((x + 2) * PX, (y + 1.5) * PX) for x, y in p.exterior.coords], fill=0)
 img.save(os.path.join(SAIDA, "regua_100mm.png"), dpi=(DPI, DPI))
+img.save(os.path.join(SAIDA, "regua_100mm_bmp.bmp"), dpi=(DPI, DPI))
+
+# final/: so o que vai para a laser e os guias, para mandar sem confusao
+FINAL = os.path.join(AQUI, "final")
+os.makedirs(FINAL, exist_ok=True)
 
 # ------------------------------------------------------------------ conferencia
 CORES = {"GND": "#7a7a7a", "5V": "#d62728", "3V3": "#ff7f0e", "TEXTO": "#bbbbbb"}
@@ -466,3 +475,11 @@ if falhas:
         print("  " + f)
     sys.exit(1)
 print("DRC OK: folgas >= %.1f mm, todas as redes inteiras, todos os pinos ligados, nomes conferidos" % FOLGA_MIN)
+
+# so com o DRC aprovado a pasta final/ e atualizada: nunca vai para a laser um
+# arquivo que reprovou
+import shutil
+for f in ("laser_queimar_bmp.bmp", "laser_queimar.dxf", "regua_100mm_bmp.bmp",
+          "guia_1_montagem.png", "guia_2_ligacoes.png", "guia_3_vao_e22.png"):
+    shutil.copy(os.path.join(SAIDA, f), os.path.join(FINAL, f))
+print("final/ atualizada")
