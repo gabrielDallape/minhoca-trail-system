@@ -100,7 +100,7 @@ def _e22(ax, g):
 
 
 def _smd(ax, g):
-    for r in ("C2", "C3", "R1", "R2"):
+    for r in ("C2", "R1"):
         b = _peca(g, r).bounds
         w, h = b[2] - b[0], b[3] - b[1]
         cxm, cym = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
@@ -190,9 +190,9 @@ def _guia_montagem(g):
     _chamada(ax, "Alimentação do step-down\nAJUSTE PARA 5,0–5,1 V\nfio grosso (AWG 22)",
              (24.0, -3.0), (LARG + 5, 3.5), COR["step-down"])
     _chamada(ax, "C1 220 µF 16 V (SMD)\nfaixa preta (−) para a ESQUERDA", (31.0, 8.0), (LARG + 5, 12.5), COR["SMD"])
-    _chamada(ax, "C2 10 µF e C3 100 nF (1206)", (34.8, 16.6), (LARG + 5, 19.5), COR["SMD"])
-    _chamada(ax, "R1 10 kΩ: segura o TXEN em 0", (38.6, pads[7][1] + 3.8), (LARG + 5, 27.0), COR["SMD"])
-    _chamada(ax, "R2 10 kΩ: segura o RXEN em 0", (35.9, 38.3), (LARG + 5, 34.5), COR["SMD"])
+    _chamada(ax, "C2 10 µF (1206), colado nos\npinos 10 e 11 do E22", (g["X_C2"] + 0.8, 18.1), (LARG + 5, 20.0), COR["SMD"])
+    _chamada(ax, "R1 10 kΩ (1206): segura o\nTXEN em 0 enquanto a tela liga", (g["X_R1"] + 0.8, pads[7][1] + 4.1),
+             (LARG + 5, 29.0), COR["SMD"])
     _chamada(ax, "PINO 1 do E22 (gravado “1”)\nconfira o 1 impresso no módulo\n"
                  "solde um canto, alinhe, depois o resto", (g["modulo_e22"].bounds[2] - 1.2, pads[1][1]),
              (LARG + 5, 44.5), COR["E22"])

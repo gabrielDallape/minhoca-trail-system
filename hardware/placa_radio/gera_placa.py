@@ -146,7 +146,7 @@ P3X = {}
 for i, (n, r) in enumerate(P3_PADS):
     P3X[n] = 2.0 + 3.6 * i
     pad_fio(n, P3X[n], YBOT, r, "P3")
-X_RXEN = 37.0
+X_RXEN = 36.0
 pad_fio("RXEN", X_RXEN, YBOT, "7 RXEN", "P3")
 
 # ------------------------------------------------------------------ trilhas
@@ -173,18 +173,18 @@ trilha("5V", [pe(9), (X5V, ye(9))], TR_POT)
 # --- TXEN: do canto, desce colado na borda (por fora do 5 V) e entra no pad 7
 X_TXEN = 39.1
 trilha("TXEN", [TXEN_PAD, (X_TXEN, TXEN_PAD[1]), (X_TXEN, ye(7)), pe(7)])
-# R1 (10 k, 1206, em pe): pull-down do TXEN para a faixa de terra da borda
-pad_rect("TXEN", 38.6, ye(7) + 2.3, 1.4, 1.2)
-trilha("TXEN", [(38.6, ye(7)), (38.6, ye(7) + 2.3)])
-pad_rect("GND", 38.6, ye(7) + 5.3, 1.4, 1.2)
-pecas.append(("R1", box(37.8, ye(7) + 1.6, 39.4, ye(7) + 6.0), "R1 10k"))
+# R1 (10 k, 1206, em pe): pull-down do TXEN para a faixa de terra da borda. E a unica
+# peca de protecao que ficou: o TXEN liga o buck (TLV62568) que alimenta o PA, e o
+# datasheet da TI proibe esse pino flutuando (ESTUDO_PECAS.md, 6). O de RXEN saiu.
+# Pads de 1,8 x 1,5 (maiores que o 1206 pede): solda a ferro com folga.
+X_R1 = 38.4
+pad_rect("TXEN", X_R1, ye(7) + 2.6, 1.8, 1.5)
+trilha("TXEN", [(X_R1, ye(7)), (X_R1, ye(7) + 2.6)])
+pad_rect("GND", X_R1, ye(7) + 5.6, 1.8, 1.5)
+pecas.append(("R1", box(X_R1 - 0.8, ye(7) + 1.8, X_R1 + 0.8, ye(7) + 6.4), "R1 10k"))
 
-# --- RXEN: do pad de baixo, sobe reto ate o pad 6
+# --- RXEN: do pad de baixo, sobe reto ate o pad 6 (por dentro do R1)
 trilha("RXEN", [(X_RXEN, YBOT), (X_RXEN, ye(6)), pe(6)])
-# R2 (10 k, 1206, deitado): pull-down do RXEN, da trilha para o terra junto do modulo
-pad_rect("RXEN", 37.4, 38.3, 1.2, 1.6)
-pad_rect("GND", 34.4, 38.3, 1.2, 1.6)
-pecas.append(("R2", box(33.7, 37.4, 38.1, 39.2), "R2 10k"))
 
 # ------------------------------------------------------------------ capacitores
 # C1: eletrolitico SMD 220 uF / 16 V, lata de 6,3 mm (ESTUDO_PECAS.md). Deitado na
@@ -195,14 +195,13 @@ C1_MAIS, C1_MENOS = (36.4, C1Y), (30.8, C1Y)
 pad_rect("5V", *C1_MAIS, 3.4, 1.8)
 pad_rect("GND", *C1_MENOS, 3.4, 1.8)
 pecas.append(("C1", box(30.3, C1Y - 3.3, 36.9, C1Y + 3.3), "C1 220uF"))
-# C2 (10 uF) e C3 (100 nF), 1206, a menos de 10 mm dos pads 9 e 10 do E22
-pad_rect("GND", 33.9, 14.7, 1.2, 1.6)
-pad_rect("5V", X5V, 14.7, 1.2, 1.6)
-pecas.append(("C2", box(33.2, 13.8, 37.6, 15.6), "C2 10uF"))
-pad_rect("GND", 34.8, 16.6, 1.6, 1.2)
-pad_rect("5V", 34.8, 19.6, 1.6, 1.2)
-pecas.append(("C3", box(33.9, 15.8, 35.7, 20.4), "C3 100nF"))
-trilha("GND", [pe(11), (34.8, ye(11)), (34.8, 16.6)])
+# C2 (10 uF, 1206, em pe) colado nos pinos: o terra no pad 11, o 5 V no ramal do pad 10.
+# O C3 (100 nF) saiu: redundante com o C2 e com os ceramicos de dentro do modulo.
+X_C2 = 34.4
+pad_rect("GND", X_C2, 16.6, 1.8, 1.5)
+pad_rect("5V", X_C2, 19.6, 1.8, 1.5)
+pecas.append(("C2", box(X_C2 - 0.8, 15.8, X_C2 + 0.8, 20.4), "C2 10uF"))
+trilha("GND", [pe(11), (X_C2, ye(11)), (X_C2, 16.6)])
 
 # ------------------------------------------------------------------ nomes (vazados no terra)
 # Cada nome e GRAVADO no plano de terra: a laser queima a letra, o acido come o cobre
@@ -220,7 +219,7 @@ for net, (x, y), rot, origem, w, h in fios:
 rotulos += [("P1", 1.6, 15.6, YTOP, 0, "c", "c"),
             ("P3", 1.6, 24.0, 55.6, 0, "c", "c"),
             ("MTS v3", 1.2, 16.6, 2.4, 0, "c", "c"),
-            ("1", 1.3, 35.3, ye(1), 0, "c", "c"),                                 # o pino 1 do E22
+            ("1", 1.3, 34.45, ye(1), 0, "c", "c"),                                # o pino 1 do E22
             ("-", 1.6, 27.6, C1Y + 1.4, 0, "c", "c")]                                    # o - do C1
 
 
@@ -417,6 +416,32 @@ LW, LH = LARG + 2 * SOBRA, ALT + 2 * SOBRA
 png(laser, "laser_queimar.png", LW, LH)
 svg(laser, "laser_queimar.svg", LW, LH)
 dxf(laser, "laser_queimar.dxf", LW, LH)
+
+
+def previa_dxf(nome, saida):
+    """Desenha o DXF LIDO DE VOLTA, preenchido par-impar como a laser faz em Fill:
+    e a prova de que o arquivo que vai para a laser e o desenho certo."""
+    from matplotlib.path import Path as MPath
+    from matplotlib.patches import PathPatch
+    verts, codes, borda = [], [], None
+    for e in ezdxf.readfile(os.path.join(SAIDA, nome)).modelspace():
+        pts = [(p[0], p[1]) for p in e.get_points()]
+        if e.dxf.layer == "CONTORNO":
+            borda = pts
+            continue
+        verts += pts + [pts[0]]
+        codes += [MPath.MOVETO] + [MPath.LINETO] * (len(pts) - 1) + [MPath.CLOSEPOLY]
+    W, H = max(x for x, _ in borda), max(y for _, y in borda)
+    fig, ax = plt.subplots(figsize=(W / 12, H / 12 + 0.5))
+    ax.add_patch(PathPatch(MPath(verts, codes), facecolor="black", lw=0))
+    bx, by = zip(*(borda + [borda[0]]))
+    ax.plot(bx, by, color="red", lw=1)
+    ax.set_xlim(-1, W + 1); ax.set_ylim(-1, H + 1); ax.set_aspect("equal"); ax.axis("off")
+    ax.set_title(f"{nome}  ({W:.0f} x {H:.0f} mm)  preto = laser queima", fontsize=9)
+    plt.savefig(os.path.join(SAIDA, saida), dpi=200, bbox_inches="tight"); plt.close()
+
+
+previa_dxf("laser_queimar.dxf", "preview_laser_queimar_dxf.png")
 png(cobre_final, "cobre.png", LARG, ALT)
 svg(cobre_final, "cobre.svg", LARG, ALT)
 
@@ -464,6 +489,8 @@ for velho in ("furos.csv", "laser_serigrafia.png", "laser_serigrafia.svg", "lase
 
 import guias
 guias.gera(globals())
+import manual
+manual.gera(globals())
 
 # ------------------------------------------------------------------ relatorio
 print(f"placa {LARG} x {ALT} mm | 0 furos | 0 jumpers | {len(fios)} pads de fio | "
@@ -479,7 +506,7 @@ print("DRC OK: folgas >= %.1f mm, todas as redes inteiras, todos os pinos ligado
 # so com o DRC aprovado a pasta final/ e atualizada: nunca vai para a laser um
 # arquivo que reprovou
 import shutil
-for f in ("laser_queimar_bmp.bmp", "laser_queimar.dxf", "regua_100mm_bmp.bmp",
+for f in ("laser_queimar_bmp.bmp", "laser_queimar.dxf", "regua_100mm_bmp.bmp", "MONTAGEM_placa_radio.pdf",
           "guia_1_montagem.png", "guia_2_ligacoes.png", "guia_3_vao_e22.png"):
     shutil.copy(os.path.join(SAIDA, f), os.path.join(FINAL, f))
 print("final/ atualizada")

@@ -173,3 +173,34 @@ projeto aberto usa. Fica para a próxima versão.
 - Panasonic série FR; curvas de DC-bias Samsung CL31A106MPHNNNE, CL31B106KBHNNNE,
   CL31A106KBHNNNE; onsemi NCP361; AOS AO3401A; TI TPS7A45; Littelfuse 1206L110/16.
 - Engenharia reversa do switch: S5NC/CDEBYTE_Modules.
+
+## 6. Segundo estudo: o mínimo (2026-10-01, depois da pergunta "não dá para usar sem?")
+
+Duas fontes novas mudaram o quadro:
+
+**O que há dentro do E22** (única desmontagem publicada, S5NC/CDEBYTE_Modules, blindagem tirada
+e pad a pad medido):
+- **O TXEN liga o EN de um buck TI TLV62568, que alimenta o PA.** O datasheet da TI: *"The EN
+  input must be terminated and should not be left floating"*; sem pull interno; limiar de
+  0,95–1,2 V. Relato de campo (ndoo, variante Meshtastic XIAO+E22): E22 **esquentando** porque o
+  TXEN nunca foi a 0 e o PA ficou ligado. → **R1 é obrigatório.**
+- **O RXEN liga o LDO do LNA** e o lado RX do switch. Solto, gasta energia; perigoso só com o
+  TXEN alto junto, que o R1 já impede. → **R2 saiu.**
+- **No VCC, dentro do módulo, só uns 4 cerâmicos pequenos** (leitura da foto; valores não
+  medidos). Nada de eletrolítico. O manual Ebyte pede *"external ceramic filter capacitor"*.
+  → **C2 fica; C3 (100 nF) saiu**: redundante com o C2 e com os cerâmicos internos.
+- O switch de RF nunca foi identificado. Os "29–30 dB de isolamento" são do datasheet do
+  PE4259 (o switch do desenho de referência da Semtech), **não uma medição** — o `CLAUDE.md`
+  diz "mediu", e está errado.
+
+**Os nossos dados de campo** (CHANGELOG, medido): sem nenhum capacitor, com o step-down, o rádio
+ficou estável a 14 dBm e travou a 18 dBm (o módulo apaga no meio do TX e o watchdog reinicia
+a tela). No carro em 2026-09-30, a 10 dBm, zero TX presos. → Sem capacitor funciona na nossa
+potência, com ~4 dB de folga. **C1 fica**: é a folga, e é o que segura o pico ao plugar
+(simulação da seção 2).
+
+**Teste que decide o C1 de vez:** potência em 18 dBm (`p18` no serial), alguns minutos sem e
+com 220 µF encostado no VCC do E22. Estável com e travando sem = provado.
+
+Nenhuma placa queimou por falta de capacitor em relato documentado; também não achamos relato
+detalhado de E22 rodando sem nenhum. A comunidade usa 100–220 µF + 10 µF.
