@@ -100,28 +100,39 @@ def _e22(ax, g):
 
 
 def _smd(ax, g):
-    for r in ("C2", "R1"):
-        b = _peca(g, r).bounds
-        w, h = b[2] - b[0], b[3] - b[1]
-        cxm, cym = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
-        L, W = (3.2, 1.6) if w > h else (1.6, 3.2)
-        corpo = "#c8a26a" if r.startswith("C") else "#1e1e1e"
-        ax.add_patch(Rectangle((cxm - L / 2, cym - W / 2), L, W, fc=SOLDA, ec=SOLDA_BORDA, lw=0.5, zorder=6))
-        if w > h:
-            ax.add_patch(Rectangle((cxm - L / 2 + 0.55, cym - W / 2), L - 1.1, W, fc=corpo, zorder=7))
-        else:
-            ax.add_patch(Rectangle((cxm - L / 2, cym - W / 2 + 0.55), L, W - 1.1, fc=corpo, zorder=7))
-        if r.startswith("R"):
-            ax.text(cxm, cym, "103", ha="center", va="center", fontsize=4.5, color="white", zorder=8,
-                    rotation=0 if w > h else 90)
-    # C1: eletrolitico SMD visto de cima - base quadrada, lata redonda, faixa preta no -
-    b = _peca(g, "C1").bounds
-    cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
-    ax.add_patch(Rectangle((b[0], b[1]), b[2] - b[0], b[3] - b[1], fc="#2b2b2b", ec="#111111", lw=0.8, zorder=8))
-    ax.add_patch(Circle((cx, cy), 3.0, fc="#c7ccd2", ec="#7d838a", lw=0.8, zorder=9))
-    ax.add_patch(PathPatch(Path([(cx - 3.0, cy - 3.2), (cx - 1.4, cy - 3.2), (cx - 1.4, cy + 3.2), (cx - 3.0, cy + 3.2)]),
-                           fc="#1d1d1d", ec="none", zorder=10, clip_path=Circle((cx, cy), 3.0, transform=ax.transData)))
-    ax.text(cx + 0.6, cy, "220µF\n16V", ha="center", va="center", fontsize=6.5, color="#30353b", zorder=11)
+    """As tres pecas, de perna, como ficam soldadas (vistas de cima)."""
+    # R1: resistor de 1/4 W deitado, pernas dobradas ate os dois pads
+    b = _peca(g, "R1").bounds
+    x = (b[0] + b[2]) / 2
+    ax.plot([x, x], [g["R1_Y1"], g["R1_Y2"]], color="#9a9a9a", lw=1.6, zorder=6)
+    for y in (g["R1_Y1"], g["R1_Y2"]):
+        ax.add_patch(Circle((x, y), 0.7, fc=SOLDA, ec=SOLDA_BORDA, lw=0.5, zorder=7))
+    ax.add_patch(FancyBboxPatch((b[0] + 0.1, b[1]), b[2] - b[0] - 0.2, b[3] - b[1], boxstyle="round,pad=0,rounding_size=1.0",
+                                fc="#d9c08c", ec="#8c7340", lw=0.8, zorder=8))
+    for i, cor in enumerate(["#6b3d1e", "#111111", "#e07b00", "#c9a227"]):       # marrom preto laranja ouro
+        yy = b[1] + 1.2 + i * 1.1 + (0.9 if i == 3 else 0)
+        ax.add_patch(Rectangle((b[0] + 0.1, yy), b[2] - b[0] - 0.2, 0.55, fc=cor, zorder=9))
+    # C2: ceramico multicamada de perna, em pe (corpo amarelo, "106")
+    b = _peca(g, "C2").bounds
+    x, y = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+    for yy in (16.6, 19.6):
+        ax.add_patch(Circle((x, yy), 0.7, fc=SOLDA, ec=SOLDA_BORDA, lw=0.5, zorder=7))
+    ax.add_patch(FancyBboxPatch((x - 1.15, y - 1.4), 2.3, 2.8, boxstyle="round,pad=0,rounding_size=0.8",
+                                fc="#e8b923", ec="#9c7a10", lw=0.8, zorder=8))
+    ax.text(x, y, "106", ha="center", va="center", fontsize=5, color="#5a4508", rotation=90, zorder=9)
+    # C1: eletrolitico comum em pe, visto de cima - lata com a faixa do - e a cruz da tampa
+    c = _peca(g, "C1").centroid
+    for xx in (g["C1_MAIS"][0], g["C1_MENOS"][0]):
+        ax.add_patch(Circle((xx, g["C1Y"]), 0.8, fc=SOLDA, ec=SOLDA_BORDA, lw=0.5, zorder=7))
+    lata = Circle((c.x, c.y), 3.15, fc="#24407a", ec="#132447", lw=0.9, zorder=8)
+    ax.add_patch(lata)
+    faixa = Rectangle((c.x - 3.2, c.y - 3.2), 1.7, 6.4, fc="#c9d4f0", zorder=9)
+    faixa.set_clip_path(lata)
+    ax.add_patch(faixa)
+    ax.add_patch(Circle((c.x + 0.5, c.y), 1.9, fc="#c7ccd2", ec="#7d838a", lw=0.6, zorder=10))
+    ax.plot([c.x + 0.5 - 1.2, c.x + 0.5 + 1.2], [c.y, c.y], color="#7d838a", lw=0.6, zorder=11)
+    ax.plot([c.x + 0.5, c.x + 0.5], [c.y - 1.2, c.y + 1.2], color="#7d838a", lw=0.6, zorder=11)
+    ax.text(c.x - 2.35, c.y, "−", ha="center", va="center", fontsize=9, weight="bold", color="#132447", zorder=11)
 
 
 def _fios(ax, g):
@@ -189,10 +200,12 @@ def _guia_montagem(g):
     _chamada(ax, "Pino 1 do P1 = TXEN\nsolda no pad do canto", (38.7, -3.0), (LARG + 5, -3.5), COR["P1"])
     _chamada(ax, "Alimentação do step-down\nAJUSTE PARA 5,0–5,1 V\nfio grosso (AWG 22)",
              (24.0, -3.0), (LARG + 5, 3.5), COR["step-down"])
-    _chamada(ax, "C1 220 µF 16 V (SMD)\nfaixa preta (−) para a ESQUERDA", (31.0, 8.0), (LARG + 5, 12.5), COR["SMD"])
-    _chamada(ax, "C2 10 µF (1206), colado nos\npinos 10 e 11 do E22", (g["X_C2"] + 0.8, 18.1), (LARG + 5, 20.0), COR["SMD"])
-    _chamada(ax, "R1 10 kΩ (1206): segura o\nTXEN em 0 enquanto a tela liga", (g["X_R1"] + 0.8, pads[7][1] + 4.1),
-             (LARG + 5, 29.0), COR["SMD"])
+    _chamada(ax, "C1 220 µF 16 V (eletrolítico comum)\nem pé, faixa do − para a ESQUERDA", (31.0, 8.6),
+             (LARG + 5, 12.0), COR["SMD"])
+    _chamada(ax, "C2 10 µF (cerâmico de perna, “106”)\ncolado nos pinos 10 e 11 do E22", (g["X_C2"] + 1.2, 18.1),
+             (LARG + 5, 20.0), COR["SMD"])
+    _chamada(ax, "R1 10 kΩ (resistor comum 1/4 W)\ndeitado na borda: segura o TXEN\nem 0 enquanto a tela liga",
+             (g["X_R1"] + 1.2, (g["R1_Y1"] + g["R1_Y2"]) / 2), (LARG + 5, 30.0), COR["SMD"])
     _chamada(ax, "PINO 1 do E22 (gravado “1”)\nconfira o 1 impresso no módulo\n"
                  "solde um canto, alinhe, depois o resto", (g["modulo_e22"].bounds[2] - 1.2, pads[1][1]),
              (LARG + 5, 44.5), COR["E22"])

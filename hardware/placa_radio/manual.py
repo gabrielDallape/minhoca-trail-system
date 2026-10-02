@@ -71,16 +71,23 @@ def _icone(ax, tipo):
             ax.add_patch(Rectangle((7.6, 1.0 + i * 1.0), 0.8, 0.5, fc=guias.SOLDA, lw=0))
         ax.text(5, 5.5, "E22", ha="center", va="center", fontsize=7, weight="bold", color="#30353b")
     elif tipo == "C1":
-        ax.add_patch(Rectangle((1.5, 1.5), 7, 7, fc="#2b2b2b", ec="#111111"))
-        ax.add_patch(Circle((5, 5), 3.2, fc="#c7ccd2", ec="#7d838a"))
-        ax.add_patch(Rectangle((1.8, 1.8), 1.6, 6.4, fc="#1d1d1d", lw=0))
-        ax.text(5.6, 5, "220µF", ha="center", va="center", fontsize=6, color="#30353b")
-    elif tipo in ("C2", "R1"):
-        corpo = "#c8a26a" if tipo == "C2" else "#1e1e1e"
-        ax.add_patch(Rectangle((1.5, 3.4), 7, 3.2, fc=guias.SOLDA, ec=guias.SOLDA_BORDA))
-        ax.add_patch(Rectangle((2.8, 3.4), 4.4, 3.2, fc=corpo, lw=0))
-        if tipo == "R1":
-            ax.text(5, 5, "103", ha="center", va="center", fontsize=7, color="white", weight="bold")
+        ax.add_patch(Rectangle((3.0, 2.6), 4.0, 6.6, fc="#24407a", ec="#132447"))
+        ax.add_patch(Rectangle((3.0, 2.6), 1.2, 6.6, fc="#c9d4f0", lw=0))
+        ax.plot([4.2, 4.2], [0.4, 2.6], color="#9a9a9a", lw=1.5)
+        ax.plot([5.8, 5.8], [0.4, 2.6], color="#9a9a9a", lw=1.5)
+        ax.text(5.6, 6.0, "220µF", ha="center", va="center", fontsize=5.5, color="white", rotation=90)
+    elif tipo == "C2":
+        ax.add_patch(FancyBboxPatch((3.3, 3.6), 3.4, 4.2, boxstyle="round,pad=0,rounding_size=1.2",
+                                    fc="#e8b923", ec="#9c7a10"))
+        ax.plot([4.3, 4.3], [0.4, 3.6], color="#9a9a9a", lw=1.5)
+        ax.plot([5.7, 5.7], [0.4, 3.6], color="#9a9a9a", lw=1.5)
+        ax.text(5, 5.7, "106", ha="center", va="center", fontsize=6, color="#5a4508")
+    elif tipo == "R1":
+        ax.plot([0.3, 9.7], [5, 5], color="#9a9a9a", lw=1.5)
+        ax.add_patch(FancyBboxPatch((2.3, 3.7), 5.4, 2.6, boxstyle="round,pad=0,rounding_size=1.1",
+                                    fc="#d9c08c", ec="#8c7340"))
+        for i, cor in enumerate(["#6b3d1e", "#111111", "#e07b00", "#c9a227"]):      # marrom preto laranja ouro
+            ax.add_patch(Rectangle((3.0 + i * 0.95 + (0.8 if i == 3 else 0), 3.7), 0.5, 2.6, fc=cor, lw=0))
     elif tipo == "ANT":
         ax.plot([5, 5], [1, 7.5], color="#151515", lw=5, solid_capstyle="round")
         ax.add_patch(Rectangle((4.2, 0.4), 1.6, 1.4, fc="#d8c070", ec="#7a6a2a"))
@@ -99,11 +106,11 @@ def _icone(ax, tipo):
 
 PECAS = [
     ("E22", "U1", "E22-900M30S (Ebyte)", "O rádio LoRa de 1 W. Vai soldado deitado, etiqueta para cima,\ncom o pino 1 no canto marcado “1”.", "1"),
-    ("C1", "C1", "Capacitor eletrolítico SMD 220 µF / 16 V,\nlata Ø 6,3 mm, 105 °C (série Panasonic FK ou similar)",
-     "Reserva de energia: segura o pico de ~0,6 A da transmissão e o\npico de tensão ao plugar o 5 V. Tem polaridade: faixa preta = −.", "1"),
-    ("C2", "C2", "Capacitor cerâmico 10 µF, 1206, X7R, 16 ou 25 V\n(ex.: Murata GRM31CR71C106KAC7L)",
+    ("C1", "C1", "Capacitor eletrolítico COMUM 220 µF / 16 V,\nde perna, lata Ø 6,3 mm, 105 °C",
+     "Reserva de energia: segura o pico de ~0,6 A da transmissão e o\npico de tensão ao plugar o 5 V. Tem polaridade: faixa = −.", "1"),
+    ("C2", "C2", "Capacitor cerâmico multicamada 10 µF, de perna,\nmarcado “106”, 16 V ou mais",
      "Filtra as variações rápidas que o C1 é lento demais para pegar.\nO manual da Ebyte pede um cerâmico junto do módulo. Sem polaridade.", "1"),
-    ("R1", "R1", "Resistor 10 kΩ, 1206 (marcado “103”)",
+    ("R1", "R1", "Resistor COMUM 10 kΩ, 1/4 W\n(faixas marrom, preto, laranja)",
      "Segura o TXEN em 0 enquanto a tela liga. O TXEN liga o amplificador\nde 1 W, e esse pino não pode ficar solto. Sem polaridade.", "1"),
     ("ANT", "—", "Antena 915 MHz com cabo coaxial", "Soldada direto no E22: vivo no pad 21, malha no pad 22.\nO conector IPEX do módulo fica vazio.", "1"),
     ("CABO", "—", "Cabo JST-PH 2,0 mm de 12 vias (2 un.)", "Um para o P1 e outro para o P3 da tela. O plugue fica na tela;\na outra ponta é cortada e cada fio solda num pad da placa.", "2"),
@@ -162,9 +169,9 @@ def _pag_onde(pdf, g, num):
         ax.add_patch(Circle((x, y), 1.55, fc="#c0392b", ec="white", lw=1.2, zorder=30))
         ax.text(x, y, n, ha="center", va="center", fontsize=9, weight="bold", color="white", zorder=31)
     leg = [("1", "E22-900M30S", "etiqueta para cima; o pino 1 vai no canto gravado “1”\n(embaixo, à direita). Solde um canto, alinhe, depois o resto."),
-           ("2", "C1 220 µF (eletrolítico SMD)", "a faixa preta (−) fica para a ESQUERDA, do lado do “−” gravado."),
-           ("3", "C2 10 µF (cerâmico 1206)", "em pé, entre o pino 11 (terra) e o ramal do pino 10 (5 V).\nNão tem lado."),
-           ("4", "R1 10 kΩ (resistor 1206)", "em pé, na borda direita, entre o TXEN e o terra.\nNão tem lado."),
+           ("2", "C1 220 µF (eletrolítico comum)", "em pé, pernas abertas em L até os dois pads; a faixa (−) fica\npara a ESQUERDA, do lado do “−” gravado. Sem altura: deite."),
+           ("3", "C2 10 µF (cerâmico de perna, “106”)", "em pé, pernas em L nos dois pads, colado nos pinos 10 e 11\ndo E22. Não tem lado."),
+           ("4", "R1 10 kΩ (resistor comum 1/4 W)", "deitado ao longo da borda direita, uma perna dobrada\nem cada pad (~10 mm). Não tem lado."),
            ("5", "Antena", "vivo do cabo no pad 21 do E22, malha no pad 22.\nDesencape só ~2 mm; cola quente perto da solda."),
            ("6", "Fios do P1 da tela", "pads “2 NRST”, “4 BUSY”, “3 DIO1”, “8 GND”:\no número é o pino do P1."),
            ("7", "Alimentação", "+ do step-down no “+5V”, − no “GND” (fio AWG 22).\nStep-down ajustado em 5,0–5,1 V."),
@@ -176,7 +183,7 @@ def _pag_onde(pdf, g, num):
         fig.text(0.487, y - 0.013, n, fontsize=9, weight="bold", color="white", ha="center", va="center")
         fig.text(0.51, y, nome, fontsize=11, weight="bold", va="top")
         fig.text(0.51, y - 0.03, desc, fontsize=9, va="top", color="#333333")
-        y -= 0.06 + 0.026 * desc.count("\n") + 0.012
+        y -= 0.056 + 0.026 * desc.count("\n") + 0.008
     _salva(pdf, fig)
 
 
@@ -231,8 +238,9 @@ def gera(g):
             ("Na ordem (do mais baixo para o mais alto)",
              ["☐ 1. E22: pino 1 no canto “1”. Solde UM pad de canto, confira o alinhamento,",
               "        depois os outros. Os pads de sinal têm 1,2 mm de folga até o terra.",
-              "☐ 2. R1 (10 kΩ) e C2 (10 µF): estanhe um pad, encoste a peça, solde o outro.",
-              "☐ 3. C1 (220 µF): faixa preta para a ESQUERDA.",
+              "☐ 2. R1 e C2: dobre as pernas em L com o alicate e corte a ~2 mm da dobra.",
+              "        Estanhe os pads, encoste o pé da perna e solde. Mais baixo primeiro.",
+              "☐ 3. C1 (220 µF): em pé, faixa (−) para a ESQUERDA, pernas abertas até os pads.",
               "☐ 4. Fios da tela: corte o cabo PH deixando o plugue na tela. Confira cada fio",
               "        com o multímetro até o pino da tela ANTES de soldar (a ordem impressa",
               "        na tela é o inverso da numeração). Solde no pad com o mesmo número.",

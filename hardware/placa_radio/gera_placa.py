@@ -173,34 +173,38 @@ trilha("5V", [pe(9), (X5V, ye(9))], TR_POT)
 # --- TXEN: do canto, desce colado na borda (por fora do 5 V) e entra no pad 7
 X_TXEN = 39.1
 trilha("TXEN", [TXEN_PAD, (X_TXEN, TXEN_PAD[1]), (X_TXEN, ye(7)), pe(7)])
-# R1 (10 k, 1206, em pe): pull-down do TXEN para a faixa de terra da borda. E a unica
-# peca de protecao que ficou: o TXEN liga o buck (TLV62568) que alimenta o PA, e o
-# datasheet da TI proibe esse pino flutuando (ESTUDO_PECAS.md, 6). O de RXEN saiu.
-# Pads de 1,8 x 1,5 (maiores que o 1206 pede): solda a ferro com folga.
+# R1 (10 k, resistor COMUM de 1/4 W, de perna): pull-down do TXEN para a faixa de terra
+# da borda. E a unica peca de protecao que ficou: o TXEN liga o buck (TLV62568) que
+# alimenta o PA, e o datasheet da TI proibe esse pino flutuando (ESTUDO_PECAS.md, 6).
+# A placa nao tem furo: o resistor vai DEITADO ao longo da borda, cada perna dobrada e
+# soldada em cima de um pad. 10,16 mm entre pads = o passo de 0,4" de um 1/4 W.
 X_R1 = 38.4
-pad_rect("TXEN", X_R1, ye(7) + 2.6, 1.8, 1.5)
-trilha("TXEN", [(X_R1, ye(7)), (X_R1, ye(7) + 2.6)])
-pad_rect("GND", X_R1, ye(7) + 5.6, 1.8, 1.5)
-pecas.append(("R1", box(X_R1 - 0.8, ye(7) + 1.8, X_R1 + 0.8, ye(7) + 6.4), "R1 10k"))
+R1_Y1 = ye(7) + 3.0
+R1_Y2 = R1_Y1 + 10.16
+pad_rect("TXEN", X_R1, R1_Y1, 1.8, 2.4)
+trilha("TXEN", [(X_R1, ye(7)), (X_R1, R1_Y1)])
+pad_rect("GND", X_R1, R1_Y2, 1.8, 2.4)
+pecas.append(("R1", box(X_R1 - 1.25, R1_Y1 + 1.4, X_R1 + 1.25, R1_Y2 - 1.4), "R1 10k"))
 
 # --- RXEN: do pad de baixo, sobe reto ate o pad 6 (por dentro do R1)
 trilha("RXEN", [(X_RXEN, YBOT), (X_RXEN, ye(6)), pe(6)])
 
 # ------------------------------------------------------------------ capacitores
-# C1: eletrolitico SMD 220 uF / 16 V, lata de 6,3 mm (ESTUDO_PECAS.md). Deitado na
-# horizontal: o + na descida do 5 V, o - no terra. Pads largos: serve tambem um de
-# furo com as pernas dobradas e soldadas por cima.
-C1Y = 10.3
+# C1: eletrolitico COMUM 220 uF / 16 V, lata de 6,3 mm, passo 2,5 mm (ESTUDO_PECAS.md).
+# Em pe, as duas pernas abertas em L ate os pads (o + na descida do 5 V, o - no terra).
+# Se faltar altura atras da tela, deita a lata e dobra as pernas ate os mesmos pads.
+C1Y = 10.8
 C1_MAIS, C1_MENOS = (36.4, C1Y), (30.8, C1Y)
-pad_rect("5V", *C1_MAIS, 3.4, 1.8)
-pad_rect("GND", *C1_MENOS, 3.4, 1.8)
-pecas.append(("C1", box(30.3, C1Y - 3.3, 36.9, C1Y + 3.3), "C1 220uF"))
-# C2 (10 uF, 1206, em pe) colado nos pinos: o terra no pad 11, o 5 V no ramal do pad 10.
+pad_rect("5V", *C1_MAIS, 2.6, 2.4)
+pad_rect("GND", *C1_MENOS, 2.6, 2.4)
+pecas.append(("C1", Point(33.6, C1Y).buffer(3.15), "C1 220uF"))
+# C2 (10 uF, ceramico multicamada COMUM, de perna, marcado "106"): em pe, pernas em L,
+# colado nos pinos - o terra no pad 11, o 5 V no ramal do pad 10.
 # O C3 (100 nF) saiu: redundante com o C2 e com os ceramicos de dentro do modulo.
 X_C2 = 34.4
-pad_rect("GND", X_C2, 16.6, 1.8, 1.5)
-pad_rect("5V", X_C2, 19.6, 1.8, 1.5)
-pecas.append(("C2", box(X_C2 - 0.8, 15.8, X_C2 + 0.8, 20.4), "C2 10uF"))
+pad_rect("GND", X_C2, 16.6, 2.0, 2.0)
+pad_rect("5V", X_C2, 19.6, 2.0, 2.0)
+pecas.append(("C2", box(X_C2 - 1.3, 15.2, X_C2 + 1.3, 21.0), "C2 10uF"))
 trilha("GND", [pe(11), (X_C2, ye(11)), (X_C2, 16.6)])
 
 # ------------------------------------------------------------------ nomes (vazados no terra)

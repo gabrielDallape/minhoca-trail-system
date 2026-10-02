@@ -71,9 +71,12 @@ Os nomes já saem gravados no cobre: a letra é queimada e aparece na cor da fib
 2. **E22:** etiqueta para cima, **pino 1 no canto marcado "1"** (embaixo, à direita).
    - Solde um pad de canto, confira o alinhamento e só então solde os outros.
    - Os pads foram alongados 0,5 mm para fora para o ferro alcançar o meio-furo.
-3. **C1, C2, R1.**
-   - **C1** é eletrolítico SMD, com a **faixa preta (−) para a esquerda**, ao lado do "−"
-     gravado.
+3. **C1, C2, R1** são peças **comuns, de perna**. Sem furo, cada perna é dobrada em "L" com
+   o alicate, cortada a ~2 mm da dobra, e o pé é soldado em cima do pad.
+   - **R1** (1/4 W) vai deitado ao longo da borda direita, uma perna em cada pad (~10 mm).
+   - **C2** (cerâmico "106") vai em pé, colado nos pinos 10 e 11 do E22.
+   - **C1** vai em pé, com a **faixa (−) para a esquerda**, ao lado do "−" gravado. Se faltar
+     altura atrás da tela, deite a lata e dobre as pernas até os mesmos pads.
    - Os pads de terra têm um anel queimado com quatro pontes (alívio térmico): é o que deixa
      o pad visível e fácil de soldar.
 4. **Fios da tela:** corte o cabo PH de 12 vias deixando o plugue do lado da tela.
@@ -96,9 +99,9 @@ Os nomes já saem gravados no cobre: a letra é queimada e aparece na cor da fib
 | Ref | Peça | Qtd |
 |---|---|---|
 | U1 | E22-900M30S | 1 |
-| C1 | 220 µF / **16 V** eletrolítico **SMD**, lata Ø 6,3 mm, 105 °C (série Panasonic FK ou equivalente). Serve um de furo com as pernas dobradas e soldadas por cima. **Não troque por polímero** | 1 |
-| C2 | 10 µF cerâmico 1206 **X7R, 16 ou 25 V** (Murata GRM31CR71C106KAC7L). Não use de 6,3 V | 1 |
-| R1 | 10 kΩ 1206 | 1 |
+| C1 | capacitor eletrolítico **comum, de perna**, 220 µF / **16 V**, lata Ø 6,3 mm, 105 °C (ex.: Panasonic EEU-FR1C221). **Não troque por polímero** | 1 |
+| C2 | capacitor **cerâmico multicamada de perna** 10 µF, marcado "106", 16 V ou mais. Não use de 6,3 V | 1 |
+| R1 | resistor **comum** 10 kΩ, 1/4 W (marrom, preto, laranja) | 1 |
 | — | antena 915 MHz com cabo coaxial (soldado nos pads 21/22) | 1 |
 | — | 2 cabos PH2.0 de 12 vias (um para o P1, outro para o P3), cortados | 2 |
 | — | fio AWG 22 para a alimentação, cola quente | — |
