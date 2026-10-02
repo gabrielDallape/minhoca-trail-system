@@ -55,6 +55,10 @@ mundo" não cobre a gente.
   por polímero.
 - **Peça:** Panasonic **EEU-FR1C221** (220 µF, **16 V**, 105 °C, 6,3 mm, passo 2,5) [M]. É a
   mesma lata e o mesmo preço do de 10 V: margem de graça. Nichicon HE ou Rubycon ZLH servem.
+- **Na v3 (placa sem furo) o C1 é SMD:** eletrolítico de 220 µF / 16 V, lata de 6,3 mm, 105 °C
+  (série Panasonic FK ou equivalente). O ESR do SMD é ainda maior que o do FR, então o
+  amortecimento ao plugar continua garantido [E]. Um FR de furo também serve, com as pernas
+  dobradas e soldadas por cima dos pads.
 
 ### C2 — 10 µF cerâmico. **Fica. Comprar X7R de 16 ou 25 V.**
 
@@ -151,7 +155,7 @@ projeto aberto usa. Fica para a próxima versão.
 
 | Ref | Antes | Agora |
 |---|---|---|
-| C1 | 220 µF / 10 V | **220 µF / 16 V, 105 °C, baixo ESR** (EEU-FR1C221) |
+| C1 | 220 µF / 10 V | **220 µF / 16 V, 105 °C**: na v3, SMD (série FK); de furo, EEU-FR1C221 |
 | C2 | 10 µF 1206 | **10 µF 1206 X7R 16–25 V** (GRM31CR71C106KAC7L) |
 | C3 | 100 nF 1206 | 100 nF 1206 X7R ≥ 25 V |
 | R1, R2 | 10 kΩ 1206 | sem mudança |

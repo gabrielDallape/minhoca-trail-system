@@ -1,21 +1,19 @@
-# Placa do rádio — MTS E22 v2
+# Placa do rádio — MTS E22 v3
 
-Placa de face simples, **40 × 70 mm**, que vai colada atrás da tela de 7" (o espaço livre
-lá é de 40 × 70; o máximo aceito era 45 × 70). Ela junta:
+Placa de face simples, **40 × 70 mm**, **sem furo e sem conector**. O lado da fibra fica
+**colado na traseira da tela** de 7"; tudo é soldado por cima, no cobre:
 
-- o **E22-900M30S** (SMD, soldado do lado do cobre);
-- **J2 → P1 da tela** e **J1 → P3 da tela**: JST-PH 2,0 mm, 12 vias, com a mesma
-  numeração dos conectores da tela;
-- **J4 → GPS**, por cabo: 2,54 mm, 5 vias;
-- **J3 → entrada de 5 V** do step-down que já está no carro: JST-XH 2,54 mm, 2 vias.
-  **Ajuste o step-down para 5,0–5,1 V** (medindo com o rádio ligado): o E22 queima acima
-  de 5,5 V, e step-down barato passa uns 20 % do valor ao ligar;
-- o desacoplamento do E22: C1 220 µF + C2 10 µF + C3 100 nF, encostados nos pads 9/10;
-- pull-downs de 10 kΩ em **TXEN** e **RXEN**. Do reset da tela até o firmware assumir,
-  os pinos dela ficam soltos (datasheet do ESP32-P4, tabela 2-1), e os dois resistores
-  seguram o rádio desligado.
+- o **E22-900M30S**, com a etiqueta para cima;
+- os **fios dos cabos do P1 e do P3 da tela**, cortados, cada um no pad com o número do pino
+  gravado ao lado (só os fios usados: 5 do P1 e 10 do P3);
+- os **fios do GPS**, no **mesmo pad** do fio do P3 que vai para o mesmo pino da tela;
+- a **alimentação** do step-down (+5V e GND), em pads maiores;
+- a **antena**, soldada no pad 21 do E22 (o IPEX fica vazio);
+- **C1** 220 µF + **C2** 10 µF + **C3** 100 nF junto dos pads 9/10 do E22;
+- **R1** e **R2**, 10 kΩ, segurando o TXEN e o RXEN em 0 enquanto a tela liga.
 
-O porquê de cada peça, e o que foi descartado, está em **`ESTUDO_PECAS.md`**.
+Sem conector, os pads ficam na ordem dos pinos do E22: **nenhuma trilha cruza outra e não há
+jumper**. O porquê de cada peça está em **`ESTUDO_PECAS.md`**.
 
 Tudo sai de um script só, `gera_placa.py`, que roda o DRC antes de gerar os arquivos:
 
@@ -23,130 +21,90 @@ Tudo sai de um script só, `gera_placa.py`, que roda o DRC antes de gerar os arq
 python gera_placa.py
 ```
 
-O DRC exige folga ≥ 0,4 mm entre redes, toda rede inteira (contando os jumpers) e cada
-pino na rede certa. Ele também confere a **mecânica**: as carcaças reais dos conectores
-(medidas do footprint oficial do KiCad) não podem encostar umas nas outras nem cobrir furo
-de jumper, e nenhum nome gravado pode ficar debaixo de carcaça ou em cima de furo. A última execução mediu **folga mínima de 0,45 mm** e deu **DRC OK**.
+O DRC exige folga ≥ 0,4 mm entre redes, toda rede inteira e cada pino na rede certa.
+Ele também confere:
+- que o número gravado em cada pad é o pino certo da tela (`pinos.h` / `MONTAGEM.md`);
+- que nenhum nome encosta numa trilha;
+- que nenhuma peça encosta em outra.
 
-## Arquivos (`saida/`)
+A última execução mediu **folga mínima de 0,50 mm** e deu **DRC OK**.
+
+## Arquivos (`saida/`; o que vai para a laser também está em `final/`)
 
 | Arquivo | Para quê |
 |---|---|
-| `laser_queimar.png` / `.dxf` / `.svg` | **o que a laser queima** (preto = tira a tinta, o ácido come o cobre). PNG a 1200 dpi em escala 1:1 |
+| `laser_queimar.png` / `.dxf` / `.svg` | **o que a laser queima** (preto = tira a tinta, o ácido come o cobre). 46 × 76 mm, PNG a 1200 dpi |
+| **`guia_1_montagem.png`** | **a placa montada**: cada peça e cada fio no lugar |
+| **`guia_2_ligacoes.png`** | **o que liga em quê**: pino da tela → pad, GPS, step-down, antena |
+| `guia_3_vao_e22.png` | os vãos debaixo do E22, ampliados |
 | `cobre.png` / `.svg` | o cobre que fica, só para conferir |
-| `laser_serigrafia.png` / `.dxf` / `.svg` | **os nomes de cada fio**, gravados no lado SEM cobre (ver abaixo). Já vem espelhado, 40 × 70 exato |
-| **`guia_1_conectores.png`** | **montagem do lado dos conectores**: onde vai cada peça, o pino 1, os jumpers JP2 e JP4 |
-| **`guia_2_lado_do_cobre.png`** | **montagem do lado do cobre**: o E22 (e o pino 1 dele), C2, C3, R1, R2 e o fio do JP3 |
-| **`guia_4_placa_montada.png`** | **a placa pronta**, os dois lados lado a lado, com cada peça desenhada no lugar e no tamanho real |
-| **`guia_3_ligacoes.png`** | **o que liga em quê**: cada pino do P1/P3 da tela, o GPS fio por fio, o step-down, a antena |
-| `conferencia_redes.png` | cada rede numa cor, para conferir contra o esquema |
-| `furos.csv` | posição (vista pelo lado do cobre), broca e descrição dos 37 furos |
+| `conferencia_redes.png` | cada rede numa cor |
 | `regua_100mm.png` | régua de 100 mm: grave antes e meça para conferir a escala da laser |
 
 ## Fabricação
 
-1. **Confira a escala:** grave a `regua_100mm.png` num retalho e meça. Ela tem que dar
-   100 mm. Se der diferente, o PNG está sendo importado com outro dpi (use 1200) ou use o DXF.
-2. Pinte a placa crua. Ela precisa ter pelo menos **46 × 76 mm**: os arquivos já trazem
-   3 mm de sobra de cada lado.
-3. Na laser, coloque a placa com o **cobre para cima** e use o arquivo **sem espelhar**.
-   O desenho já está visto pelo lado do cobre.
-4. Corroa, tire a tinta e confira com lupa se nenhuma trilha ficou emendada, principalmente
-   nas fileiras do J1/J2 (passo de 2 mm).
-5. Corte a placa **em cima da linha de corte** gravada em volta (0,3 mm sem cobre).
-6. Fure seguindo o `furos.csv`. Cada pad tem um furinho de 0,6 mm sem cobre no centro,
-   que serve de guia para a broca:
-   - **0,8 mm**: J1, J2 e os jumpers JP2 e JP4. O JP3 não tem furo;
-   - **0,9 mm**: J4 (GPS) e C1;
-   - **1,0 mm**: J3.
+1. **Confira a escala:** grave a `regua_100mm` num retalho e meça. Ela tem que dar 100 mm.
+2. Pinte a placa crua. Ela precisa ter pelo menos **46 × 76 mm**: o arquivo tem 3 mm de
+   sobra de cada lado.
+3. Na laser: **cobre para cima, sem espelhar**. No DXF, ponha a camada preta em **Fill**
+   (preenchimento) e **desligue o retângulo vermelho**. Senão a laser queima tudo.
+4. Corroa, tire a tinta e confira com lupa se nenhuma trilha ficou emendada.
+5. Corte **por fora** da linha de corte gravada e lixe até ela. As trilhas da borda (TXEN à
+   direita, NRST/MISO à esquerda) ficam a ~0,6 mm da borda: um corte para dentro rompe o TXEN.
 
-## Gravar os nomes (lado sem cobre)
+Os nomes já saem gravados no cobre: a letra é queimada e aparece na cor da fibra.
 
-Depois de furar e cortar em 40 × 70, vire a placa e grave a `laser_serigrafia` no lado
-sem cobre. É ali que os cabos encaixam, e cada pino fica com o nome do fio do lado.
-No cobre os nomes não cabem: o passo do conector é 2 mm, e o ácido come letra de cobre
-menor que ~1,2 mm.
+## Montagem (tudo do lado do cobre)
 
-- O arquivo já está espelhado e tem o tamanho exato da placa. Encoste a placa no canto
-  da laser e confira com a função de enquadrar (frame) antes de gravar.
-- Dá para gravar direto na fibra, que escurece. Para mais contraste, pinte esse lado: a
-  laser tira a tinta nas letras e a tinta fica como fundo.
-- O ▶ ao lado do J1 e do J2 marca o **pino 1**.
-- Os nomes estão em pé: vire a cabeça para a esquerda para ler.
-
-## Montagem
-
-Siga os guias: `guia_2_lado_do_cobre.png` primeiro, depois `guia_1_conectores.png`.
-
-**Lado do cobre:** o **E22**, virado com a etiqueta para fora e o **pino 1 no canto
-marcado** no guia. Os pads foram alongados 0,5 mm para fora para o ferro alcançar o
-meio-furo do módulo. Solde primeiro um pad de canto, alinhe o módulo e depois solde os
-outros.
-
-**Debaixo do E22 tem cobre de terra**, como o manual da Ebyte pede (E22-M V1.5, §4.1). A
-placa caseira não tem máscara de solda, então **antes de soldar, olhe o fundo do módulo**:
-se for todo verniz (verde ou preto, sem ponto dourado), solde direto. Se tiver algum ponto
-de metal exposto, pinte a área debaixo dele com a mesma tinta da laser e deixe secar.
-Esse cobre também é o que junta o terra de cima com o de baixo da placa.
-Debaixo do módulo, cada pad de sinal tem **1,2 mm** de vão até o terra (o dobro do resto
-da placa): um E22 soldado um pouco torto não encosta o pad no terra. Ver `zoom_vao_e22.png`.
-
-**Antena soldada** (sem usar o IPEX): vivo do cabo no **pad 21**, malha no **pad 22** (ou
-no 20). As quatro trilhas do SPI passam a menos de 1 mm à esquerda do pad 21: desencape
-só ~2 mm e prenda o cabo com cola quente. Não use o IPEX e o pad 21 ao mesmo tempo.
-
-O **C2**, o **C3**, o **R1** e o **R2** (1206) também ficam deste lado.
-
-**Lado dos componentes (sem cobre):** J1, J2, J3, J4 e C1, soldados pelo lado do cobre.
-
-**3 jumpers** de fio fino encapado:
-
-| Jumper | Rede | Lado | Observação |
-|---|---|---|---|
-| JP2 | BUSY | conectores | passa por cima do DIO1 |
-| JP3 | SCK | **cobre** | soldado **deitado** nos dois pads, que não têm furo. Um furo cairia debaixo da carcaça do J1 |
-| JP4 | GND | conectores | fio curto: junta os dois lados do plano de terra. **Sem ele a placa não funciona** |
-
-O TXEN não tem mais jumper: a trilha contorna a placa pela borda. Na versão anterior o
-jumper passava por cima do J2 e o cabo do P1 não encaixaria.
-
-O C1 (eletrolítico de 6,3 mm) é a peça mais alta. Se faltar altura atrás da tela, deite
-o capacitor antes de soldar.
+1. **Olhe o fundo do E22.** A placa tem cobre de terra debaixo dele, como o manual da Ebyte
+   pede. Se o fundo for todo verniz (verde ou preto, sem ponto dourado), siga. Se tiver ponto
+   de metal exposto, pinte a área debaixo dele com a tinta da laser e deixe secar.
+   - Debaixo do módulo, cada pad de sinal tem **1,2 mm** de vão até o terra: um E22 soldado um
+     pouco torto não encosta (`guia_3_vao_e22.png`).
+2. **E22:** etiqueta para cima, **pino 1 no canto marcado "1"** (embaixo, à direita).
+   - Solde um pad de canto, confira o alinhamento e só então solde os outros.
+   - Os pads foram alongados 0,5 mm para fora para o ferro alcançar o meio-furo.
+3. **C1, C2, C3, R1, R2.**
+   - **C1** é eletrolítico SMD, com a **faixa preta (−) para a esquerda**, ao lado do "−"
+     gravado.
+   - Os pads de terra têm um anel queimado com quatro pontes (alívio térmico): é o que deixa
+     o pad visível e fácil de soldar.
+4. **Fios da tela:** corte o cabo PH de 12 vias deixando o plugue do lado da tela.
+   - Cada fio vai no pad com o **mesmo número** gravado (`guia_2_ligacoes.png`). Os que não
+     são usados: corte e isole.
+   - **Antes de soldar, confira cada fio com o multímetro**, da ponta cortada até o pino com o
+     GPIO certo no conector da tela (o GPIO está impresso na placa da tela). Na tela, a ordem
+     física impressa é o inverso da numeração dos pinos (`docs/MONTAGEM.md`).
+5. **GPS:** cada fio do GPS solda no mesmo pad do fio do P3:
+   - TXD → "8 TXD", RXD → "9 RXD", PPS → "10 PPS";
+   - GND → "11 GND", VCC → "12 3V3".
+6. **Alimentação:** + do step-down no pad "+5V", − no "GND", com fio AWG 22.
+7. **Antena:** vivo do cabo no **pad 21** do E22, malha no **pad 22**.
+   - As trilhas do SPI passam a menos de 1 mm à esquerda do pad 21: desencape só ~2 mm.
+   - Não use o IPEX e o pad 21 ao mesmo tempo.
+8. **Cola quente** em todos os fios, perto da placa: a solda não aguenta puxão.
 
 ## Lista de material
 
 | Ref | Peça | Qtd |
 |---|---|---|
 | U1 | E22-900M30S | 1 |
-| J1, J2 | JST-PH 2,0 mm, 12 vias, THT, vertical | 2 |
-| J3 | JST-XH 2,54 mm, 2 vias, THT | 1 |
-| J4 | barra de pinos 2,54 mm, 5 vias (ou XH 5 vias) | 1 |
-| C1 | 220 µF / **16 V** eletrolítico, **105 °C, baixo ESR** (Panasonic EEU-FR1C221), Ø 6,3 mm, passo 2,5 mm. **Não troque por polímero** | 1 |
+| C1 | 220 µF / **16 V** eletrolítico **SMD**, lata Ø 6,3 mm, 105 °C (série Panasonic FK ou equivalente). Serve um de furo com as pernas dobradas e soldadas por cima. **Não troque por polímero** | 1 |
 | C2 | 10 µF cerâmico 1206 **X7R, 16 ou 25 V** (Murata GRM31CR71C106KAC7L). Não use de 6,3 V | 1 |
 | C3 | 100 nF cerâmico 1206 X7R, 25 V ou mais | 1 |
 | R1, R2 | 10 kΩ 1206 | 2 |
 | — | antena 915 MHz com cabo coaxial (soldado nos pads 21/22) | 1 |
-| — | 2 cabos PH2.0 12 vias "mesmo sentido", cabo para o GPS, fio para os jumpers | — |
-
-## Cabos
-
-- **J2 ↔ P1** e **J1 ↔ P3**: cabo PH2.0 de 12 vias, **pino 1 com pino 1**. Antes de
-  ligar, confira com o multímetro em continuidade. Um cabo "invertido" leva o 3,3 V da tela
-  (P3 pino 12) ao pino 1 da placa e troca todos os sinais de lugar.
-- **GPS (J4)**: cada fio vai no **nome igual** gravado na placa (TXD, RXD, PPS, GND,
-  VCC: os mesmos nomes impressos no GPS). A ordem da placa **não** é a do GPS, então um
-  cabo de 5 vias reto não serve: ligue fio por fio. O TXD do GPS entra no IO4 da tela
-  pelo J1 pino 8, e o PPS vai no pino 10.
-- **J3**: + e − estão gravados no cobre. O XH tem trava e não entra invertido.
+| — | 2 cabos PH2.0 de 12 vias (um para o P1, outro para o P3), cortados | 2 |
+| — | fio AWG 22 para a alimentação, cola quente | — |
 
 ## Antes de energizar (multímetro)
 
-1. **5V × GND** sem nada ligado: não pode dar curto. O valor sobe devagar enquanto o C1
+1. **+5V × GND**, sem nada ligado: não pode dar curto. O valor sobe devagar enquanto o C1
    carrega.
-2. **3V3 × GND** (J1 pino 12): sem curto.
-3. Continuidade de cada pino do J1/J2 até o pad certo do E22, conferindo pela
-   `conferencia_redes.png`. Nos pinos 1/2 do J1, 5–7/9/10/12 do J2: nada ligado.
-4. TXEN (J2 pino 1) e RXEN (J1 pino 7) até o GND: **~10 kΩ**, que são os pull-downs.
-5. **Step-down em 5,0–5,1 V**, medido antes de ligar no J3.
+2. **"12 3V3" × GND:** sem curto.
+3. Continuidade de cada pad de fio até o pad certo do E22, conferindo pela
+   `conferencia_redes.png`.
+4. **"1 TXEN" e "7 RXEN" até o GND: ~10 kΩ** (são o R1 e o R2).
+5. **Step-down em 5,0–5,1 V**, medido antes de ligar na placa. O E22 queima acima de 5,5 V.
 6. **Ligue a antena antes de dar 5 V.**
 7. Primeiro boot a **10 dBm** (14 dBm resetou a FaustoA).
