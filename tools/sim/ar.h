@@ -55,5 +55,8 @@ void transmite(int de, uint64_t iniG, uint64_t durUs, const uint8_t* b, int n, i
 void coleta(int para, bool ligado, uint64_t desdeG, uint64_t ateG, std::vector<Rx>& out);
 double distanciaM(int a, int b, uint64_t tG);
 void limpaVelhos(uint64_t antesDeG);
+// O RSSI que o chip de 'para' le AGORA (GetRssiInst): o pacote mais forte no ar
+// neste instante, ou -200 se ninguem fala. E o que a linha N do diario mede.
+double rssiNoAr(int para, uint64_t tG);
 
 }  // namespace ar

@@ -76,6 +76,17 @@ void coleta(int para, bool ligado, uint64_t desdeG, uint64_t ateG, std::vector<R
   }
 }
 
+double rssiNoAr(int para, uint64_t tG)
+{
+  double r = -200.0;
+  for (const Pkt& p : g_pkts) {
+    if (p.de == para || p.ini > tG || p.fim <= tG) continue;
+    double v = rssiDe(p, para);
+    if (v > r) r = v;
+  }
+  return r;
+}
+
 void limpaVelhos(uint64_t antesDeG)
 {
   g_pkts.erase(std::remove_if(g_pkts.begin(), g_pkts.end(), [&](const Pkt& p) { return p.fim + 2000000ull < antesDeG; }),

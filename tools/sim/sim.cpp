@@ -26,6 +26,7 @@
 #include <algorithm>
 #include "ar.h"
 #include "no_api.h"
+#include "core/params.h"      // os numeros do firmware de verdade (so #defines, sem Arduino)
 
 extern NoApi api_no0, api_no1, api_no2, api_no3;
 static NoApi* NOS[4] = { &api_no0, &api_no1, &api_no2, &api_no3 };
@@ -48,7 +49,8 @@ static std::string fmt(const char* f, ...)
 // Uma estrada para leste com curvas suaves. Cada carro esta a 's' metros do
 // inicio dela, dado por uma funcao do tempo (segundos) definida no cenario.
 static const double LAT0 = -23.150, LON0 = -46.550;
-static std::function<double(double)> g_s[4];
+// 8 posicoes: 4 telas + "fantasmas" (transmissores que nao sao telas, ar::transmite direto)
+static std::function<double(double)> g_s[8];
 
 static void estradaXY(double s, double& x, double& y) { x = s; y = 40.0 * std::sin(s / 250.0); }
 static ar::Pose pose(int no, uint64_t tG)
@@ -116,7 +118,8 @@ static NoObs obs(int no) { NoObs o; NOS[no]->obs(o); return o; }
 static void comeca(const char* nome, int nNos)
 {
   g_cen = nome; g_nNos = nNos; g_ev.clear();
-  for (int i = 0; i < 4; i++) { g_ligado[i] = false; g_s[i] = nullptr; }
+  for (int i = 0; i < 4; i++) g_ligado[i] = false;
+  for (int i = 0; i < 8; i++) g_s[i] = nullptr;
   ar::cfg = ar::Cfg{};
   for (auto& e : ar::est) e = ar::Est{};
   for (auto& l : ar::enlace) for (auto& e : l) e = ar::Enlace{};
@@ -942,6 +945,273 @@ static void cen_longa4()
   ck(piorAtraso <= 40, "o caminho continuo nunca ficou > 40 pontos atras durante as 3 h", fmt("pior %d", piorAtraso));
   resumoAr(4, NOMES4);
   for (int i = 0; i < 4; i++) NOS[i]->fecha();
+// ============================================================ REVISAO v201 (2026-10-08)
+// Cenarios escritos para a revisao adversaria do quadro de 2 s x 4 slots. Cada
+// um existe para provar (ou nao) uma suspeita lida no diff - os numeros vao
+// para o relatorio da revisao.
+
+// Le as linhas N (ruido) do diario de uma tela: quantas amostras cairam em
+// [tIniMs, tFimMs) e quantas delas ficaram acima de 'limiarDbm' (= mediram o
+// TX de alguem, nao o ruido de fundo).
+static void contaRuido(const char* nomeTela, uint32_t tIniMs, uint32_t tFimMs, double limiarDbm, int& n, int& altas, double& maxDbm)
+{
+  n = 0; altas = 0; maxDbm = -200;
+  std::string dir = g_cen + "/" + nomeTela + "/log";
+  if (!std::filesystem::exists(dir)) return;
+  for (auto& e : std::filesystem::directory_iterator(dir)) {
+    FILE* f = fopen(e.path().string().c_str(), "r");
+    if (!f) continue;
+    char l[512];
+    while (fgets(l, sizeof(l), f)) {
+      unsigned long ms, utc; double v; int slot;
+      if (sscanf(l, "N,%lu,%lu,%lf,%d", &ms, &utc, &v, &slot) != 4) continue;
+      if (ms < tIniMs || ms >= tFimMs) continue;
+      n++; if (v > limiarDbm) altas++; if (v > maxDbm) maxDbm = v;
+    }
+    fclose(f);
+  }
+}
+
+// 15) PINTURA A 0,5 s (TELA_REPINTA_ANDANDO_MS) com quadros de 70 ms quentes e um
+//     frio de 250 ms a cada 8 - o CUSTO PEDIDO ao orcamento e o real. Com a guarda
+//     nova (orcamentoNaMinhaJanela) nenhum TX pode ser perdido pela pintura.
+//     (250 e nao 300: um laco parado >= ~280 ms em cima da frase NMEA quebra o par
+//     PPS - e outro efeito, medido no cenario pps_laco_300.)
+static void cen_pintura_05s()
+{
+  comeca("pintura_05s", 2);
+  const char* nomes[] = { "FaustoA", "gino" };
+  basePar(30, 80);
+  for (int i = 0; i < 2; i++) NOS[i]->pintura(500, 70000, 250000, 8, false);
+  Taxa icone; uint32_t perdi90[2] = { 0, 0 };
+  // o 'perdi' de ~25 s e de todo cenario: a troca da ancora propria para a grade UTC no boot
+  roda(660, [&](double t) { if (t == 90) { perdi90[0] = obs(0).txPerdidos; perdi90[1] = obs(1).txPerdidos; } if (t > 90) icone.conta(obs(1).liderDesenhado); });
+  NoObs f = obs(0), g = obs(1);
+  const uint32_t pf = f.txPerdidos - perdi90[0], pg = g.txPerdidos - perdi90[1];
+  printf("  info: pinturas %u/%u (negadas %u/%u) | orc negados %u/%u concedidos %u/%u | laco pior %lu/%lu us | perdi na trilha %u/%u (no boot %u/%u)\n",
+         f.pinturas, g.pinturas, f.pinturasNegadas, g.pinturasNegadas, f.orcNegados, g.orcNegados, f.orcConcedidos, g.orcConcedidos,
+         (unsigned long)f.lacoPiorUs, (unsigned long)g.lacoPiorUs, pf, pg, perdi90[0], perdi90[1]);
+  ck(f.pinturas > 1000 && g.pinturas > 1000, "o mapa pintou ~2x por segundo nas duas telas (nao foi faminto)", fmt("%u / %u em ~600 s", f.pinturas, g.pinturas));
+  ck(pf == 0 && pg == 0, "com o custo conhecido, a pintura nunca come a janela de TX (perdi = 0 na trilha)", fmt("perdi %u / %u", pf, pg));
+  ck(f.gpsBacklog == 0 && g.gpsBacklog == 0 && f.sync == 2 && g.sync == 2, "pinturas de 250 ms nao mexem com o PPS", fmt("backlog %u/%u sync %d/%d", f.gpsBacklog, g.gpsBacklog, f.sync, g.sync));
+  ck(icone.ok == icone.n, "o icone do lider todos os segundos", fmt("%d de %d s", icone.ok, icone.n));
+  resumoAr(2, nomes);
+  for (int i = 0; i < 2; i++) NOS[i]->fecha();
+}
+
+// 15b) LACO PARADO 300 ms A CADA 4 s (o pior quadro frio medido, a 0,5 s de
+//     repintura): GPS_LACO_PARADO_MS e 300, entao cada parada joga fora o NMEA do
+//     segundo, o par PPS daquele segundo se perde, e tdmaOnPps ZERA o ppsRun - sao
+//     precisos 10 s limpos para o PPS voltar a ancorar. Com paradas a cada 4 s o
+//     PPS nunca volta: o no corre na ancora velha, entra em holdover aos 24,5 s,
+//     aceita o beacon do outro, e cada troca de fonte custa um 'perdi'.
+static void cen_pps_laco_300()
+{
+  comeca("pps_laco_300", 2);
+  const char* nomes[] = { "FaustoA", "gino" };
+  basePar(30, 80);
+  for (int i = 0; i < 2; i++) NOS[i]->pintura(500, 70000, 300000, 8, false);
+  Taxa icone, ppsF, ppsG; int trocasF = 0, trocasG = 0; uint8_t srcF = 0xFF, srcG = 0xFF;
+  roda(660, [&](double t) {
+    if (t < 100) return;
+    NoObs f = obs(0), g = obs(1);
+    icone.conta(g.liderDesenhado); ppsF.conta(f.sync == 2); ppsG.conta(g.sync == 2);
+    if (f.ancoraSrc != srcF) { if (srcF != 0xFF) trocasF++; srcF = f.ancoraSrc; }
+    if (g.ancoraSrc != srcG) { if (srcG != 0xFF) trocasG++; srcG = g.ancoraSrc; }
+  });
+  NoObs f = obs(0), g = obs(1);
+  printf("  info: backlog NMEA descartado %u/%u | par PPS velho %u/%u | ppsRun final %u/%u | em PPS %.0f%%/%.0f%% do tempo | trocas de fonte %d/%d | perdi %u/%u\n",
+         f.gpsBacklog, g.gpsBacklog, f.gpsParVelho, g.gpsParVelho, f.ppsRun, g.ppsRun, ppsF.pct(), ppsG.pct(), trocasF, trocasG, f.txPerdidos, g.txPerdidos);
+  if (GPS_LACO_PARADO_MS <= 300UL || GPS_PAR_PPS_MAX_US <= 400000ULL) {
+    // o firmware como esta (v201): documenta o colapso
+    ck(f.gpsBacklog > 50, "DOCUMENTADO: cada parada de 300 ms descarta o backlog NMEA (GPS_LACO_PARADO_MS = 300)", fmt("%u descartes no lider", f.gpsBacklog));
+    ck(ppsF.pct() < 90.0 || ppsG.pct() < 90.0, "DOCUMENTADO: o PPS deixa de disciplinar a rede (ppsRun zera a cada par perdido)", fmt("em PPS %.0f%% / %.0f%% do tempo", ppsF.pct(), ppsG.pct()));
+    ck(trocasF + trocasG > 0 && f.txPerdidos + g.txPerdidos > 1, "DOCUMENTADO: trocas de fonte de tempo e TX perdidos por mudanca de fase", fmt("trocas %d/%d perdi %u/%u", trocasF, trocasG, f.txPerdidos, g.txPerdidos));
+  } else {
+    // com a correcao candidata (GPS_LACO_PARADO_MS 600 / GPS_PAR_PPS_MAX_US 700 ms)
+    ck(f.gpsBacklog == 0 && g.gpsBacklog == 0 && f.gpsParVelho == 0 && g.gpsParVelho == 0, "parada de 300 ms NAO descarta NMEA nem recusa o par PPS", fmt("backlog %u/%u parVelho %u/%u", f.gpsBacklog, g.gpsBacklog, f.gpsParVelho, g.gpsParVelho));
+    ck(ppsF.pct() >= 99.0 && ppsG.pct() >= 99.0, "as duas telas ficam em PPS o tempo todo", fmt("%.0f%% / %.0f%%", ppsF.pct(), ppsG.pct()));
+    ck(trocasF + trocasG == 0, "nenhuma troca de fonte de tempo", fmt("trocas %d/%d perdi %u/%u", trocasF, trocasG, f.txPerdidos, g.txPerdidos));
+  }
+  ck(icone.pct() >= 97.0, "o icone sobrevive (os dois ficam na mesma grade, so nao e a UTC)", fmt("%.1f%%", icone.pct()));
+  resumoAr(2, nomes);
+  for (int i = 0; i < 2; i++) NOS[i]->fecha();
+}
+
+// 16) PINTURA FRIA PEDIDA COMO QUENTE: a tela_trilha.h pede ao orcamento
+//     max(ultimoQuadroUs, piorRecenteUs), e zera o pior a cada 16 quadros. Um quadro
+//     frio (setor novo na tela) chega SEM AVISO e custa 250 ms com 70 pedidos. A
+//     guarda do v201 nao tem como ver isso - o TX do quadro se perde. Mede quanto.
+static void cen_pintura_fria()
+{
+  comeca("pintura_fria", 2);
+  const char* nomes[] = { "FaustoA", "gino" };
+  basePar(30, 80);
+  for (int i = 0; i < 2; i++) NOS[i]->pintura(500, 70000, 250000, 8, true);
+  Taxa icone; uint32_t perdi90[2] = { 0, 0 };
+  roda(660, [&](double t) { if (t == 90) { perdi90[0] = obs(0).txPerdidos; perdi90[1] = obs(1).txPerdidos; } if (t > 90) icone.conta(obs(1).liderDesenhado); });
+  NoObs f = obs(0), g = obs(1);
+  const uint32_t pf = f.txPerdidos - perdi90[0], pg = g.txPerdidos - perdi90[1];
+  const unsigned frias = (f.pinturas / 8) + (g.pinturas / 8);
+  printf("  info: pinturas %u/%u (~%u frias) | perdi na trilha %u/%u | orc negados %u/%u | laco pior %lu/%lu us | backlog NMEA %u/%u sync %d/%d\n",
+         f.pinturas, g.pinturas, frias, pf, pg, f.orcNegados, g.orcNegados,
+         (unsigned long)f.lacoPiorUs, (unsigned long)g.lacoPiorUs, f.gpsBacklog, g.gpsBacklog, f.sync, g.sync);
+  ck(f.pinturas > 1000 && g.pinturas > 1000, "o modelo pintou ~2x por segundo", fmt("%u / %u", f.pinturas, g.pinturas));
+  ck(f.gpsBacklog == 0 && g.gpsBacklog == 0 && f.sync == 2 && g.sync == 2, "o PPS ficou intacto (o perdi daqui e so da pintura)", fmt("backlog %u/%u sync %d/%d", f.gpsBacklog, g.gpsBacklog, f.sync, g.sync));
+  // Documenta o buraco (nao e do diff v201, mas o quadro de 2 s o expoe 3x mais):
+  // uma fracao das pinturas frias pedidas como quentes atravessa a janela.
+  // A 500 ms a pintura trava de fase logo depois da janela (4 pinturas por quadro de
+  // 2 s): da 0 ou 1 perdido conforme microssegundos - so informa. A prova esta no
+  // cenario pintura_fria_530, que varre todas as fases.
+  ck(true, "INFO: pintura fria pedida como quente (a 500 ms, fase travada - ver pintura_fria_530)",
+     fmt("perdi %u + %u em ~%u frias (%.1f %% das frias)", pf, pg, frias, frias ? 100.0 * (pf + pg) / frias : 0));
+  ck(icone.pct() >= 97.0, "mesmo assim o icone fica (extrapolacao cobre 1 quadro perdido)", fmt("%.1f%%", icone.pct()));
+  resumoAr(2, nomes);
+  for (int i = 0; i < 2; i++) NOS[i]->fecha();
+}
+
+// 16b) O MESMO, com a pintura a cada 530 ms: 500 divide o quadro de 2 s e a pintura
+//     trava de fase logo depois da janela (otimista); 530 varre todas as fases.
+static void cen_pintura_fria_530()
+{
+  comeca("pintura_fria_530", 2);
+  const char* nomes[] = { "FaustoA", "gino" };
+  basePar(30, 80);
+  for (int i = 0; i < 2; i++) NOS[i]->pintura(530, 70000, 250000, 8, true);
+  Taxa icone; uint32_t perdi90[2] = { 0, 0 };
+  roda(660, [&](double t) { if (t == 90) { perdi90[0] = obs(0).txPerdidos; perdi90[1] = obs(1).txPerdidos; } if (t > 90) icone.conta(obs(1).liderDesenhado); });
+  NoObs f = obs(0), g = obs(1);
+  const uint32_t pf = f.txPerdidos - perdi90[0], pg = g.txPerdidos - perdi90[1];
+  const unsigned frias = (f.pinturas / 8) + (g.pinturas / 8);
+  printf("  info: pinturas %u/%u (~%u frias) | perdi na trilha %u/%u (%.1f %% das frias) | backlog NMEA %u/%u sync %d/%d\n",
+         f.pinturas, g.pinturas, frias, pf, pg, frias ? 100.0 * (pf + pg) / frias : 0, f.gpsBacklog, g.gpsBacklog, f.sync, g.sync);
+  ck(f.gpsBacklog == 0 && g.gpsBacklog == 0 && f.sync == 2 && g.sync == 2, "o PPS ficou intacto", fmt("backlog %u/%u sync %d/%d", f.gpsBacklog, g.gpsBacklog, f.sync, g.sync));
+  ck(pf + pg > 0, "DOCUMENTADO: sem a trava de fase, a pintura fria pedida como quente perde TX", fmt("perdi %u + %u em ~%u frias", pf, pg, frias));
+  ck(icone.pct() >= 97.0, "o icone fica", fmt("%.1f%%", icone.pct()));
+  resumoAr(2, nomes);
+  for (int i = 0; i < 2; i++) NOS[i]->fecha();
+}
+
+// 17) RUIDO COM APARELHO NA SALA NEUTRA: a tela_c liga, pega GPS e NUNCA entra em
+//     grupo - fica no ar na sala neutra, no slot 2, a 40 m. Ela nao entra na frota
+//     nem na lista de vizinhos (core/vizinhos.h ignora a sala neutra), entao o
+//     redeSlotLivre(2) do grupo diz "livre" e a amostra de ruido cai no TX dela.
+//     Em t=400 ela ENTRA no grupo: a partir dai o slot 2 e dela e as amostras param.
+static void cen_ruido_neutro()
+{
+  comeca("ruido_neutro", 3);
+  const char* nomes[] = { "FaustoA", "gino", "tela_c" };
+  liga(0, 0.0, "FaustoA", 0, 0, +2.0);
+  liga(1, 1.4, "gino", 1, 1, -3.0);
+  liga(2, 2.9, "tela_c", 2, 2, +5.0);
+  g_s[0] = anda(1e9, 80, 0); g_s[1] = anda(1e9, 0, 0); g_s[2] = anda(1e9, 40, 0);   // parados: bancada/estacionamento
+  em(14, []() { for (int i = 0; i < 3; i++) NOS[i]->gpsFix(true); });
+  em(40, []() { NOS[0]->criar("33333"); });
+  em(52, []() { NOS[1]->entrarLista(); });
+  em(60, []() { NOS[0]->abrir(); });
+  bool e2 = false; NoObs f{}, c{};
+  em(395, [&]() { f = obs(0); c = obs(2); });     // ANTES de a tela_c entrar
+  em(400, [&]() { e2 = NOS[2]->entrarLista(); });
+  roda(700, [&](double) {});
+  for (int i = 0; i < 3; i++) NOS[i]->fecha();
+  int n1, a1, n2, a2; double m1, m2;
+  contaRuido("FaustoA", 100000, 395000, ar::cfg.ruidoDbm + 10, n1, a1, m1);
+  contaRuido("FaustoA", 420000, 700000, ar::cfg.ruidoDbm + 10, n2, a2, m2);
+  printf("  info: FaustoA ruidoN %u max %.0f med %.0f dBm (fundo %.0f) | neutro no ar: %d amostras, %d acima do fundo+10 (max %.0f) | depois de entrar: %d amostras, %d acima (max %.0f)\n",
+         f.ruidoN, f.ruidoMax, f.ruidoMed, ar::cfg.ruidoDbm, n1, a1, m1, n2, a2, m2);
+  ck(c.tx > 100, "a tela_c transmite na sala neutra (slot 2) sem estar em grupo", fmt("tx %u", c.tx));
+  ck(f.carros == 2 && f.vizN == 0, "o grupo nao a ve: nem na frota nem na lista (sala neutra)", fmt("carros %d vizN %d", f.carros, f.vizN));
+  ck(a1 > 0, "DOCUMENTADO: a amostra de ruido do grupo cai no TX do aparelho neutro", fmt("%d de %d amostras acima de %.0f dBm, max %.0f", a1, n1, ar::cfg.ruidoDbm + 10, m1));
+  ck(e2 && a2 == 0, "depois de ela entrar no grupo, o slot 2 deixa de ser amostrado", fmt("entrou=%d, %d altas em %d", (int)e2, a2, n2));
+  resumoAr(3, nomes);
+}
+
+// 18) UM v200 NO AR (proto 2, quadro de 6 s x 12): uma tela nao regravada, lider
+//     no slot 0, a 30 m do seguidor. O v201 tem de REJEITAR e AVISAR (versaoErrada,
+//     linha V). E como 6 e multiplo de 2, o slot 0 dela cai no slot 0 do lider v201
+//     um quadro em cada tres: mede quanto o seguidor perde do lider por colisao.
+static uint8_t g_fantasmaSeq = 0;
+static void fantasmaV200(int no, uint8_t slot, int nBytes, double tIni, double tFim)
+{
+  // air-time de core/airtime.h (SF9/BW125): 16 B = 171 ms, 68 B = 417 ms
+  const uint64_t dur = nBytes >= 68 ? 417000ull : 171000ull;
+  for (double t = std::floor(tIni / 6.0) * 6.0; t < tFim; t += 6.0) {
+    // borda do quadro de 6 s na grade UTC (o sim comeca as 12:00:00 = 43200 s, multiplo de 6)
+    const double t0 = t + slot * 0.5 + 0.012;
+    if (t0 < tIni) continue;
+    em(t0 - 2.0, [=]() {       // empurra para o ar 2 s ANTES: a colisao e decidida por quem coleta depois
+      uint8_t b[68]; memset(b, 0, sizeof(b));
+      b[0] = 2; b[1] = 0x34; b[2] = 0x12; b[3] = slot; b[4] = g_fantasmaSeq++; b[5] = 0x01 | 0x04 | 0x40;
+      ar::transmite(no, (uint64_t)(t0 * 1e6), dur, b, nBytes, 10);
+    });
+  }
+}
+static void cen_v200_fantasma()
+{
+  comeca("v200_fantasma", 2);
+  const char* nomes[] = { "FaustoA", "gino" };
+  basePar(30, 80);
+  g_s[7] = anda(60, 30, 30);                    // o v200 anda junto, 30 m a frente do seguidor
+  fantasmaV200(7, 0, 68, 100.0, 660.0);
+  Taxa icone; uint32_t vAos100 = 0;
+  roda(660, [&](double t) { if (t > 120) icone.conta(obs(1).liderDesenhado); if (t == 100) vAos100 = obs(1).versaoErrada; });
+  NoObs f = obs(0), g = obs(1);
+  const uint64_t tot = ar::est[1].entregues + ar::est[1].alcance + ar::est[1].colisao;
+  printf("  info: seguidor: versaoErrada %u (antes do fantasma %u) | colisoes no seguidor %llu de %llu | lider: colisoes %llu | fantasma tx %llu\n",
+         g.versaoErrada, vAos100, (unsigned long long)ar::est[1].colisao, (unsigned long long)tot,
+         (unsigned long long)ar::est[0].colisao, (unsigned long long)ar::est[7].tx);
+  ck(ar::est[7].tx > 80, "o fantasma v200 transmitiu a cada 6 s", fmt("%llu", (unsigned long long)ar::est[7].tx));
+  ck(g.versaoErrada > 50, "o seguidor v201 CONTA o v200 como versao incompativel (linha V, aviso na tela)", fmt("versaoErrada %u", g.versaoErrada));
+  // O lider v201 esta no MESMO slot do v200: transmite no mesmo instante e fica
+  // surdo para ele - justamente quem colide e quem nunca ve o aviso.
+  ck(f.versaoErrada < g.versaoErrada / 4, "DOCUMENTADO: o lider (mesmo slot do v200) quase nao ouve o v200 - o aviso aparece so no seguidor",
+     fmt("versaoErrada lider %u x seguidor %u", f.versaoErrada, g.versaoErrada));
+  ck(g.carros == 2 && f.carros == 2, "o v200 nao entra na frota de ninguem", fmt("carros %d / %d", g.carros, f.carros));
+  ck(ar::est[1].colisao > 30, "DOCUMENTADO: o slot 0 do v200 colide com o lider v201 um quadro em cada tres",
+     fmt("%llu colisoes no seguidor em %llu pacotes (%.0f %%)", (unsigned long long)ar::est[1].colisao, (unsigned long long)tot, tot ? 100.0 * ar::est[1].colisao / tot : 0));
+  ck(icone.pct() >= 97.0, "o icone do lider ainda fica (extrapolacao de 8 s cobre 1 em 3 perdido)", fmt("%.1f%%", icone.pct()));
+  resumoAr(2, nomes);
+  for (int i = 0; i < 2; i++) NOS[i]->fecha();
+}
+
+// 19) CONFIG DO v200 COM SLOT 5: a NVS da gino vem do esquema 2 com slot 5. No boot
+//     o slot vai a 0 com a FAIXA na tela - e colide com o lider (slot 0). Depois de
+//     um RELIGAR a NVS ja diz slot 0, esquema 3: a faixa some e a colisao continua.
+static void cen_cfg_slot_velho()
+{
+  comeca("cfg_slot_velho", 2);
+  const char* nomes[] = { "FaustoA", "gino" };
+  liga(0, 0.0, "FaustoA", 0, 0, +3.0);
+  em(2.0, []() { NOS[1]->semeiaNvs(2, 5, "gino", 1); });
+  liga(1, 2.3, "gino", 1, 1, -4.0);
+  g_s[0] = anda(60, 80, 30); g_s[1] = anda(60, 0, 30);
+  em(12, []() { NOS[0]->gpsFix(true); NOS[1]->gpsFix(true); });
+  NoObs boot1{};
+  em(20, [&]() { boot1 = obs(1); });
+  em(40, []() { NOS[0]->criar("13520"); });
+  em(52, []() { NOS[1]->entrarLista(); });
+  em(55, []() { NOS[0]->abrir(); });
+  NoObs antesReliga{};
+  em(199, [&]() { antesReliga = obs(0); });
+  em(200, []() { NOS[1]->religa(200 * 1000000ull); });
+  em(201, []() { NOS[1]->gpsFix(true); });
+  em(230, []() { NOS[1]->retomar(); });
+  NoObs boot2{};
+  em(240, [&]() { boot2 = obs(1); });
+  Taxa icone;
+  roda(400, [&](double t) { if (t > 90) icone.conta(obs(1).liderDesenhado); });
+  NoObs f = obs(0), g = obs(1);
+  ck(boot1.cfgSlot == 0 && boot1.cfgEsquema == 3, "slot 5 do v200 vai para 0, esquema 3", fmt("slot %u esquema %u", boot1.cfgSlot, boot1.cfgEsquema));
+  ck(strncmp(boot1.aviso, "SLOT 5 NAO EXISTE MAIS", 22) == 0, "a faixa vermelha diz qual slot sumiu", fmt("'%s' (%d chars)", boot1.aviso, (int)strlen(boot1.aviso)));
+  // Os dois no slot 0 transmitem no MESMO instante (grade PPS): cada um esta surdo
+  // quando o outro fala. O "OUTRO aparelho esta no MEU slot" (conflitos) so dispara
+  // se um pacote chega - o que aqui quase nunca acontece. O sintoma e SILENCIO.
+  ck(antesReliga.carros == 1 && icone.ok == 0, "em conflito de slot ninguem ve ninguem: lider com 1 carro, seguidor nunca desenha o lider",
+     fmt("carros no lider %d, icone %d de %d s, conflitos contados %u / %u", antesReliga.carros, icone.ok, icone.n, antesReliga.conflitos, g.conflitos));
+  ck(boot2.cfgSlot == 0 && boot2.aviso[0] == 0, "DOCUMENTADO: depois de religar a faixa SOME (a NVS ja diz slot 0) e a colisao continua muda",
+     fmt("slot %u aviso '%s' carros no lider %d", boot2.cfgSlot, boot2.aviso, f.carros));
+  resumoAr(2, nomes);
+  for (int i = 0; i < 2; i++) NOS[i]->fecha();
 }
 
 // ============================================================ main
@@ -958,6 +1228,17 @@ int main(int argc, char** argv)
     // estresse (minutos cada): "estresse" roda so estes, "tudo" roda todos
     { "comboio4_perda", cen_comboio4_perda, true }, { "lider_troca4", cen_lider_troca4, true },
     { "vao300_4carros", cen_vao300_4carros, true }, { "sem_pps4", cen_sem_pps4, true }, { "longa4", cen_longa4, true },
+  struct { const char* nome; void (*f)(); } cens[] = {
+    { "grupo_lista", cen_grupo_lista }, { "perde_e_volta", cen_perde_e_volta },
+    { "lider_reinicia", cen_lider_reinicia }, { "radio_tarde", cen_radio_tarde },
+    { "grupos_trocados", cen_grupos_trocados }, { "tres_carros", cen_tres_carros },
+    { "gps_perde", cen_gps_perde }, { "alerta", cen_alerta }, { "trilha_longa", cen_trilha_longa },
+    { "perda_pesada", cen_perda_pesada }, { "quatro_carros", cen_quatro_carros }, { "rapido", cen_rapido },
+    { "entra_tarde", cen_entra_tarde }, { "dio1_morto", cen_dio1_morto },
+    // revisao v201
+    { "pintura_05s", cen_pintura_05s }, { "pps_laco_300", cen_pps_laco_300 }, { "pintura_fria", cen_pintura_fria },
+    { "pintura_fria_530", cen_pintura_fria_530 }, { "ruido_neutro", cen_ruido_neutro },
+    { "v200_fantasma", cen_v200_fantasma }, { "cfg_slot_velho", cen_cfg_slot_velho },
   };
   // "todos": CADA CENARIO NUM PROCESSO NOVO. As telas simuladas sao o firmware
   // inteiro, com NVS, sessao gravada e variaveis static - rodar um cenario depois

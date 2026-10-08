@@ -19,6 +19,14 @@ static const uint64_t SIM_UTC0_US = 12ull * 3600ull * 1000000ull;   // a simulac
 // 250, mas um passo do simulador nao pode passar do menor pacote (171 ms).
 static const uint32_t SIM_MAPA_US = 120000;
 static const uint32_t SIM_LACO_US = 1500;
+// MODELO DE PINTURA configuravel por cenario (revisao v201). O padrao e o de
+// sempre: 1 s, 120 ms, pedido = custo real. 'modoFirmware' pede ao orcamento
+// como a tela_trilha.h pede: max(ultimoQuadroUs, piorRecenteUs), piorRecente
+// zerado a cada 16 quadros, primeiro quadro frio - um quadro FRIO depois de 16
+// quentes e pedido como quente, e o orcamento nao tem como saber.
+static uint32_t s_pintPeriodoMs = 1000, s_pintQuenteUs = SIM_MAPA_US, s_pintFrioUs = SIM_MAPA_US, s_pintFrioCada = 0;
+static bool     s_pintModoFw = false;
+static uint32_t s_pintN = 0, s_pintNegadas = 0, s_pintUltimoUs = 300000, s_pintPiorUs = 0, s_pintMedN = 0;
 
 static void simTransmiteNoAr(const uint8_t* b, int n, uint64_t durUs)
 {
@@ -153,12 +161,45 @@ static void simApi_passo()
   simEventos();
   servico();
   simAvanca(SIM_LACO_US);
-  if (s_naTrilha && millis() - s_ultPintaMs >= 1000 && servicoCabe(SIM_MAPA_US)) {
-    s_ultPintaMs = millis();
-    caixaEtapa(CP_MAPA_PINTA);
-    simAvanca(SIM_MAPA_US);
-    caixaEtapa(CP_LACO);
+  if (s_naTrilha && millis() - s_ultPintaMs >= s_pintPeriodoMs) {
+    // o quadro frio e SORTEADO (1 em frioCada): um frio periodico cairia sempre na
+    // mesma fase do quadro de 2 s (4 pinturas de 500 ms por quadro) e nunca, ou
+    // sempre, em cima da janela - no carro ele vem quando um setor novo entra na tela
+    const uint32_t real = (s_pintFrioCada && (esp_random() % s_pintFrioCada) == 0) ? s_pintFrioUs : s_pintQuenteUs;
+    const uint32_t pede = s_pintModoFw ? (s_pintUltimoUs > s_pintPiorUs ? s_pintUltimoUs : s_pintPiorUs) : real;
+    if (servicoCabe(pede)) {
+      s_ultPintaMs = millis(); s_pintN++;
+      {  // para a revisao: em que fase do quadro cada pintura comecou (console.txt)
+        uint32_t uif = 0, fi = 0; tdmaUsInFrame(g_rede.tdma, uif, fi);
+        Serial.printf("PINTA,%lu,%lu,%lu,%lu\n", (unsigned long)millis(), (unsigned long)real, (unsigned long)pede, (unsigned long)uif);
+      }
+      caixaEtapa(CP_MAPA_PINTA);
+      simAvanca(real);
+      caixaEtapa(CP_LACO);
+      s_pintUltimoUs = real;
+      if (real > s_pintPiorUs) s_pintPiorUs = real;
+      if (++s_pintMedN >= 16) { s_pintMedN = 0; s_pintPiorUs = 0; }   // tela_trilha.h: medN >= 16
+    } else {
+      s_pintNegadas++;
+    }
   }
+}
+
+static void simApi_pintura(uint32_t periodoMs, uint32_t quenteUs, uint32_t frioUs, uint32_t frioCada, bool modoFirmware)
+{
+  s_pintPeriodoMs = periodoMs; s_pintQuenteUs = quenteUs; s_pintFrioUs = frioUs; s_pintFrioCada = frioCada;
+  s_pintModoFw = modoFirmware;
+  s_pintN = 0; s_pintNegadas = 0; s_pintUltimoUs = 300000; s_pintPiorUs = 0; s_pintMedN = 0;
+}
+
+// A NVS como um v200 a deixou (esquema 2, slot 0..7). Chamar ANTES de ligar o no:
+// com a NVS nao vazia o boot nao grava a "fabrica" e passa pela migracao de verdade.
+static void simApi_semeiaNvs(uint8_t cfgv, uint8_t slot, const char* nome, uint8_t cor)
+{
+  Preferences p; p.begin(NVS_NS_GRUPO, false);
+  p.putString("name", nome); p.putUChar("color", cor); p.putUChar("theme", 1); p.putUChar("zoom", 2);
+  p.putUChar("slot", slot); p.putChar("pwr", RF_PWR_PADRAO); p.putUChar("cfgv", cfgv); p.putUChar("pwrv", 101);
+  p.end();
 }
 
 // O 5 V do E22. Ao cair, o chip esquece a configuracao (volta de fabrica) - como o
@@ -221,6 +262,14 @@ static void simApi_obs(NoObs& o)
     double la, lo; bool vz;
     if (frotaParaDesenhar(g_frota.c[li], agora, la, lo, vz) && g_eu.fix) o.distLiderM = geoHaversine(g_eu.lat, g_eu.lon, la, lo);
   }
+  o.orcNegados = g_orc.negados; o.orcConcedidos = g_orc.concedidos; o.lacoPiorUs = g_orc.atrasoMaxUs;
+  o.pinturas = s_pintN; o.pinturasNegadas = s_pintNegadas;
+  o.ruidoN = g_rede.ruidoN; o.ruidoMax = g_rede.ruidoMax; o.ruidoMed = g_rede.ruidoN ? g_rede.ruidoSoma / g_rede.ruidoN : 0.0f;
+  o.conflitos = g_frota.conflitos; o.versaoErrada = g_frota.versaoErrada;
+  o.cfgSlot = g_cfg.slot; o.cfgEsquema = g_cfgEsquema;
+  strncpy(o.aviso, g_avisoTexto, sizeof(o.aviso) - 1); o.aviso[sizeof(o.aviso) - 1] = 0;
+  o.ppsRun = g_rede.tdma.ppsRun; o.gpsBacklog = g_gps.backlogDescartado; o.gpsParVelho = g_gps.parVelho;
+  o.ancoras = g_rede.tdma.anchorCount; o.ancoraSrc = g_rede.tdma.anchorSrc;
 }
 // O botao de ALERTA da tela da trilha (tela_trilha.h faz exatamente isto).
 static void simApi_alerta(bool liga)
