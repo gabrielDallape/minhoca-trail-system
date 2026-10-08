@@ -171,8 +171,18 @@
 // ------------------------------------------------------------- GPS
 #define GPS_BAUD           9600
 #define GPS_FIX_VALIDO_MS  3000UL     // fix envelhece: 3 frases de 1 Hz perdidas
-#define GPS_PAR_PPS_MAX_US 400000ULL  // idade maxima da borda para casar com o NMEA (C1)
-#define GPS_LACO_PARADO_MS 300UL      // laco parado mais que isto: descarta o backlog NMEA
+// CANDIDATO (revisao v201, simulador pps_laco_300): com 300 ms, um quadro de mapa
+// frio de 300 ms em cima da frase NMEA jogava fora o backlog, o par PPS daquele
+// segundo se perdia e o tdmaOnPps ZERAVA o ppsRun - 10 s limpos ate o PPS voltar a
+// ancorar. Repetido a cada poucos segundos (repintura a 0,5 s), o PPS nunca voltava:
+// holdover aos 24,5 s, a rede inteira trocando de fonte e saindo da grade UTC
+// (medido: 57 %/44 % do tempo em PPS, 7 TX perdidos em 10 min). A conta que
+// permite subir: a frase do segundo T chega em T+120 ms e so casa errado se for
+// lida DEPOIS da borda T+1 - laco parado < 880 ms nunca casa errado, e a borda T
+// tem no maximo 120 ms a mais de idade que a frase. 600 e 700 ms ficam dentro
+// disso com folga e cobrem o pior quadro frio (300 ms) com margem.
+#define GPS_PAR_PPS_MAX_US 700000ULL  // idade maxima da borda para casar com o NMEA (C1)
+#define GPS_LACO_PARADO_MS 600UL      // laco parado mais que isto: descarta o backlog NMEA
 
 // ------------------------------------------------------------- mapa
 #define MAPA_NZOOM         5
