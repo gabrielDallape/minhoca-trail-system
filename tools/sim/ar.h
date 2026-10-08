@@ -44,6 +44,10 @@ struct Rx { std::vector<uint8_t> b; float rssi, snr; uint64_t fimG; int de; };
 
 struct Est { uint64_t tx = 0, entregues = 0, alcance = 0, colisao = 0, surdoTx = 0, desligado = 0; };
 extern Est est[8];             // por RECEPTOR (tx por transmissor)
+// Por ENLACE: o que 'de' transmitiu e quanto disso chegou em 'para'. E o que
+// permite dizer "a entrega lider -> carro 3 foi 58 %" em vez de um total por tela.
+struct Enlace { uint64_t tx = 0, ok = 0; double pct() const { return tx ? 100.0 * ok / tx : 0; } };
+extern Enlace enlace[8][8];    // [de][para]
 
 void transmite(int de, uint64_t iniG, uint64_t durUs, const uint8_t* b, int n, int8_t pwrChipDbm);
 // O que terminou no ar em (desdeG, ateG] e chega ao no 'para'. 'ligado' = o

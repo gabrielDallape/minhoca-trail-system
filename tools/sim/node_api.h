@@ -6,6 +6,7 @@
 static std::deque<ar::Rx> s_filaRx;
 static uint64_t s_ultColetaG = 0;
 static bool     s_gpsFix = false;
+static bool     s_ppsOn = true;           // o fio do PPS: sem ele a rede vive de beacon
 static uint64_t s_proxSegG = 0;           // a proxima borda de segundo UTC (global)
 struct SimNmea { uint64_t quandoG; std::string txt; };
 static std::deque<SimNmea> s_nmea;
@@ -85,7 +86,7 @@ static void simEventos()
   while (s_proxSegG <= g) {
     const uint64_t b = s_proxSegG;
     s_proxSegG += 1000000ull;
-    if (s_gpsFix && s_isrPps) { s_isrUs = simLocal(b); s_isrPps(); s_isrUs = 0; }
+    if (s_gpsFix && s_ppsOn && s_isrPps) { s_isrUs = simLocal(b); s_isrPps(); s_isrUs = 0; }
     simGeraNmea(b);
   }
   while (!s_nmea.empty() && s_nmea.front().quandoG <= g) {
@@ -164,6 +165,7 @@ static void simApi_passo()
 // SX1262 de verdade. Quem tem de perceber e reconfigurar e o FIRMWARE.
 static void simApi_energiaRadio(bool liga) { s_chip.energia = liga; if (!liga) { s_chip.configurado = false; s_chip.emTx = false; } }
 static void simApi_gpsFix(bool f) { s_gpsFix = f; }
+static void simApi_gpsPps(bool on) { s_ppsOn = on; }
 static void simApi_dio1Morto(bool m) { s_chip.dio1Morto = m; }
 static void simApi_criar(const char* cod) { strncpy(s_salaCod, cod, sizeof(s_salaCod) - 1); sessaoCriaSala(cod); }
 static void simApi_abrir()

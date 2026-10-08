@@ -17,8 +17,12 @@ cp -r firmware/mts/core firmware/mts/app firmware/mts/hal "$SRC/mts/"
 cp $SIM/fake_hal/*.h "$SRC/mts/hal/"          # SO o radio e o cartao sao falsos
 cp firmware/*.h "$SRC/"
 
+# -DESP_PLATFORM: sem ele o tdma_core.h cai no ramo "sem ESP" e le o relogio por
+# micros() (32 bits, estoura em 71,6 min) - na placa o core do Arduino define ESP32
+# e o relogio e o esp_timer de 64 bits. Sem o flag, qualquer cenario de mais de
+# 71 min morria no simulador por um bug que NAO existe na placa (2026-10-08).
 FLAGS="-std=gnu++17 -O2 -g -Wall -Wno-unused-function -Wno-unused-variable -Wno-unused-but-set-variable \
- -I $SIM -I $SIM/fake -I $SRC -I $SRC/mts"
+ -DESP_PLATFORM -I $SIM -I $SIM/fake -I $SRC -I $SRC/mts"
 OBJS=""
 k=0
 while [ $k -lt $N ]; do

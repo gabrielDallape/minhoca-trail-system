@@ -23,6 +23,7 @@
 #include <vector>
 #include <functional>
 #include <filesystem>
+#include <algorithm>
 #include "ar.h"
 #include "no_api.h"
 
@@ -118,6 +119,7 @@ static void comeca(const char* nome, int nNos)
   for (int i = 0; i < 4; i++) { g_ligado[i] = false; g_s[i] = nullptr; }
   ar::cfg = ar::Cfg{};
   for (auto& e : ar::est) e = ar::Est{};
+  for (auto& l : ar::enlace) for (auto& e : l) e = ar::Enlace{};
   std::filesystem::remove_all(nome);
   printf("\n=== %s ===\n", nome);
 }
@@ -579,31 +581,402 @@ static void cen_dio1_morto()
   for (int i = 0; i < 2; i++) NOS[i]->fecha();
 }
 
+// ============================================================ ESTRESSE (2026-10-08, v201)
+// Cenarios mais duros que os de cima: 4 carros, perda calibrada com o campo de
+// 09-30 (52-65 % de entrega a 250-400 m), dezenas de minutos a horas de trilha
+// com velocidade variando e paradas. Medem o que o usuario sente - de quanto em
+// quanto tempo a posicao do lider CHEGA no seguidor - lendo o diario (linhas R)
+// que o firmware escreveu, nao um contador do simulador. Nao entram no "todos"
+// (levam minutos): rodam com "estresse" ou pelo nome.
+//
+// Criterios (revisao de projeto): posicao do lider no seguidor p50 <= 2,5 s e
+// p95 <= 6 s com entrega >= 80 % (<= 10 s a 60 %); conflitos 0; 'perdi' <= 1 %
+// dos quadros; vao de 300 m fecha em 60 s a 30 km/h; 0 reinicios.
+
+// ---- perfil de trilha: trechos de 15-45 km/h e paradas, repetindo
+struct Trecho { double seg, kmh; };
+static const Trecho PERFIL[] = { { 180, 40 }, { 30, 0 }, { 240, 25 }, { 120, 45 }, { 60, 0 }, { 300, 30 },
+                                 { 120, 15 }, { 20, 0 }, { 200, 35 }, { 90, 20 }, { 45, 0 } };
+static std::vector<double> g_perfil;   // s(t) do lider, uma amostra por segundo
+static void perfilPrepara(double tParte, double tFim)
+{
+  const int NP = (int)(sizeof(PERFIL) / sizeof(PERFIL[0]));
+  g_perfil.assign((size_t)tFim + 2, 0.0);
+  double s = 0, resta = PERFIL[0].seg; int ip = 0;
+  for (size_t t = 1; t < g_perfil.size(); t++) {
+    if ((double)t > tParte) {
+      s += PERFIL[ip].kmh / 3.6;
+      if (--resta <= 0) { ip = (ip + 1) % NP; resta = PERFIL[ip].seg; }
+    }
+    g_perfil[t] = s;
+  }
+}
+static double perfilS(double t)
+{
+  if (t <= 0 || g_perfil.empty()) return 0.0;
+  size_t i = (size_t)t;
+  if (i + 1 >= g_perfil.size()) return g_perfil.back();
+  double f = t - (double)i;
+  return g_perfil[i] * (1 - f) + g_perfil[i + 1] * f;
+}
+// Carro que passa por cada ponto 'atraso' s depois do lider - uma fila de
+// verdade: a distancia e v x atraso, encolhe nas paradas e abre nas retas. Em
+// tPara o lider para de vez e os outros encostam.
+static std::function<double(double)> comboio(double atraso, double tPara)
+{
+  return [=](double t) { double tt = t - atraso; return perfilS(tt < tPara ? tt : tPara); };
+}
+
+// ---- o que o DIARIO de uma tela diz (as linhas que o firmware escreveu)
+struct Met {
+  std::vector<double> gaps;      // s entre pacotes de POSICAO do slot 0 (o lider)
+  double p50 = 0, p95 = 0, max = 0, pctMaior8 = 0, congeladoPct = 0, vazadoPct = 0;
+  int    holdovers = 0, assumi = 0, fontes = 0, arquivos = 0, caixas = 0;
+  unsigned long tx = 0, perdi = 0, preso = 0, conflito = 0, relogioVoltou = 0, seqPerd = 0, rx = 0,
+                orcEstouros = 0, lacoPiorUs = 0, versaoErrada = 0;
+  int    sync = 0;
+};
+static std::vector<std::string> campos(const std::string& l)
+{
+  std::vector<std::string> v; std::string a;
+  for (char c : l) { if (c == ',') { v.push_back(a); a.clear(); } else if (c != '\r' && c != '\n') a += c; }
+  v.push_back(a); return v;
+}
+static double pct(const std::vector<double>& v, double p)
+{
+  if (v.empty()) return 0; size_t i = (size_t)(p * (v.size() - 1) + 0.5); return v[i < v.size() ? i : v.size() - 1];
+}
+static Met metricas(const char* tela, double desdeS, double ateS)
+{
+  Met m;
+  std::vector<std::filesystem::path> arqs;
+  std::string dir = g_cen + "/" + tela + "/log";
+  if (std::filesystem::exists(dir))
+    for (auto& e : std::filesystem::directory_iterator(dir)) arqs.push_back(e.path());
+  std::sort(arqs.begin(), arqs.end());
+  m.arquivos = (int)arqs.size();
+  const double desdeMs = desdeS * 1000, ateMs = ateS * 1000;
+  for (auto& a : arqs) {
+    FILE* f = fopen(a.string().c_str(), "r"); if (!f) continue;
+    char buf[1024]; double prev = -1; int holdAnt = 0;
+    while (fgets(buf, sizeof(buf), f)) {
+      if (buf[0] == '#') continue;
+      auto c = campos(buf);
+      if (c.size() < 2) continue;
+      double ms = atof(c[1].c_str());
+      if (c[0] == "C") m.caixas++;
+      if (ms < desdeMs || ms > ateMs) { if (c[0] == "E" && c.size() > 18) holdAnt = atoi(c[18].c_str()); continue; }
+      if (c[0] == "R" && c.size() >= 12 && c[3] == "0" && c[11] == "pos") {
+        if (prev >= 0) m.gaps.push_back((ms - prev) / 1000.0);
+        prev = ms;
+      } else if (c[0] == "E" && c.size() >= 40) {
+        int h = atoi(c[18].c_str()); if (h && !holdAnt) m.holdovers++; holdAnt = h;
+        m.sync = atoi(c[6].c_str());
+        m.tx = strtoul(c[8].c_str(), 0, 10); m.perdi = strtoul(c[9].c_str(), 0, 10); m.preso = strtoul(c[10].c_str(), 0, 10);
+        m.rx = strtoul(c[11].c_str(), 0, 10); m.conflito = strtoul(c[13].c_str(), 0, 10);
+        unsigned long lp = strtoul(c[19].c_str(), 0, 10); if (lp > m.lacoPiorUs) m.lacoPiorUs = lp;
+        m.seqPerd = strtoul(c[21].c_str(), 0, 10); m.relogioVoltou = strtoul(c[29].c_str(), 0, 10);
+        m.versaoErrada = strtoul(c[35].c_str(), 0, 10); m.orcEstouros = strtoul(c[37].c_str(), 0, 10);
+      } else if (c[0] == "!") {
+        if (strstr(buf, "assumi a ancora")) m.assumi++;
+        if (strstr(buf, "fonte de tempo")) m.fontes++;
+      }
+    }
+    fclose(f);
+  }
+  std::vector<double> o = m.gaps; std::sort(o.begin(), o.end());
+  m.p50 = pct(o, 0.50); m.p95 = pct(o, 0.95); m.max = o.empty() ? 0 : o.back();
+  int n8 = 0; double cong = 0, vaz = 0;
+  for (double g : m.gaps) { if (g > 8) { n8++; cong += g - 8; } if (g > 20) vaz += g - 20; }
+  m.pctMaior8 = m.gaps.empty() ? 0 : 100.0 * n8 / m.gaps.size();
+  const double jan = ateS - desdeS;
+  m.congeladoPct = jan > 0 ? 100.0 * cong / jan : 0;     // icone parado (extrapolacao esgotada)
+  m.vazadoPct = jan > 0 ? 100.0 * vaz / jan : 0;          // icone vazado (sinal velho)
+  return m;
+}
+static void imprimeMet(const char* tela, const Met& m, double entrega)
+{
+  printf("  %-7s entrega lider->eu %5.1f %% | posicao do lider a cada: p50 %.1f  p95 %.1f  max %.1f s | >8 s %.1f %% dos gaps"
+         " | congelado %.1f %% vazado %.1f %% do tempo | holdover %d assumi %d fonte %d | tx %lu perdi %lu (%.2f %%) preso %lu conflito %lu"
+         " | sync %d relogioVoltou %lu lacoPior %lu us\n",
+         tela, entrega, m.p50, m.p95, m.max, m.pctMaior8, m.congeladoPct, m.vazadoPct, m.holdovers, m.assumi, m.fontes,
+         m.tx, m.perdi, m.tx ? 100.0 * m.perdi / m.tx : 0, m.preso, m.conflito, m.sync, m.relogioVoltou, m.lacoPiorUs);
+}
+
+// Quatro carros ligam, pegam GPS, o lider cria, os tres entram pela lista, o
+// lider abre. g_s[] fica por conta do cenario.
+static const char* NOMES4[] = { "FaustoA", "gino", "tela_c", "tela_d" };
+static void base4(const char* cod)
+{
+  const double ppm[] = { +2, -3, +5, -6 };
+  for (int i = 0; i < 4; i++) liga(i, 0.9 * i, NOMES4[i], (uint8_t)i, (uint8_t)i, ppm[i]);
+  em(14, []() { for (int i = 0; i < 4; i++) NOS[i]->gpsFix(true); });
+  em(40, [=]() { NOS[0]->criar(cod); });
+  em(52, []() { NOS[1]->entrarLista(); });
+  em(55, []() { NOS[2]->entrarLista(); });
+  em(58, []() { NOS[3]->entrarLista(); });
+  em(62, []() { NOS[0]->abrir(); });
+}
+// Os criterios de posicao do lider, por seguidor, contra a entrega medida no enlace.
+static void confereLider(int i, const Met& m, double entrega)
+{
+  const char* n = NOMES4[i];
+  const double p95Max = entrega >= 80 ? 6.0 : 10.0;
+  const char* faixa = entrega >= 80 ? ">= 80 %" : (entrega >= 60 ? ">= 60 %" : "< 60 % (fora do criterio; usa 10 s)");
+  ck(m.p50 <= 2.5, fmt("%s: posicao do lider p50 <= 2,5 s", n), fmt("p50 %.1f s (entrega %.0f %%)", m.p50, entrega));
+  ck(m.p95 <= p95Max, fmt("%s: p95 <= %.0f s na faixa de entrega %s", n, p95Max, faixa), fmt("p95 %.1f s, max %.1f s, >8 s %.1f %%", m.p95, m.max, m.pctMaior8));
+  ck(m.conflito == 0, fmt("%s: 0 conflitos de slot", n), fmt("%lu", m.conflito));
+  ck(m.tx > 0 && 100.0 * m.perdi / m.tx <= 1.0, fmt("%s: 'perdi' <= 1 %% dos quadros", n), fmt("%lu de %lu", m.perdi, m.tx));
+  ck(m.preso == 0 && m.relogioVoltou == 0 && m.caixas == 0, fmt("%s: 0 TX preso, 0 relogio voltou, 0 reinicio violento", n),
+     fmt("preso %lu voltou %lu caixas %d", m.preso, m.relogioVoltou, m.caixas));
+}
+
+// 15) COMBOIO DE 4 COM A PERDA DO CAMPO: 45 min, 15-45 km/h com paradas, cada
+//     carro 12 s atras do anterior (a 30 km/h: 100/200/300 m; a 45: 150/300/450).
+//     Ruido de fundo subido ate a entrega a 300 m ficar nos ~60 % de 09-30.
+static void cen_comboio4_perda()
+{
+  comeca("comboio4_perda", 4);
+  const double tPara = 90 + 45 * 60, tFim = tPara + 150;
+  perfilPrepara(90, tFim);
+  const double atr[] = { 0, 12, 24, 36 };
+  for (int i = 0; i < 4; i++) g_s[i] = comboio(atr[i], tPara);
+  base4("45454");
+  em(100, []() { ar::cfg.ruidoDbm = -80.0; });
+  Taxa ic[4], firme[4]; double distMax[4] = { 0, 0, 0, 0 };
+  roda(tFim, [&](double t) {
+    if (t < 150) return;
+    for (int i = 1; i < 4; i++) {
+      NoObs o = obs(i); ic[i].conta(o.liderDesenhado); firme[i].conta(o.liderDesenhado && !o.liderVazado);
+      double d = ar::distanciaM(0, i, (uint64_t)(t * 1e6)); if (d > distMax[i]) distMax[i] = d;
+    }
+  });
+  for (int i = 1; i < 4; i++) {
+    Met m = metricas(NOMES4[i], 150, tPara);
+    double e = ar::enlace[0][i].pct();
+    imprimeMet(NOMES4[i], m, e);
+    printf("  %-7s icone %.1f %% (firme %.1f %%) | distancia maxima ao lider %.0f m\n", NOMES4[i], ic[i].pct(), firme[i].pct(), distMax[i]);
+    confereLider(i, m, e);
+    ck(ic[i].pct() >= 97.0, fmt("%s: icone do lider na tela >= 97 %% do tempo", NOMES4[i]), fmt("%.1f %% (firme %.1f %%)", ic[i].pct(), firme[i].pct()));
+    NoObs o = obs(i);
+    ck(o.rotaVaos == 0 && (int16_t)(obs(0).trajHead - o.ack) <= 12, fmt("%s: parados no fim, caminho inteiro e em dia", NOMES4[i]),
+       fmt("vaos %d head %u ack %u rotaN %d", o.rotaVaos, obs(0).trajHead, o.ack, o.rotaN));
+  }
+  ck(ar::enlace[0][3].pct() >= 45 && ar::enlace[0][3].pct() <= 75, "o cenario reproduz a entrega do campo no carro mais longe (45-75 %)",
+     fmt("lider->tela_d %.0f %%, ->tela_c %.0f %%, ->gino %.0f %%", ar::enlace[0][3].pct(), ar::enlace[0][2].pct(), ar::enlace[0][1].pct()));
+  resumoAr(4, NOMES4);
+  for (int i = 0; i < 4; i++) NOS[i]->fecha();
+}
+
+// 16) O LIDER REINICIA E, DEPOIS, PASSA O BASTAO - com 4 carros e perda moderada
+//     (300 m: ~85 %). Reinicio: RETOMAR e os tres tem de ver o icone voltar.
+//     Bastao: o lider SAI; o gino cria um grupo novo e abre; os outros dois e o
+//     ex-lider entram pela lista (e o unico caminho que a sessao oferece).
+static void cen_lider_troca4()
+{
+  comeca("lider_troca4", 4);
+  for (int i = 0; i < 4; i++) g_s[i] = anda(70, 100.0 * (3 - i), 30);
+  base4("31313");
+  em(100, []() { ar::cfg.ruidoDbm = -84.0; });
+  em(300, []() { NOS[0]->religa(300 * 1000000ull); });
+  em(301, []() { NOS[0]->gpsFix(true); });
+  bool retomou = false;
+  em(330, [&]() { retomou = NOS[0]->retomar(); });
+  // o bastao
+  em(600, []() { NOS[0]->sair(); });
+  em(602, []() { NOS[1]->sair(); });
+  em(604, []() { NOS[1]->criar("77777"); });
+  em(606, []() { NOS[1]->abrir(); });
+  em(615, []() { NOS[2]->sair(); NOS[3]->sair(); });
+  bool e2 = false, e3 = false, e0 = false;
+  em(630, [&]() { e2 = NOS[2]->entrarLista(); e3 = NOS[3]->entrarLista(); });
+  em(640, [&]() { e0 = NOS[0]->entrarLista(); });
+  double volta[4] = { 0, -1, -1, -1 }, novo[4] = { -1, 0, -1, -1 };
+  Taxa icNovo[4], carros4[4];
+  roda(1200, [&](double t) {
+    for (int i = 1; i < 4; i++) { NoObs o = obs(i); if (t > 330 && t < 600 && volta[i] < 0 && o.liderDesenhado && !o.liderVazado) volta[i] = t; }
+    if (t > 640) for (int i = 0; i < 4; i++) {
+      if (i == 1) continue;
+      NoObs o = obs(i);
+      if (novo[i] < 0 && o.liderDesenhado && !o.liderVazado) novo[i] = t;
+      if (t > 720) { icNovo[i].conta(o.liderDesenhado); carros4[i].conta(o.carros == 4); }
+    }
+  });
+  ck(retomou, "o lider religado oferece RETOMAR");
+  for (int i = 1; i < 4; i++)
+    ck(volta[i] > 0 && volta[i] - 330 <= 60, fmt("%s: o icone do lider volta firme em ate 60 s apos o RETOMAR", NOMES4[i]), fmt("em %.0f s", volta[i] - 330));
+  ck(e2 && e3 && e0, "tela_c, tela_d e o ex-lider entram no grupo novo pela lista", fmt("%d %d %d", (int)e2, (int)e3, (int)e0));
+  NoObs g = obs(1);
+  ck(g.lider && !obs(0).lider && obs(0).sala == g.sala && obs(2).sala == g.sala && obs(3).sala == g.sala,
+     "gino e o lider e os quatro estao na sala dele", fmt("salas %04X %04X %04X %04X", obs(0).sala, g.sala, obs(2).sala, obs(3).sala));
+  for (int i = 0; i < 4; i++) {
+    if (i == 1) continue;
+    ck(novo[i] > 0 && novo[i] - 640 <= 60, fmt("%s: ve o NOVO lider firme em ate 60 s", NOMES4[i]), fmt("em %.0f s", novo[i] - 640));
+    ck(icNovo[i].pct() >= 97.0 && carros4[i].pct() >= 95.0, fmt("%s: depois, icone do novo lider >= 97 %% e 4 carros na lista", NOMES4[i]),
+       fmt("icone %.1f %% carros %.1f %%", icNovo[i].pct(), carros4[i].pct()));
+    NoObs o = obs(i);
+    ck(o.rotaVaos == 0 && (int16_t)(g.trajHead - o.ack) <= 12, fmt("%s: caminho do novo lider inteiro e em dia", NOMES4[i]),
+       fmt("vaos %d head %u ack %u rotaN %d", o.rotaVaos, g.trajHead, o.ack, o.rotaN));
+  }
+  for (int i = 0; i < 4; i++) { Met m = metricas(NOMES4[i], 100, 1200); ck(m.conflito == 0 && m.preso == 0, fmt("%s: 0 conflito, 0 TX preso", NOMES4[i]), fmt("%lu %lu", m.conflito, m.preso)); }
+  resumoAr(4, NOMES4);
+  for (int i = 0; i < 4; i++) NOS[i]->fecha();
+}
+
+// 17) VAO DE 300 m COM 4 CARROS E PERDA PESADA: a 30 km/h, 100 m entre carros
+//     (300 m: ~60 % de entrega), cada seguidor fica 36 s sem radio (= 30 pontos
+//     de caminho, 300 m). O vao tem de fechar em ate 60 s depois que o radio
+//     volta - com os outros dois seguidores tambem pedindo bloco.
+static void cen_vao300_4carros()
+{
+  comeca("vao300_4carros", 4);
+  for (int i = 0; i < 4; i++) g_s[i] = anda(70, 100.0 * (3 - i), 30);
+  base4("30303");
+  em(100, []() { ar::cfg.ruidoDbm = -80.0; });
+  const double tCorte[4] = { 0, 700, 1000, 300 };       // tela_d (300 m) primeiro, depois gino (100) e tela_c (200)
+  for (int i = 1; i < 4; i++) {
+    em(tCorte[i], [=]() { NOS[i]->energiaRadio(false); });
+    em(tCorte[i] + 36, [=]() { NOS[i]->energiaRadio(true); });
+  }
+  double fechou[4] = { 0, -1, -1, -1 }; int vaosAbertos[4] = { 0, 0, 0, 0 };
+  roda(1300, [&](double t) {
+    for (int i = 1; i < 4; i++) {
+      if (t <= tCorte[i] + 36) continue;
+      NoObs o = obs(i);
+      if (t < tCorte[i] + 60 && o.rotaVaos > vaosAbertos[i]) vaosAbertos[i] = o.rotaVaos;
+      if (fechou[i] < 0 && t > tCorte[i] + 40 && o.rotaVaos == 0 && (int16_t)(obs(0).trajHead - o.topoRota) <= 12) fechou[i] = t;
+    }
+  });
+  for (int i = 1; i < 4; i++) {
+    double e = ar::enlace[0][i].pct();
+    printf("  %-7s entrega lider->eu %.0f %% | vaos abertos ate %d | fechou %.0f s depois de o radio voltar\n",
+           NOMES4[i], e, vaosAbertos[i], fechou[i] > 0 ? fechou[i] - (tCorte[i] + 36) : -1.0);
+    ck(fechou[i] > 0 && fechou[i] - (tCorte[i] + 36) <= 60, fmt("%s: o vao de 300 m fecha em ate 60 s (entrega %.0f %%)", NOMES4[i], e),
+       fmt("%.0f s", fechou[i] > 0 ? fechou[i] - (tCorte[i] + 36) : -1.0));
+  }
+  int vaos = 0; for (int i = 1; i < 4; i++) vaos += obs(i).rotaVaos;
+  ck(vaos == 0, "no fim, nenhum vao em nenhum seguidor", fmt("%d", vaos));
+  resumoAr(4, NOMES4);
+  for (int i = 0; i < 4; i++) NOS[i]->fecha();
+}
+
+// 18) OS QUATRO SEM PPS (so beacon): 2 h de comboio com perda, 10 s entre carros.
+//     Conta holdover, eleicao e troca de fonte por hora - a rede nao pode ficar
+//     se reelegendo; conflito 0; 'perdi' <= 1 %. (Em 1 h deu 1 eleicao no carro
+//     de tras: 24,5 s sem ouvir o lider a ~375 m. Duas horas para a taxa valer.)
+static void cen_sem_pps4()
+{
+  comeca("sem_pps4", 4);
+  const double tPara = 90 + 120 * 60, tFim = tPara + 120;
+  perfilPrepara(90, tFim);
+  const double atr[] = { 0, 10, 20, 30 };
+  for (int i = 0; i < 4; i++) g_s[i] = comboio(atr[i], tPara);
+  base4("90909");
+  em(5, []() { for (int i = 0; i < 4; i++) NOS[i]->gpsPps(false); });
+  em(100, []() { ar::cfg.ruidoDbm = -80.0; });
+  Taxa ic[4];
+  roda(tFim, [&](double t) { if (t > 150) for (int i = 1; i < 4; i++) ic[i].conta(obs(i).liderDesenhado); });
+  const double horas = (tPara - 150) / 3600.0;
+  for (int i = 0; i < 4; i++) {
+    Met m = metricas(NOMES4[i], 150, tPara);
+    double e = ar::enlace[0][i].pct();
+    imprimeMet(NOMES4[i], m, e);
+    ck(m.sync == 1, fmt("%s: sincronizado por BEACON o tempo todo (nunca PPS)", NOMES4[i]), fmt("sync %d", m.sync));
+    ck((m.holdovers + m.assumi) / horas <= 1.0, fmt("%s: holdover + eleicao <= 1 por hora (entrega %.0f %%)", NOMES4[i], e),
+       fmt("%d holdover, %d assumi em %.1f h (fonte trocou %d x)", m.holdovers, m.assumi, horas, m.fontes));
+    ck(m.conflito == 0, fmt("%s: 0 conflitos", NOMES4[i]), fmt("%lu", m.conflito));
+    ck(m.tx > 0 && 100.0 * m.perdi / m.tx <= 1.0, fmt("%s: 'perdi' <= 1 %%", NOMES4[i]), fmt("%lu de %lu", m.perdi, m.tx));
+    if (i > 0) {
+      ck(ic[i].pct() >= 97.0, fmt("%s: icone do lider >= 97 %%", NOMES4[i]), fmt("%.1f %%", ic[i].pct()));
+      ck(m.p50 <= 2.5 && m.p95 <= (e >= 80 ? 6.0 : 10.0), fmt("%s: p50 <= 2,5 s e p95 dentro da faixa (entrega %.0f %%)", NOMES4[i], e),
+         fmt("p50 %.1f p95 %.1f max %.1f", m.p50, m.p95, m.max));
+    }
+  }
+  resumoAr(4, NOMES4);
+  for (int i = 0; i < 4; i++) NOS[i]->fecha();
+}
+
+// 19) TRES HORAS DE COMBOIO com 4 carros e perda moderada: rastro (1200) e rota
+//     (1400) giram varias vezes, contadores de 16 bits rolam, o relogio passa
+//     dos 71 min do micros(). Nada pode derivar: a ultima hora tem de ser igual
+//     a primeira.
+static void cen_longa4()
+{
+  comeca("longa4", 4);
+  const double H = 3.0, tPara = 90 + H * 3600, tFim = tPara + 180;
+  perfilPrepara(90, tFim);
+  const double atr[] = { 0, 10, 20, 30 };
+  for (int i = 0; i < 4; i++) g_s[i] = comboio(atr[i], tPara);
+  base4("12121");
+  em(100, []() { ar::cfg.ruidoDbm = -84.0; });
+  Taxa ic[4]; int piorAtraso = 0; Taxa c0;
+  roda(tFim, [&](double t) {
+    if (t < 150) return;
+    for (int i = 1; i < 4; i++) ic[i].conta(obs(i).liderDesenhado);
+    c0.conta(obs(0).carros == 4);
+    if (((int)t % 60) == 0) for (int i = 1; i < 4; i++) { int a = (int16_t)(obs(0).trajHead - obs(i).ack); if (a > piorAtraso) piorAtraso = a; }
+  });
+  NoObs f = obs(0);
+  ck(f.trajN >= 1200, "o rastro do lider encheu e girou", fmt("trajN %d head %u", f.trajN, f.trajHead));
+  ck(c0.pct() >= 97.0, "o lider ve os 4 carros 3 h", fmt("%.1f %%", c0.pct()));
+  for (int i = 0; i < 4; i++) {
+    Met m1 = metricas(NOMES4[i], 150, 150 + 3600), m3 = metricas(NOMES4[i], tPara - 3600, tPara), mt = metricas(NOMES4[i], 150, tPara);
+    double e = ar::enlace[0][i].pct();
+    imprimeMet(NOMES4[i], mt, e);
+    if (i > 0) printf("  %-7s 1a hora p50 %.1f p95 %.1f | 3a hora p50 %.1f p95 %.1f | icone %.1f %%\n", NOMES4[i], m1.p50, m1.p95, m3.p50, m3.p95, ic[i].pct());
+    ck(mt.arquivos == 1 && mt.caixas == 0 && mt.relogioVoltou == 0 && mt.preso == 0, fmt("%s: 0 reinicio, 0 relogio voltou, 0 TX preso em 3 h", NOMES4[i]),
+       fmt("arquivos %d caixas %d voltou %lu preso %lu", mt.arquivos, mt.caixas, mt.relogioVoltou, mt.preso));
+    ck(mt.conflito == 0 && mt.versaoErrada == 0, fmt("%s: 0 conflito, 0 versao errada", NOMES4[i]), fmt("%lu %lu", mt.conflito, mt.versaoErrada));
+    ck(mt.tx > 0 && 100.0 * mt.perdi / mt.tx <= 1.0, fmt("%s: 'perdi' <= 1 %% em 3 h", NOMES4[i]), fmt("%lu de %lu", mt.perdi, mt.tx));
+    ck(mt.holdovers + mt.assumi <= 3, fmt("%s: holdover + eleicao <= 3 em 3 h", NOMES4[i]), fmt("%d + %d (fonte %d)", mt.holdovers, mt.assumi, mt.fontes));
+    if (i > 0) {
+      confereLider(i, mt, e);
+      ck(m3.p95 <= m1.p95 + 2.0 && m3.p50 <= m1.p50 + 0.5, fmt("%s: a 3a hora nao e pior que a 1a (sem deriva)", NOMES4[i]),
+         fmt("p95 %.1f -> %.1f, p50 %.1f -> %.1f", m1.p95, m3.p95, m1.p50, m3.p50));
+      ck(ic[i].pct() >= 97.0, fmt("%s: icone do lider >= 97 %% em 3 h", NOMES4[i]), fmt("%.1f %%", ic[i].pct()));
+      NoObs o = obs(i);
+      ck(o.rotaN >= 1390 && o.rotaVaos == 0 && (int16_t)(f.trajHead - o.ack) <= 12, fmt("%s: rota cheia girando, sem vao, em dia no fim", NOMES4[i]),
+         fmt("rotaN %d vaos %d head %u ack %u", o.rotaN, o.rotaVaos, f.trajHead, o.ack));
+    }
+  }
+  ck(piorAtraso <= 40, "o caminho continuo nunca ficou > 40 pontos atras durante as 3 h", fmt("pior %d", piorAtraso));
+  resumoAr(4, NOMES4);
+  for (int i = 0; i < 4; i++) NOS[i]->fecha();
+}
+
 // ============================================================ main
 int main(int argc, char** argv)
 {
   ar::posicao = pose;
-  struct { const char* nome; void (*f)(); } cens[] = {
-    { "grupo_lista", cen_grupo_lista }, { "perde_e_volta", cen_perde_e_volta },
-    { "lider_reinicia", cen_lider_reinicia }, { "radio_tarde", cen_radio_tarde },
-    { "grupos_trocados", cen_grupos_trocados }, { "tres_carros", cen_tres_carros },
-    { "gps_perde", cen_gps_perde }, { "alerta", cen_alerta }, { "trilha_longa", cen_trilha_longa },
-    { "perda_pesada", cen_perda_pesada }, { "quatro_carros", cen_quatro_carros }, { "rapido", cen_rapido },
-    { "entra_tarde", cen_entra_tarde }, { "dio1_morto", cen_dio1_morto },
+  struct { const char* nome; void (*f)(); bool pesado; } cens[] = {
+    { "grupo_lista", cen_grupo_lista, false }, { "perde_e_volta", cen_perde_e_volta, false },
+    { "lider_reinicia", cen_lider_reinicia, false }, { "radio_tarde", cen_radio_tarde, false },
+    { "grupos_trocados", cen_grupos_trocados, false }, { "tres_carros", cen_tres_carros, false },
+    { "gps_perde", cen_gps_perde, false }, { "alerta", cen_alerta, false }, { "trilha_longa", cen_trilha_longa, false },
+    { "perda_pesada", cen_perda_pesada, false }, { "quatro_carros", cen_quatro_carros, false }, { "rapido", cen_rapido, false },
+    { "entra_tarde", cen_entra_tarde, false }, { "dio1_morto", cen_dio1_morto, false },
+    // estresse (minutos cada): "estresse" roda so estes, "tudo" roda todos
+    { "comboio4_perda", cen_comboio4_perda, true }, { "lider_troca4", cen_lider_troca4, true },
+    { "vao300_4carros", cen_vao300_4carros, true }, { "sem_pps4", cen_sem_pps4, true }, { "longa4", cen_longa4, true },
   };
   // "todos": CADA CENARIO NUM PROCESSO NOVO. As telas simuladas sao o firmware
   // inteiro, com NVS, sessao gravada e variaveis static - rodar um cenario depois
   // do outro no mesmo processo era nao desligar as telas entre dois testes (e o
   // segundo cenario herdava a sessao do primeiro).
-  if (argc < 2 || strcmp(argv[1], "todos") == 0) {
-    int falhos = 0;
+  const bool todos = argc < 2 || strcmp(argv[1], "todos") == 0;
+  const bool estresse = argc >= 2 && strcmp(argv[1], "estresse") == 0;
+  const bool tudo = argc >= 2 && strcmp(argv[1], "tudo") == 0;
+  if (todos || estresse || tudo) {
+    int falhos = 0, n = 0;
     std::vector<std::string> quais;
     for (auto& c : cens) {
+      if (!tudo && c.pesado != estresse) continue;
+      n++;
       fflush(stdout);
       int rc = std::system((std::string("\"") + argv[0] + "\" " + c.nome).c_str());
       if (rc != 0) { falhos++; quais.push_back(c.nome); }
     }
-    printf("\n==== %d cenarios, %d com falha%s", (int)(sizeof(cens) / sizeof(cens[0])), falhos, falhos ? ":" : "\n");
+    printf("\n==== %d cenarios, %d com falha%s", n, falhos, falhos ? ":" : "\n");
     for (auto& q : quais) printf(" %s", q.c_str());
     if (falhos) printf("\n");
     return falhos ? 1 : 0;

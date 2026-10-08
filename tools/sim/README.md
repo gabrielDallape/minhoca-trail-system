@@ -61,6 +61,23 @@ telas e deixava as duas conversarem. Este simulador faz isso.
 | `rapido` | 60 km/h com o rádio do seguidor sem 5 V por 60 s | o chip volta configurado; ao reduzir, o caminho fecha |
 | `entra_tarde` | o seguidor espera no km 6 e entra quando o líder passa | caminho recente em ≤ 30 s, 6 km de histórico sem vão |
 
+### Estresse (`build.ps1 estresse`; `tudo` roda os dois grupos) — 4 carros, v201
+
+Não entram no `todos`. Medem pelo **diário** (linhas R) de quanto em quanto tempo a
+posição do líder chega em cada seguidor, com a entrega por enlace do "ar".
+
+| cenário | o que encena | o que confere |
+|---|---|---|
+| `comboio4_perda` | 45 min, 15–45 km/h com paradas, 12 s entre carros, ruído até ~60 % de entrega a 300 m | p50 ≤ 2,5 s, p95 ≤ 6 s (≥ 80 %) / ≤ 10 s (≥ 60 %), conflito 0, `perdi` ≤ 1 %, caminho fecha |
+| `lider_troca4` | líder reinicia + RETOMAR; depois SAI e o gino cria grupo novo, os outros entram pela lista | ícone volta ≤ 60 s nos três; todos na sala nova, caminho do novo líder inteiro |
+| `vao300_4carros` | cada seguidor fica 36 s sem rádio (300 m de caminho) a 30 km/h com ~60 % de entrega | o vão fecha em ≤ 60 s |
+| `sem_pps4` | 2 h só com beacon (PPS desligado nos quatro), comboio com perda | holdover + eleição ≤ 1/h, conflito 0, `perdi` ≤ 1 %, sync nunca PPS |
+| `longa4` | 3 h de comboio, rastro e rota giram, relógio passa dos 71 min | 0 reinício/relógio voltou, 3ª hora igual à 1ª, caminho ≤ 40 pontos atrás |
+
+> `build.sh` compila com `-DESP_PLATFORM`: sem ele o `tdma_core.h` lia o relógio por
+> `micros()` (32 bits) e **todo cenário de mais de 71 min morria só no simulador**
+> (`longa4` sem o flag: 3.648 eleições e `perdi` > 100 %). Na placa o core define `ESP32`.
+
 ## O que o simulador já achou (2026-10-01)
 
 1. **Rádio que volta "de fábrica"** (`rapido`): um E22 que perde o 5 V entre dois TX

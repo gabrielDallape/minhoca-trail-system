@@ -7,6 +7,7 @@ namespace ar {
 Cfg cfg;
 PosFn posicao = nullptr;
 Est est[8];
+Enlace enlace[8][8];
 
 struct Pkt { int de; uint64_t ini, fim; std::vector<uint8_t> b; int8_t pwr; };
 static std::vector<Pkt> g_pkts;
@@ -52,6 +53,8 @@ void coleta(int para, bool ligado, uint64_t desdeG, uint64_t ateG, std::vector<R
   for (const Pkt& p : g_pkts) {
     if (p.de == para || p.fim <= desdeG || p.fim > ateG) continue;
     Est& e = est[para];
+    Enlace& en = enlace[p.de & 7][para & 7];
+    en.tx++;
     if (!ligado) { e.desligado++; continue; }
     bool euFalava = false;
     for (const Pkt& q : g_pkts)
@@ -69,7 +72,7 @@ void coleta(int para, bool ligado, uint64_t desdeG, uint64_t ateG, std::vector<R
     if (perdeu) { e.colisao++; continue; }
     Rx x; x.b = p.b; x.rssi = (float)r; x.snr = (float)snr; x.fimG = p.fim; x.de = p.de;
     out.push_back(x);
-    e.entregues++;
+    e.entregues++; en.ok++;
   }
 }
 
