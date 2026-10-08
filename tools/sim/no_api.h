@@ -24,6 +24,15 @@ struct NoObs {
   int      alertasVistos;     // quantos OUTROS carros a minha tela mostra em alerta
   uint32_t liderSilencioMs;   // ha quanto tempo nao ouco o lider
   double   distLiderM;        // distancia do icone do lider ate mim, como desenhado
+  // revisao v201 (2026-10-08): orcamento, pintura, ruido, config
+  uint32_t orcNegados, orcConcedidos, lacoPiorUs;
+  uint32_t pinturas, pinturasNegadas;
+  uint32_t ruidoN; float ruidoMax, ruidoMed;
+  uint32_t conflitos, versaoErrada;
+  uint8_t  cfgSlot, cfgEsquema;
+  char     aviso[64];         // a faixa vermelha permanente (g_avisoTexto)
+  uint32_t ppsRun, gpsBacklog, gpsParVelho, ancoras;   // disciplina do PPS e re-ancoras
+  uint8_t  ancoraSrc;
 };
 
 struct NoApi {
@@ -43,4 +52,10 @@ struct NoApi {
   void     (*fecha)();
   void     (*alerta)(bool);             // o botao de ALERTA da trilha
   void     (*dio1Morto)(bool);          // o sinal do DIO1 deixa de chegar a placa
+  // MODELO DE PINTURA do mapa: periodo, custo quente, custo frio, 1 frio a cada N
+  // pinturas (0 = nunca), e se o pedido ao orcamento e o custo REAL ou o que a
+  // tela_trilha.h pede (max do ultimo quadro e do pior recente, zerado a cada 16).
+  void     (*pintura)(uint32_t periodoMs, uint32_t quenteUs, uint32_t frioUs, uint32_t frioCada, bool modoFirmware);
+  // NVS "de fabrica" ANTES do boot: um aparelho que vem do v200 (esquema 2, slot 0..7)
+  void     (*semeiaNvs)(uint8_t cfgv, uint8_t slot, const char* nome, uint8_t cor);
 };

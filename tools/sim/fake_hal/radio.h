@@ -111,7 +111,13 @@ inline int radioHwLeRx(uint8_t* buf, int max, int& n, float& rssi, float& snr, f
 
 inline bool radioHwConfigOk() { return s_chip.energia && s_chip.configurado; }
 inline void radioHwDiag(int& dio1, uint32_t& flags) { flags = s_chip.flags; dio1 = (!s_chip.dio1Morto && (s_chip.flags & (RADIOLIB_SX126X_IRQ_TX_DONE | RADIOLIB_SX126X_IRQ_RX_DONE))) ? 1 : 0; }
-inline float radioHwRssiInst() { return (float)ar::cfg.ruidoDbm; }
+// GetRssiInst le o que esta no ar AGORA: o ruido de fundo, ou o pacote de alguem
+// se a amostra cair em cima de um TX (e exatamente o que redeSlotLivre tenta evitar).
+inline float radioHwRssiInst()
+{
+  double v = ar::rssiNoAr(s_no, simGlobal(s_us));
+  return (float)(v > ar::cfg.ruidoDbm ? v : ar::cfg.ruidoDbm);
+}
 inline uint16_t radioHwErrosChip() { return 0; }
 inline const char* radioHwErroNome(uint16_t err, char* fora, size_t n) { snprintf(fora, n, "0x%04X (sim)", err); return fora; }
 inline void radioHwAplicaPotencia(int8_t pwr) { g_rhw.pwr = pwr; }

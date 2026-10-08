@@ -60,6 +60,18 @@ telas e deixava as duas conversarem. Este simulador faz isso.
 | `quatro_carros` | quatro carros em fila | ícone nas três seguidoras, líder vê 4 |
 | `rapido` | 60 km/h com o rádio do seguidor sem 5 V por 60 s | o chip volta configurado; ao reduzir, o caminho fecha |
 | `entra_tarde` | o seguidor espera no km 6 e entra quando o líder passa | caminho recente em ≤ 30 s, 6 km de histórico sem vão |
+| `dio1_morto` | o DIO1 do líder deixa de avisar a placa | continua recebendo por consulta ao chip |
+| `pintura_05s` | mapa a 2 Hz, 70 ms quente / 250 ms frio, custo pedido = real | `perdi` = 0 na trilha: a guarda `orcamentoNaMinhaJanela` segura |
+| `pps_laco_300` | laço parado 300 ms a cada ~4 s (pior quadro frio) | documenta: backlog NMEA descartado, `ppsRun` zerado, rede sai da grade UTC — ou, com a correção candidata, 100 % em PPS |
+| `pintura_fria` / `_530` | quadro frio pedido como quente (como a `tela_trilha.h` pede) | documenta: ~3–5 % dos frios comem a janela de TX (buraco anterior ao v201, exposto 3x) |
+| `ruido_neutro` | aparelho ligado na sala neutra, no slot 2, nunca entra | documenta: 44 % das amostras N medem o TX dele (−55 dBm); some quando ele entra |
+| `v200_fantasma` | um v200 (proto 2, quadro 6 s) líder no slot 0 | seguidor conta `versaoErrada`; 24 % dos pacotes do líder v201 colidem; o líder (mesmo slot) nunca ouve o aviso |
+| `cfg_slot_velho` | NVS do v200 com slot 5 | faixa "SLOT 5 NAO EXISTE MAIS" (60 chars, 835 px); conflito de slot é MUDO (ninguém vê ninguém); após religar a faixa some |
+
+Os sete últimos vieram da revisão adversária do v201 (2026-10-08). O modelo de pintura
+é configurável por cenário (`NoApi::pintura`), o `radioHwRssiInst` falso lê o pacote
+mais forte no ar (`ar::rssiNoAr`), e `NoApi::semeiaNvs` prepara uma NVS "do v200".
+Cada pintura sai no `console.txt` como `PINTA,ms,custoReal,custoPedido,usNoQuadro`.
 
 ## O que o simulador já achou (2026-10-01)
 
