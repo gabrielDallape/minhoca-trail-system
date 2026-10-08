@@ -26,3 +26,5 @@ web/**/node_modules/
 
 # Simulador (tools/sim): binarios e diarios gerados
 tools/sim/out/
+
+tools/fw_docker/out/

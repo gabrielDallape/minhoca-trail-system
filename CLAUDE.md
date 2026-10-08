@@ -98,6 +98,16 @@ disciplinado por GPS** (cada carro fala só no seu slot, zero colisão) sobre um
 .\tools\build.ps1 x -ListPorts                                 # VID 303A = USB nativa (gravar)
 ```
 
+**Para a P4 (`firmware/mts`), use o Docker**: desde 2026-10-08 o Smart App Control
+bloqueia o `riscv32-esp-elf-ld.exe` e o `build.ps1` falha no link (`collect2:
+CreateProcess`). Mesmo core e mesmas bibliotecas deste PC; grava só o app, sem tocar
+na NVS:
+
+```powershell
+.\tools\fw_docker\build.ps1                          # compila firmware\mts
+.\tools\fw_docker\build.ps1 firmware\mts -Porta COM9 # compila e grava (CH343)
+```
+
 Versões exatas do ambiente em **`docs/AMBIENTE_BUILD.md`**. Não use `EraseFlash`:
 apaga a partição `nvs` (nome da tela, tema, sala).
 

@@ -12,8 +12,12 @@
 //   0 = mts_p4 / mts_campo ate v100: name, color, theme, zoom, slot, pwr
 //   1 = mts_campo v101: + pwrv (marca de que o pwr foi acertado apos o recuo
 //       automatico que gravava sem o usuario saber)
-//   2 = este firmware: + cfgv (versao do esquema). O slot passa a valer 0..7
+//   2 = mts v200: + cfgv (versao do esquema). O slot passa a valer 0..7
 //       (era 0..3 na v101); 12 slots de 500 ms.
+//   3 = mts v201: o slot volta a valer 0..3 (4 slots de 500 ms, quadro de 2 s).
+//       Um slot 4..7 gravado pelo v200 e trazido a 0 pelo cfgValida - e isso
+//       COLIDE com quem ja esta no 0 (em geral a ancora). Por isso o ajuste nao
+//       e silencioso: o boot poe uma faixa na tela (app/config.h).
 
 #include <stdint.h>
 #include <string.h>
@@ -83,6 +87,12 @@ inline bool cfgMigra(Cfg& c, uint8_t esquemaLido, uint8_t pwrvLido, uint8_t& esq
     // v101 tinha 4 slots; qualquer slot valido continua valido em 12. Nada a
     // fazer alem de marcar o esquema.
     e = 2; mudou = true;
+  }
+  if (e < 3) {
+    // De 12 slots para 4: quem estava em 0..3 continua onde estava. Quem estava
+    // em 4..7 nao tem mais slot - o cfgValida, chamado logo depois, o traz a 0 e
+    // marca CFG_AJ_SLOT, que vira aviso na tela.
+    e = 3; mudou = true;
   }
   esquemaSaida = e;
   return mudou;

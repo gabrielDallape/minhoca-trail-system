@@ -49,12 +49,30 @@ inline uint32_t orcamentoMediaUs(const Orcamento& o) { return o.atrasoN ? (o.atr
 inline void orcamentoRelatou(Orcamento& o) { o.atrasoMaxUs = 0; o.atrasoSomaUs = 0; o.atrasoN = 0; }
 inline uint32_t orcamentoLimiteUs(const Tdma& t) { return tdmaGuardNow(t) / 2; }
 
+// A MINHA JANELA ESTA ABERTA e eu ainda nao falei neste quadro? O
+// tdmaUsUntilMySlot so conta ate o INICIO da janela: aberta ela, devolve "o
+// proximo quadro" inteiro, e quem perguntasse ganhava 250 ms que comiam os 63 ms
+// de janela. Ate a v201 so o redePodeGastar (cartao) tinha esta guarda; a
+// pintura do mapa (servicoCabe) perguntava ao orcamento sem ela, e um quadro de
+// mapa comecado logo depois da abertura da janela custava o TX do quadro - o
+// 'perdi'. Com quadro de 2 s a janela abre 3x mais vezes: a guarda mora aqui.
+inline bool orcamentoNaMinhaJanela(const Tdma& t)
+{
+  uint32_t usInFrame, frameIdx;
+  if (!tdmaUsInFrame(t, usInFrame, frameIdx)) return false;
+  if (t.haveTxFrame && t.txFrameDone == frameIdx) return false;   // ja falei neste quadro
+  const uint32_t g = tdmaGuardNow(t), ini = tdmaSlotStartUs(t, t.nodeId);
+  const uint32_t lo = ini + g / 2, hi = ini + t.slotUs - g / 2 - t.airtimeUs;
+  return usInFrame >= lo && usInFrame <= hi;
+}
+
 // Quanto posso gastar AGORA sem invadir a minha janela. TX em voo trava tudo: o
 // TX_DONE pode chegar a qualquer instante e precisa ser servido.
 inline uint32_t orcamentoUs(const Tdma& t, bool txEmVoo)
 {
   if (txEmVoo) return 0;
   if (!t.haveAnchor) return t.frameUs;   // sem ancora nao ha janela a proteger
+  if (orcamentoNaMinhaJanela(t)) return 0;
   uint32_t ate = tdmaUsUntilMySlot(t);
   if (ate <= ORC_RESERVA_US) return 0;
   return ate - ORC_RESERVA_US;

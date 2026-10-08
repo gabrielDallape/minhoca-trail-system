@@ -13,7 +13,7 @@
 //
 // TRES ESTADOS DE SINAL por carro, com os tempos em params.h (FROTA_*):
 //   VIVO      - pacote recente; posicao extrapolada por rumo x velocidade ate
-//               FROTA_EXTRAPOLA_MAX_MS, para o mapa nao pular a cada 6 s
+//               FROTA_EXTRAPOLA_MAX_MS, para o mapa nao pular a cada pacote
 //   VELHO     - sem pacote ha mais que FROTA_SINAL_VELHO_MS: marcador congela e
 //               fica vazado; a faixa diz SEM SINAL; se e o lider, a tela avisa
 //   SUMIU     - sem pacote ha mais que FROTA_SOME_MS: sai da lista e da contagem

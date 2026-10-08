@@ -83,7 +83,8 @@ void setup()
     frotaEstimativa(g_f.c[1], 7000, la, lo, ext);
     CHECK(ext && fabs(geoHaversine(-23.5, -46.6, la, lo) - 60.0) < 0.5, "6 s a 36 km/h = 60 m a frente");
     frotaEstimativa(g_f.c[1], 31000, la, lo, ext);
-    CHECK(fabs(geoHaversine(-23.5, -46.6, la, lo) - 120.0) < 0.5, "congela em 12 s (120 m)");
+    CHECK(fabs(geoHaversine(-23.5, -46.6, la, lo) - 10.0 * FROTA_EXTRAPOLA_MAX_MS / 1000.0) < 0.5,
+          "congela no teto FROTA_EXTRAPOLA_MAX_MS (8 s = 80 m a 36 km/h)");
     CHECK(frotaSinal(g_f.c[1], 1000 + FROTA_SINAL_VELHO_MS) == SINAL_VIVO && frotaSinal(g_f.c[1], 1001 + FROTA_SINAL_VELHO_MS) == SINAL_VELHO, "VELHO apos FROTA_SINAL_VELHO_MS");
     bool nm;
     frotaRecebeRoster(g_f, 2, 5, true, "Gino", 1000 + FROTA_SOME_MS, nm);
@@ -216,7 +217,7 @@ void setup()
     CHECK(frotaSinal(g_f.c[i], 100000) == SINAL_VIVO, "sinal do carro carimbado no futuro = VIVO");
     double la, lo; bool ext;
     CHECK(frotaEstimativa(g_f.c[i], 100000, la, lo, ext) && !ext && la == k.lat,
-          "estimativa com carimbo no futuro nao extrapola 12 s a frente");
+          "estimativa com carimbo no futuro nao extrapola ate o teto a frente");
     CHECK(tempoDesde(5, 0xFFFFFFF0u) == 21, "tempoDesde atravessa a rolagem do millis()");
   }
 

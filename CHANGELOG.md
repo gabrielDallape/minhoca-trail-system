@@ -2,6 +2,41 @@
 
 Histórico das fases do projeto. As datas são aproximadas (marcos, não releases formais).
 
+## 2026-10-08 — firmware/mts v201: quadro de 2 s para ate 4 carros
+
+O usuario: "na tela do seguidor o lider fica muito lento". Medido no carro de 09-30: a
+posicao do lider chegava no seguidor a cada 6 s no melhor caso, **27 % dos intervalos
+passaram de 12 s** e o icone ficou congelado/vazado **35 % da trilha**. O cartao SD
+nao tinha nada com isso (flush 7-44 ms, constante). Quatro analises independentes
+(prazos, dependencias, dados de campo, revisao adversaria) antes de mexer.
+
+- **Quadro de 2 s com 4 slots de 500 ms** (era 6 s x 12, para 8 carros). O usuario
+  definiu ate 4 carros. No simulador, MESMOS cenarios, v200 x v201: posicao do lider
+  a cada **6,0 -> 2,0 s** (mediana), p95 **12,1 -> 4,0 s**, intervalos > 12 s
+  **15,2 % -> 0,4 %**; em perda pesada, > 12 s **41 % -> 1,7 %**.
+- **Protocolo v3** (bytes iguais ao v2). Um v200 no ar seria aceito e colidiria em
+  silencio; agora aparece como incompativel (`versao=` no status). Gravar TODAS juntas.
+- **Esquema de config 3**: slot 4..7 do v200 vai para 0 com **faixa na tela** (antes ia
+  calado e colidia com o slot 0, em geral a ancora).
+- Prazos refeitos em SEGUNDOS: holdover 12 quadros (24,5 s, o mesmo de antes), ack do
+  catch-up 16 s, extrapolacao 8 s, sinal velho 20 s, lista de grupos 30 s.
+- **Ruido de fundo em slot livre** (nao ha mais slot fixo vazio): nao e o meu, sem carro
+  do grupo, sem grupo vizinho ouvido nele. Grupo cheio = sem linha N.
+- **Bug do orcamento**: a pintura do mapa (`servicoCabe`) nao tinha a guarda da janela
+  de TX aberta que o `redePodeGastar` tinha - um quadro de mapa comecado logo apos a
+  abertura custava o TX do quadro (`perdi`). A guarda foi para `orcamentoNaMinhaJanela`.
+- Idade do pacote pelo carimbo do RADIO (`rxUs`), nao pelo millis() de quando o laco
+  chegou: menos "pulo para tras" do marcador a cada pacote.
+- Tela da trilha repinta a cada **0,5 s** com alguem andando (era 1 s).
+- **Build no Docker** (`tools/fw_docker/`): o Smart App Control passou a bloquear o
+  `riscv32-esp-elf-ld.exe`. Mesmo core 3.3.11 e as bibliotecas deste PC.
+- Testes: mts_core_test 100 (era 90), catchup 51, audit 71, selftest 63, tdma_replay 56,
+  eleicao 160, simulador 14 cenarios - todos verdes. **Gravado nas duas telas P4**
+  (FaustoA COM9, gino COM11); gino entrou no grupo pelo cabo, sincronizou, 0 conflito.
+- Nao muda o ALCANCE: a 250-400 m metade dos pacotes do lider se perde e acima de ~400 m
+  (antena dentro do carro) nada chega. Proxima rodada: icone deslizando pelo caminho,
+  hora do GPS no pacote.
+
 ## 2026-10-01 — simulador (tools/sim) e o que ele achou
 
 `tools/sim/`: o firmware/mts DE VERDADE (core, app, quase todo o hal) compilado uma vez

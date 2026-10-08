@@ -124,5 +124,5 @@ inline void appBootDiario()
                 (unsigned)g_traj.epoca, (unsigned)g_cfgEsquema);
   if (b.relatoCfg[0]) registroLinha("!,%lu,%s", (unsigned long)millis(), b.relatoCfg);
   if (b.temCaixa) appRelataCaixa(b.caixaAnterior, b.motivo, true);
-  if (avisoAtivo()) registroLinha("!,%lu,REINICIOS SEGUIDOS,%s", (unsigned long)millis(), g_avisoTexto);
+  if (avisoAtivo()) registroLinha("!,%lu,AVISO,%s", (unsigned long)millis(), g_avisoTexto);
 }

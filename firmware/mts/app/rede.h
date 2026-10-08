@@ -21,7 +21,7 @@
 //     de arranque sao INTERCALADOS (falas 1, 3, 5) para nunca haver dois quadros
 //     seguidos sem beacon - com 6 s de quadro, dois quadros mudos passavam do
 //     TTL de holdover de entao (12,5 s) e a rede se partia no arranque (I5).
-//     Hoje o TTL e de 4 quadros (core/tdma.h), mas a regra continua.
+//     Hoje o TTL e de 24,5 s (12 quadros de 2 s, core/tdma.h), mas a regra continua.
 //   - O vigia de TX preso pergunta ao chip antes de acusar, espera mais que o
 //     maior pacote (RADIO_VIGIA_MS), e refaz o begin() completo.
 //   - O mapa e o cartao perguntam ao orcamento antes de gastar tempo; a
@@ -146,7 +146,7 @@ inline bool redeInicia(uint8_t meuSlot, const char* codigoSala, int8_t pwrConfig
   r.seguro = seguro;
   r.txAirMinUs = 0xFFFFFFFFu;
   r.ruidoFrame = 0xFFFFFFFFu;
-  r.ruidoMax = -200; r.ruidoSlotProx = RUIDO_SLOT_INI;
+  r.ruidoMax = -200; r.ruidoSlotProx = 0;
   r.sala = protoSalaDoCodigo(codigoSala);
   vizinhosInicia(g_viz, protoSalaHash("SEMSALA"));
   const int8_t pwr = pwrConfig;
@@ -326,6 +326,12 @@ inline void redeRecebe(uint64_t rxUs)
   static uint8_t buf[REDE_PKT_MAX];
   Rede& r = g_rede;
   const uint32_t agora = millis();
+  // A IDADE DO PACOTE conta da INTERRUPCAO (fim do RX), nao de quando o laco
+  // chegou aqui: com uma pintura de mapa no meio sao ate ~100 ms, e a extrapolacao
+  // do marcador (core/frota.h) partia atrasada esse tanto - o "pulo para tras" a
+  // cada pacote. O carimbo e do mesmo relogio do millis() e nunca e do futuro.
+  uint32_t rxMs = (uint32_t)(rxUs / 1000ULL);
+  if (tempoDesde(agora, rxMs) > 1000UL) rxMs = agora;   // carimbo absurdo (relogio voltou): usa o agora
   int n; float rssi, snr, ferr;
   int st = radioHwLeRx(buf, REDE_PKT_MAX, n, rssi, snr, ferr);
   if (st == -1) {
@@ -385,7 +391,7 @@ inline void redeRecebe(uint64_t rxUs)
     char nome[ROSTER_NOME_N + 1];
     protoRosterNome(buf, nome, sizeof(nome));
     bool nomeMudou;
-    int idx = frotaRecebeRoster(g_frota, slot, protoRosterCor(buf), (buf[5] & FL_LIDER) != 0, nome, agora, nomeMudou);
+    int idx = frotaRecebeRoster(g_frota, slot, protoRosterCor(buf), (buf[5] & FL_LIDER) != 0, nome, rxMs, nomeMudou);
     if (idx == -2) Serial.printf("*** OUTRO aparelho esta no MEU slot (%u)! conflitos=%lu\n", (unsigned)slot, (unsigned long)g_frota.conflitos);
     else if (idx > 0 && nomeMudou) Serial.printf("frota: slot %u se apresentou: %s%s\n", slot, nome, (buf[5] & FL_LIDER) ? " (lider)" : "");
     registroLinha("R,%lu,%lu,%u,%u,%d,%.0f,%.1f,%.0f,1,%lu,roster", (unsigned long)agora, (unsigned long)redeUtc(),
@@ -415,7 +421,7 @@ inline void redeRecebe(uint64_t rxUs)
   }
 
   bool alertaMudou;
-  int idx = frotaRecebePos(g_frota, k, agora, alertaMudou);
+  int idx = frotaRecebePos(g_frota, k, rxMs, alertaMudou);
   if (idx == -2) {
     static uint32_t tAviso = 0;
     if (agora - tAviso > 5000) {
@@ -440,7 +446,7 @@ inline void redeRecebe(uint64_t rxUs)
       // do lider, o 'ackDe' e o ponto mais antigo que ele guarda: vira o piso.
       // E so ele: um ack de lider na frota confundiria quem virar lider depois.
       if (lider) rotaDefinePiso(g_rotaC, epoca, ackDe);
-      else       frotaAck(g_frota, idx, ackAte, ackDe, base, agora);   // base = o topo dele
+      else       frotaAck(g_frota, idx, ackAte, ackDe, base, rxMs);   // base = o topo dele
     }
     novos = (int)(g_rotaC.inseridos - antes);
   }
@@ -451,11 +457,29 @@ inline void redeRecebe(uint64_t rxUs)
 }
 
 // ------------------------------------------------------------------ ruido
-// Uma amostra por quadro num slot que NUNCA tem carro (RUIDO_SLOT_INI..), lida
-// no meio do slot, longe das guardas, so com o radio em RX e sem TX em voo. Se
-// a entrega e de 50 % a -97 dBm num radio que ouve ate -129, ou o piso de ruido
-// subiu (step-down, tela, lataria) ou o receptor esta surdo - e este e o numero
-// que separa as duas hipoteses.
+// Uma amostra por quadro num slot SEM CARRO, lida no meio do slot, longe das
+// guardas, so com o radio em RX e sem TX em voo. Se a entrega e de 50 % a
+// -97 dBm num radio que ouve ate -129, ou o piso de ruido subiu (step-down,
+// tela, lataria) ou o receptor esta surdo - e este e o numero que separa as duas
+// hipoteses.
+//
+// SLOT LIVRE, NAO SLOT FIXO (v201): com 4 slots para 4 carros nao ha slot que
+// nunca tenha carro (no v200 eram os slots 8..11). Livre = nao e o meu, nenhum
+// carro do meu grupo esta nele (ativo ate FROTA_SOME_MS) e nenhum grupo vizinho
+// foi ouvido nele. Com o grupo cheio nao ha amostra - e o diario fica sem linha
+// N, nunca com uma linha N que mediu o TX de alguem. Um aparelho fora de grupo
+// (sala neutra) nao entra em lista nenhuma e pode cair numa amostra: o N e
+// diagnostico, e um valor isolado alto e reconhecivel.
+inline bool redeSlotLivre(uint8_t s)
+{
+  if (s == g_frota.c[0].slot) return false;
+  for (int i = 1; i < FROTA_MAX_CARROS; i++)
+    if (g_frota.c[i].ativo && g_frota.c[i].slot == s) return false;
+  for (int i = 0; i < VIZ_MAX; i++)
+    if (g_viz.g[i].ativo && (g_viz.g[i].slots & (1u << s))) return false;
+  return true;
+}
+
 inline void redeMedeRuido()
 {
   Rede& r = g_rede;
@@ -463,12 +487,18 @@ inline void redeMedeRuido()
   uint32_t usInFrame, frameIdx;
   if (!tdmaUsInFrame(r.tdma, usInFrame, frameIdx)) return;
   if (frameIdx == r.ruidoFrame) return;
-  uint8_t s = r.ruidoSlotProx;
+  // o proximo slot livre a partir de ruidoSlotProx (rodizio: nao amostra sempre o mesmo)
+  uint8_t s = TDMA_SLOTS;
+  for (int k = 0; k < TDMA_SLOTS; k++) {
+    uint8_t c = (uint8_t)((r.ruidoSlotProx + k) % TDMA_SLOTS);
+    if (redeSlotLivre(c)) { s = c; break; }
+  }
+  if (s >= TDMA_SLOTS) return;                 // grupo cheio: sem amostra
   uint32_t ini = tdmaSlotStartUs(r.tdma, s);
   uint32_t g = tdmaGuardNow(r.tdma);
   if (usInFrame < ini + g * 2 || usInFrame > ini + r.tdma.slotUs - g * 2) return;
   r.ruidoFrame = frameIdx;
-  r.ruidoSlotProx = (uint8_t)(s + 1 < TDMA_SLOTS ? s + 1 : RUIDO_SLOT_INI);
+  r.ruidoSlotProx = (uint8_t)((s + 1) % TDMA_SLOTS);
   float v = radioHwRssiInst();
   r.ruidoUlt = v; r.ruidoN++; r.ruidoSoma += v;
   if (r.ruidoN == 1 || v < r.ruidoMin) r.ruidoMin = v;
@@ -621,7 +651,7 @@ inline void redeAtualiza()
   }
   if (!r.txEmVoo && tdmaShouldTx(r.tdma)) {
     // Primeira fala = POSICAO (ancora quem me ouve). Rosters INTERCALADOS nas
-    // falas 1, 3 e 5 (o nome aparece em ate 12 s, nunca 2 quadros sem beacon),
+    // falas 1, 3 e 5 (o nome aparece em ate 4 s, nunca 2 quadros sem beacon),
     // depois a cada ROSTER_CADA.
     const uint32_t f = r.falas++;
     bool souRoster = (f == 1 || f == 3 || f == 5) || (f > 5 && (f % ROSTER_CADA) == 0);
@@ -641,18 +671,9 @@ inline bool redePodeGastar(uint32_t us)
   if (!g_rede.ok) return true;
   if (g_rede.txEmVoo) return false;
   if (!g_rede.tdma.haveAnchor) return true;
-  // DENTRO da minha janela e ainda sem ter falado neste quadro: nao. O
-  // tdmaUsUntilMySlot so conta ate o INICIO da janela - aberta ela, devolve "~6 s,
-  // o proximo quadro" e o mapa ganhava 250 ms que comiam os 63 ms de janela.
-  {
-    const Tdma& t = g_rede.tdma;
-    uint32_t usInFrame, frameIdx;
-    if (tdmaUsInFrame(t, usInFrame, frameIdx) && !(t.haveTxFrame && t.txFrameDone == frameIdx)) {
-      const uint32_t g = tdmaGuardNow(t), ini = tdmaSlotStartUs(t, t.nodeId);
-      const uint32_t lo = ini + g / 2, hi = ini + t.slotUs - g / 2 - t.airtimeUs;
-      if (usInFrame >= lo && usInFrame <= hi) return false;
-    }
-  }
+  // DENTRO da minha janela e ainda sem ter falado neste quadro: nao
+  // (core/orcamento.h explica; a mesma guarda vale para a pintura do mapa).
+  if (orcamentoNaMinhaJanela(g_rede.tdma)) return false;
   return tdmaUsUntilMySlot(g_rede.tdma) > us + ORC_RESERVA_US;
 }
 

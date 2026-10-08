@@ -16,9 +16,9 @@
 // com o tempo que falta ate a janela; se nao cabe, a pintura espera a volta
 // seguinte - o mapa atrasa 60 ms, o pacote nao atrasa 6 s.
 //
-// REPINTURA PERIODICA (novo): com posicao dos outros a cada 6 s, o marcador e
+// REPINTURA PERIODICA: com posicao dos outros a cada 2 s (v201; era 6), o marcador e
 // EXTRAPOLADO (core/frota.h) e a tela repinta a cada ~1 s enquanto algum carro
-// se move, para o marcador deslizar em vez de pular.
+// se move (a cada 0,5 s se alguem anda: TELA_REPINTA_ANDANDO_MS), para deslizar em vez de pular.
 
 #include "ui.h"
 #include "mapa.h"
@@ -248,7 +248,10 @@ bool telaTrilha(TFT& tft, SPR& cv, bool temSprite, const Sessao& s)
     // alguemMudo: o "SEM SINAL HA 31 s" conta segundos. Sem isto, comigo parado
     // esperando e o lider mudo, nada mudava e o numero ficava congelado ate os
     // 90 s em que ele some da lista.
-    const bool periodica = (alguemAnda || alguemMudo || avisoTmpAtivo(agora)) && (agora - uPintaMs >= 1000);
+    // Com alguem andando, a repintura e mais curta (TELA_REPINTA_ANDANDO_MS): e o
+    // que faz o marcador extrapolado deslizar em vez de saltar 8 m de uma vez.
+    const uint32_t passo = alguemAnda ? TELA_REPINTA_ANDANDO_MS : TELA_REPINTA_MS;
+    const bool periodica = (alguemAnda || alguemMudo || avisoTmpAtivo(agora)) && (agora - uPintaMs >= passo);
     if (g_cfg.zoom != uZi || g_tema != uTema || n != uN || al != uAl || outros != uOutros || periodica) {
       uZi = g_cfg.zoom; uTema = g_tema; uN = n; uAl = al; uOutros = outros;
       uLat = g_eu.lat; uLon = g_eu.lon; uPintaMs = agora; return true;

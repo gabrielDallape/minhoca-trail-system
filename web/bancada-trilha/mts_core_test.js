@@ -29,7 +29,7 @@ const def = nome => {
 };
 const TDMA_SLOTS = def('TDMA_SLOTS'), TDMA_FRAME_S = def('TDMA_FRAME_S'), TDMA_GUARD_US = def('TDMA_GUARD_US');
 const RF_SF = def('RF_SF'), RF_CR = def('RF_CR'), RF_PRE = def('RF_PRE'), RF_BW_KHZ = def('RF_BW_KHZ');
-const FROTA_MAX_CARROS = def('FROTA_MAX_CARROS'), RUIDO_SLOT_INI = def('RUIDO_SLOT_INI');
+const FROTA_MAX_CARROS = def('FROTA_MAX_CARROS');
 const ROTA_PASSO_M = def('ROTA_PASSO_M'), TRILHA_PONTOS_PKT = def('TRILHA_PONTOS_PKT'), VEL_PROJETO_KMH = def('VEL_PROJETO_KMH');
 const FROTA_EXTRAPOLA_MAX_MS = def('FROTA_EXTRAPOLA_MAX_MS'), FROTA_SINAL_VELHO_MS = def('FROTA_SINAL_VELHO_MS'), FROTA_SOME_MS = def('FROTA_SOME_MS');
 const ROSTER_CADA = def('ROSTER_CADA'), PROTO_VERSAO = def('PROTO_VERSAO'), MTS_VERSAO = def('MTS_VERSAO'), CFG_ESQUEMA = def('CFG_ESQUEMA');
@@ -37,14 +37,22 @@ const RF_PWR_PADRAO = def('RF_PWR_PADRAO'), RADIO_SEGURO_APOS = def('RADIO_SEGUR
 ck([TDMA_SLOTS, TDMA_FRAME_S, TDMA_GUARD_US, RF_SF, RF_CR, RF_PRE, RF_BW_KHZ, FROTA_MAX_CARROS, ROTA_PASSO_M, TRILHA_PONTOS_PKT,
     FROTA_EXTRAPOLA_MAX_MS, FROTA_SINAL_VELHO_MS, FROTA_SOME_MS, ROSTER_CADA, PROTO_VERSAO, MTS_VERSAO, CFG_ESQUEMA].every(Number.isFinite),
    'todas as constantes foram lidas do params.h');
-ck(TDMA_FRAME_S === 6 && TDMA_SLOTS === 12, `quadro de 6 s com 12 slots (decisao do usuario): ${TDMA_FRAME_S} s x ${TDMA_SLOTS}`);
+ck(TDMA_FRAME_S === 2 && TDMA_SLOTS === 4, `quadro de 2 s com 4 slots (usuario 2026-10-08: ate 4 carros): ${TDMA_FRAME_S} s x ${TDMA_SLOTS}`);
 const SLOT_US = TDMA_FRAME_S * 1e6 / TDMA_SLOTS;
 ck(SLOT_US === 500000, 'slot = 500 ms');
 ck(18 % TDMA_FRAME_S === 0, 'o quadro divide 18 (grade GPS x UTC)');
 ck(86400 % TDMA_FRAME_S === 0, 'o quadro divide 86400 (meia-noite)');
-ck(FROTA_MAX_CARROS <= TDMA_SLOTS && RUIDO_SLOT_INI === FROTA_MAX_CARROS && RUIDO_SLOT_INI < TDMA_SLOTS,
-   `slots ${RUIDO_SLOT_INI}..${TDMA_SLOTS - 1} sempre vazios para o ruido`);
-ck(MTS_VERSAO > 101 && PROTO_VERSAO === 2 && CFG_ESQUEMA === 2, `fw v${MTS_VERSAO} > 101, proto v${PROTO_VERSAO}, cfg esquema ${CFG_ESQUEMA}`);
+ck(FROTA_MAX_CARROS === TDMA_SLOTS, `um carro por slot (${FROTA_MAX_CARROS} carros, ${TDMA_SLOTS} slots); o ruido e medido em slot LIVRE`);
+{
+  const N0 = R('firmware/mts/app/rede.h');
+  const im = N0.indexOf('inline void redeMedeRuido'), bm = N0.slice(im, N0.indexOf('\n}', im));
+  ck(/inline bool redeSlotLivre/.test(N0) && bm.indexOf('redeSlotLivre(') > 0 && bm.indexOf('redeSlotLivre(') < bm.indexOf('radioHwRssiInst'),
+     'redeMedeRuido so amostra num slot que redeSlotLivre aprovou (nunca o TX de alguem)');
+  const il = N0.indexOf('inline bool redeSlotLivre'), bl = N0.slice(il, N0.indexOf('\n}', il));
+  ck(/g_frota\.c\[0\]\.slot/.test(bl) && /\.ativo && g_frota\.c\[i\]\.slot == s/.test(bl) && /g_viz\.g\[i\]\.slots/.test(bl),
+     'slot livre = nao e o meu, sem carro ativo do grupo, sem grupo vizinho ouvido nele');
+}
+ck(MTS_VERSAO > 200 && PROTO_VERSAO === 3 && CFG_ESQUEMA === 3, `fw v${MTS_VERSAO} > 200, proto v${PROTO_VERSAO} (v200 no ar colidiria em silencio), cfg esquema ${CFG_ESQUEMA}`);
 ck(RADIO_SEGURO_APOS >= 2, 'alarme de reinicios so apos >= 2 reinicios seguidos');
 // 2026-09-29: o alarme de reinicios NAO baixa a potencia (usuario: "isso nao pode
 // acontecer"). Nao pode existir teto em lugar nenhum do firmware.
@@ -84,14 +92,17 @@ ck(VIGIA_MS > airtimeUs(PKT_MAX) / 1000 && VIGIA_MS < SLOT_US / 1000 + 200, `vig
 // convergencia do catch-up (o motivo do passo de 10 m)
 const ptsPorS = (VEL_PROJETO_KMH / 3.6) / ROTA_PASSO_M, capPorS = TRILHA_PONTOS_PKT / (2 * TDMA_FRAME_S);
 ck(ptsPorS <= capPorS + 1e-9, `catch-up converge a ${VEL_PROJETO_KMH} km/h: ${ptsPorS.toFixed(3)} pt/s <= ${capPorS.toFixed(3)} pt/s (passo ${ROTA_PASSO_M} m)`);
-ck((VEL_PROJETO_KMH / 3.6) / 5.0 > capPorS, 'com passo de 5 m o catch-up NAO convergiria (por isso 10 m)');
+ck(ROTA_PASSO_M === 10 && (90 / 3.6) / ROTA_PASSO_M <= capPorS + 1e-9, `passo de 10 m: com quadro de ${TDMA_FRAME_S} s converge ate 90 km/h`);
 // TTLs
-ck(FROTA_EXTRAPOLA_MAX_MS === 2 * TDMA_FRAME_S * 1000, `extrapola no maximo 2 quadros (${FROTA_EXTRAPOLA_MAX_MS} ms)`);
+ck(FROTA_EXTRAPOLA_MAX_MS === 4 * TDMA_FRAME_S * 1000, `extrapola no maximo 4 quadros (${FROTA_EXTRAPOLA_MAX_MS} ms)`);
+ck(FROTA_EXTRAPOLA_MAX_MS >= 2 * TDMA_FRAME_S * 1000, 'a extrapolacao cobre o buraco normal do roster (2 quadros)');
 ck(FROTA_SINAL_VELHO_MS >= 3 * TDMA_FRAME_S * 1000 && FROTA_SINAL_VELHO_MS < FROTA_SOME_MS, `sinal velho aos ${FROTA_SINAL_VELHO_MS / 1000} s, some aos ${FROTA_SOME_MS / 1000} s`);
 const pPerda = 0.5, kVelho = FROTA_SINAL_VELHO_MS / (TDMA_FRAME_S * 1000);
 ck(Math.pow(pPerda, kVelho) < 0.05, `a 50 % de perda, falso "sem sinal" em ${(100 * Math.pow(pPerda, kVelho)).toFixed(1)} % dos casos (< 5 %)`);
 // holdover x roster intercalado
-const holdoverTtlUs = 2 * TDMA_FRAME_S * 1e6 + 500000;
+const TDMA_HOLDOVER_QUADROS = def('TDMA_HOLDOVER_QUADROS');
+const holdoverTtlUs = TDMA_HOLDOVER_QUADROS * TDMA_FRAME_S * 1e6 + 500000;
+ck(Math.abs(holdoverTtlUs - 24.5e6) < 1, `holdover em ${holdoverTtlUs / 1e6} s - o mesmo tempo do quadro de 6 s (o que importa e o tempo, nao os quadros)`);
 const souRoster = f => (f === 1 || f === 3 || f === 5) || (f > 5 && f % ROSTER_CADA === 0);
 let maxSilencio = 0, corrida = 0;
 for (let f = 0; f < 200; f++) { if (souRoster(f)) { corrida++; if (corrida > maxSilencio) maxSilencio = corrida; } else corrida = 0; }
@@ -196,7 +207,8 @@ function frotaEstimativa(c, ms) {
   const e6 = frotaEstimativa(f.c[1], 7000);
   ck(e6.ext && Math.abs(haversine(k.lat, k.lon, e6.lat, e6.lon) - 60) < 0.5, '6 s depois, a 36 km/h: 60 m a frente pelo rumo');
   const e30 = frotaEstimativa(f.c[1], 31000);
-  ck(Math.abs(haversine(k.lat, k.lon, e30.lat, e30.lon) - 120) < 0.5, `30 s depois: congela em 120 m (teto de ${FROTA_EXTRAPOLA_MAX_MS / 1000} s)`);
+  const teto = 10 * FROTA_EXTRAPOLA_MAX_MS / 1000;
+  ck(Math.abs(haversine(k.lat, k.lon, e30.lat, e30.lon) - teto) < 0.5, `30 s depois: congela em ${teto} m (teto de ${FROTA_EXTRAPOLA_MAX_MS / 1000} s)`);
   ck(frotaSinal(f.c[1], 1000 + FROTA_SINAL_VELHO_MS) === SINAL.VIVO && frotaSinal(f.c[1], 1001 + FROTA_SINAL_VELHO_MS) === SINAL.VELHO, `VELHO logo apos ${FROTA_SINAL_VELHO_MS / 1000} s`);
   ck(frotaSinal(f.c[1], 1001 + FROTA_SOME_MS) === SINAL.SUMIU, `SUMIU logo apos ${FROTA_SOME_MS / 1000} s`);
   frotaRecebeRoster(f, 2, 5, true, 'Gino', 1000 + FROTA_SOME_MS);
@@ -205,10 +217,11 @@ function frotaEstimativa(c, ms) {
   // roster de quem nunca mandou posicao: entra na sala de espera, sinal NUNCA
   frotaRecebeRoster(f, 4, 1, false, 'Fausto', 5000);
   ck(frotaAcha(f, 4) > 0 && frotaSinal(f.c[frotaAcha(f, 4)], 5000) === SINAL.NUNCA, 'roster sem posicao aparece na lista com sinal NUNCA');
-  // lotacao: 7 outros cabem, o 8o nao
+  // lotacao: FROTA_MAX_CARROS - 1 outros cabem, o slot seguinte nao existe
   const g = frotaNova(); frotaIdent(g, 'eu', 0, 0); let ok = 0;
-  for (let s = 1; s < 8; s++) if (frotaRecebePos(g, { ...k, slot: s }, 1) > 0) ok++;
-  ck(ok === 7 && frotaRecebePos(g, { ...k, slot: 8 }, 1) === -3, '7 outros carros cabem; slot 8 e invalido');
+  for (let s = 1; s < FROTA_MAX_CARROS; s++) if (frotaRecebePos(g, { ...k, slot: s }, 1) > 0) ok++;
+  ck(ok === FROTA_MAX_CARROS - 1 && frotaRecebePos(g, { ...k, slot: FROTA_MAX_CARROS }, 1) === -3,
+     `${FROTA_MAX_CARROS - 1} outros carros cabem; slot ${FROTA_MAX_CARROS} e invalido`);
 }
 
 // ---------------------------------------------------------------- [4] cfg.h
@@ -218,11 +231,12 @@ function cfgMigra(c, esquemaLido, pwrvLido) {
   if (e === 0 && pwrvLido >= 101) e = 1;
   if (e < 1) { if (c.pwr < RF_PWR_PADRAO) c.pwr = RF_PWR_PADRAO; e = 1; mudou = true; }
   if (e < 2) { e = 2; mudou = true; }
+  if (e < 3) { e = 3; mudou = true; }
   return { mudou, e };
 }
 {
   let c = { pwr: 6 }; let r = cfgMigra(c, 0, 0);
-  ck(r.mudou && r.e === 2 && c.pwr === RF_PWR_PADRAO, 'esquema 0 sem pwrv (mts_p4 / v100): pwr abaixo do padrao sobe UMA vez');
+  ck(r.mudou && r.e === 3 && c.pwr === RF_PWR_PADRAO, 'esquema 0 sem pwrv (mts_p4 / v100): pwr abaixo do padrao sobe UMA vez');
   c = { pwr: 14 }; r = cfgMigra(c, 0, 0);
   ck(r.mudou && c.pwr === 14, 'esquema 0 sem pwrv com 14 dBm: continua 14 (a migracao so sobe, nunca desce)');
   {
@@ -230,9 +244,19 @@ function cfgMigra(c, esquemaLido, pwrvLido) {
     ck(/if \(c\.pwr < RF_PWR_PADRAO\) c\.pwr = RF_PWR_PADRAO;/.test(C), 'cfg.h faz o mesmo que este espelho (so sobe)');
   }
   c = { pwr: 6 }; r = cfgMigra(c, 0, 101);
-  ck(r.mudou && r.e === 2 && c.pwr === 6, 'v101 (pwrv=101): o pwr e do usuario, so o esquema sobe');
+  ck(r.mudou && r.e === 3 && c.pwr === 6, 'v101 (pwrv=101): o pwr e do usuario, so o esquema sobe');
   c = { pwr: 14 }; r = cfgMigra(c, 2, 101);
+  ck(r.mudou && r.e === 3 && c.pwr === 14, 'v200 (esquema 2) sobe para 3 sem tocar no pwr');
+  c = { pwr: 14 }; r = cfgMigra(c, 3, 101);
   ck(!r.mudou && c.pwr === 14, 'esquema atual: nada muda');
+  {
+    const C = R('firmware/mts/core/cfg.h'), A = R('firmware/mts/app/config.h');
+    ck(/if \(e < 3\)/.test(C), 'cfg.h migra o esquema 2 -> 3 como este espelho');
+    ck(/if \(c\.slot >= FROTA_MAX_CARROS\) \{ c\.slot = 0; aj \|= CFG_AJ_SLOT; \}/.test(C),
+       'slot que nao existe mais (v200: 4..7) vai para 0 e e marcado');
+    const ia = A.indexOf('CFG_AJ_SLOT)');
+    ck(ia > 0 && A.indexOf('avisoDefine', ia) > ia, 'o slot trazido a 0 vira FAIXA NA TELA (colide com quem esta no 0)');
+  }
 }
 
 // ---------------------------------------------------------------- [5] diario.h x servico.h
@@ -279,8 +303,14 @@ sec('[6] hal/radio.h e app/rede.h: as armadilhas continuam no lugar');
   {
     const ig = N.indexOf('inline bool redePodeGastar');
     const pg = N.slice(ig, N.indexOf('\n}', ig));
-    ck(pg.indexOf('usInFrame >= lo && usInFrame <= hi') > 0 && pg.indexOf('usInFrame >= lo') < pg.lastIndexOf('tdmaUsUntilMySlot'),
+    ck(pg.indexOf('orcamentoNaMinhaJanela(') > 0 && pg.indexOf('orcamentoNaMinhaJanela(') < pg.lastIndexOf('tdmaUsUntilMySlot'),
        'redePodeGastar nega DENTRO da janela aberta, antes de olhar o proximo quadro');
+    const O = R('firmware/mts/core/orcamento.h');
+    const ij = O.indexOf('inline bool orcamentoNaMinhaJanela'), bj = O.slice(ij, O.indexOf('\n}', ij));
+    ck(bj.indexOf('usInFrame >= lo && usInFrame <= hi') > 0 && /txFrameDone == frameIdx/.test(bj), 'a guarda da janela: aberta e eu ainda nao falei neste quadro');
+    const io = O.indexOf('inline uint32_t orcamentoUs'), bo = O.slice(io, O.indexOf('\n}', io));
+    ck(bo.indexOf('orcamentoNaMinhaJanela(') > 0 && bo.indexOf('orcamentoNaMinhaJanela(') < bo.indexOf('tdmaUsUntilMySlot'),
+       'a PINTURA do mapa (servicoCabe -> orcamentoUs) tambem respeita a janela aberta (v201)');
   }
   {
     const ib = H.indexOf('inline bool radioHwBegin');

@@ -24,7 +24,7 @@
 #include "tempo.h"
 
 #define VIZ_MAX        4                     // grupos lembrados ao mesmo tempo
-#define VIZ_TTL_MS     (5UL * TDMA_FRAME_MS) // sem ouvir por 30 s: some da lista
+#define VIZ_TTL_MS     30000UL               // sem ouvir por 30 s: some da lista (em segundos, nao quadros)
 
 struct GrupoNoAr {
   bool     ativo;

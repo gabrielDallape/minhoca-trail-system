@@ -4,7 +4,7 @@ Alvo unico: **Waveshare ESP32-P4-WIFI6-Touch-LCD-7B** (EK79007 1024x600, GT911) 
 **E22-900M30S** (SX1262) + **GPS NEO-7M com PPS no IO2** + microSD (mapa em
 particoes brutas, diario na FAT). Nasceu do `mts_campo` v101 e do `mts_p4`
 (referencias, nao mexer), reorganizados em camadas e recalculados para o
-**quadro de 6 s com 12 slots de 500 ms**.
+**quadro de 2 s com 4 slots de 500 ms** (v201; o v200 tinha 6 s x 12).
 
 ```
 .\tools\build.ps1 firmware\mts -Board p4                     # compila
@@ -64,19 +64,19 @@ sozinha (so `'p'` no serial ou a celula POTENCIA do diagnostico gravam).
 
 | Parametro | Valor | De onde vem |
 |---|---|---|
-| Quadro | **6 s** (divide 18 e 86400) | decisao do usuario; grade GPS x UTC imune |
-| Slots | **12 x 500 ms**; carros nos slots 0..7; 8..11 sempre vazios (ruido) | `params.h` |
+| Quadro | **2 s** (divide 18 e 86400) | usuario 2026-10-08: ate 4 carros; grade GPS x UTC imune |
+| Slots | **4 x 500 ms**; um carro por slot (0..3); ruido medido em slot livre | `params.h`, `rede.h` |
 | Guarda | 20 ms (60 ms em holdover) | `TDMA_GUARD_US` |
 | Air-time 16 B / 23 B (roster) / 68 B (trilha cheia) | 171 / 212 / 417 ms | `airtime.h`: SX1262 6.1.4 + 6,5 ms medidos em SF7 |
 | Janela para o laco decidir o TX | 63 ms | 500 − 20 − 417 |
 | Vigia de TX preso | 617 ms | maior pacote + 200 |
-| Holdover (sem ancora) | 24,5 s = 4 quadros + 0,5 s | `TDMA_HOLDOVER_QUADROS` (`params.h`) |
-| Eleicao da ancora sem GPS | 3 s + slot x 6 s (slot 7: 45 s) | `TDMA_ELECT_BASE_US` |
+| Holdover (sem ancora) | 24,5 s = 12 quadros + 0,5 s | `TDMA_HOLDOVER_QUADROS` (`params.h`) |
+| Eleicao da ancora sem GPS | 3 s + slot x 2 s (slot 3: 9 s) | `TDMA_ELECT_BASE_US` |
 | PPS firme antes de ancorar | 10 pulsos | `TDMA_PPS_FIRME` |
 | Roster | falas 1, 3, 5 e depois a cada 8 — **intercalado**, nunca 2 quadros sem beacon | I5 da auditoria |
-| Posicao dos outros | a cada 6 s, **extrapolada** por rumo x velocidade ate 12 s | `frota.h` |
-| Sinal velho / some da lista | 30 s (p = 3 % a 50 % de perda) / 90 s | `FROTA_*` |
-| Passo do trajeto | **10 m** (era 5): o catch-up converge ate 30 km/h | conta em `params.h` |
+| Posicao dos outros | a cada 2 s, **extrapolada** por rumo x velocidade ate 8 s; tela repinta a cada 0,5 s | `frota.h`, `tela_trilha.h` |
+| Sinal velho / some da lista | 20 s (10 quadros, p = 0,1 % a 50 % de perda) / 90 s | `FROTA_*` |
+| Passo do trajeto | **10 m**: com quadro de 2 s o catch-up converge ate 90 km/h | conta em `params.h` |
 | Catch-up | 10 pontos por pacote, quadros alternados; so conta quem ouve o lider | `rota.h`, `frota.h` |
 
 Radio: 915 MHz, SF9, BW125, CR4/5, preambulo 8, sync 0x12, TCXO 2,2 V, OCP 140 mA,
@@ -88,7 +88,7 @@ chip (~20 dBm na antena, PA +10 dB); teto legal em BW125: 24,2 dBm.
 ```
 [0]      PROTO_VERSAO (2)     diferente -> ignorado, contado, AVISADO na tela (linha V)
 [1..2]   sala (hash 16 bits do codigo do grupo)
-[3]      slot = identidade (0..7)
+[3]      slot = identidade (0..3)
 [4]      seq rolante (perda por remetente)
 [5]      flags  0x01 FIX  0x02 ALERTA  0x04 LIDER  0x08 PPS(grade UTC)  0x40 TRILHA  0x80 ROSTER
 [6..13]  lat, lon int32 grau x 1e7            (roster: [6] cor, [7..22] nome, 23 B)

@@ -444,7 +444,7 @@ console.log('\n--- fidelidade: o firmware/mts diz o mesmo que este espelho ---')
   check(C.includes('inline void rotaDefinePiso(Rota& r, uint8_t epoca, uint16_t oldest16)'), 'rota.h: rotaDefinePiso existe');
   check(F.includes('if (c.ackTopo == ROTA_SEQ_NENHUMA || (int16_t)(c.ackTopo - head) < -ROTA_OUVE_PONTOS) continue;'), 'frota.h: quem nao ouve o lider sai da conta');
   check(N.includes('base = rotaTopo16(g_rotaC);'), 'rede.h: o seguidor manda o topo no campo base');
-  check(N.includes('frotaAck(g_frota, idx, ackAte, ackDe, base, agora);'), 'rede.h: o lider guarda o topo de cada seguidor');
+  check(N.includes('frotaAck(g_frota, idx, ackAte, ackDe, base, rxMs);'), 'rede.h: o lider guarda o topo de cada seguidor');
   check(N.includes('frotaAckMin(g_frota, g_traj.seqUlt, ackAteMin, ackDeMax, millis(), topoMin)'), 'rede.h: o lider compara o topo com o proprio head');
   check(C.includes('else catchup = atras && (frente + producao <= maxPontos ||'), 'rota.h: preenchimento com folga na frente');
   check(C.includes('((quadro & 3) == 1 && producao < maxPontos && frente + producao <= 2 * maxPontos));'), 'rota.h: ou 1 em 4 com sobra ao longo do tempo');
