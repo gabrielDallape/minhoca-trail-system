@@ -252,8 +252,8 @@ function cfgMigra(c, esquemaLido, pwrvLido) {
   {
     const C = R('firmware/mts/core/cfg.h'), A = R('firmware/mts/app/config.h');
     ck(/if \(e < 3\)/.test(C), 'cfg.h migra o esquema 2 -> 3 como este espelho');
-    ck(/if \(c\.slot >= FROTA_MAX_CARROS\) \{ c\.slot = 0; aj \|= CFG_AJ_SLOT; \}/.test(C),
-       'slot que nao existe mais (v200: 4..7) vai para 0 e e marcado');
+    ck(/if \(c\.slot >= FROTA_MAX_CARROS\) \{ c\.slot = FROTA_MAX_CARROS - 1; aj \|= CFG_AJ_SLOT; \}/.test(C),
+       'slot que nao existe mais (v200: 4..7) vai para o ULTIMO (nao o 0, do lider/ancora) e e marcado');
     const ia = A.indexOf('CFG_AJ_SLOT)');
     ck(ia > 0 && A.indexOf('avisoDefine', ia) > ia, 'o slot trazido a 0 vira FAIXA NA TELA (colide com quem esta no 0)');
   }

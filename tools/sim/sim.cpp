@@ -945,6 +945,8 @@ static void cen_longa4()
   ck(piorAtraso <= 40, "o caminho continuo nunca ficou > 40 pontos atras durante as 3 h", fmt("pior %d", piorAtraso));
   resumoAr(4, NOMES4);
   for (int i = 0; i < 4; i++) NOS[i]->fecha();
+}
+
 // ============================================================ REVISAO v201 (2026-10-08)
 // Cenarios escritos para a revisao adversaria do quadro de 2 s x 4 slots. Cada
 // um existe para provar (ou nao) uma suspeita lida no diff - os numeros vao
@@ -1056,7 +1058,10 @@ static void cen_pintura_fria()
   printf("  info: pinturas %u/%u (~%u frias) | perdi na trilha %u/%u | orc negados %u/%u | laco pior %lu/%lu us | backlog NMEA %u/%u sync %d/%d\n",
          f.pinturas, g.pinturas, frias, pf, pg, f.orcNegados, g.orcNegados,
          (unsigned long)f.lacoPiorUs, (unsigned long)g.lacoPiorUs, f.gpsBacklog, g.gpsBacklog, f.sync, g.sync);
-  ck(f.pinturas > 1000 && g.pinturas > 1000, "o modelo pintou ~2x por segundo", fmt("%u / %u", f.pinturas, g.pinturas));
+  // Desde a revisao v201 a tela pede SEMPRE um quadro frio (300 ms): a pintura que
+  // cairia nos ~300 ms antes da minha janela espera o TX, e 1 em cada 4 atrasa - ~1,5
+  // por segundo (o v200 pintava 1 por segundo). O preco de nunca mais perder o TX.
+  ck(f.pinturas > 800 && g.pinturas > 800, "o modelo pintou >= ~1,3x por segundo", fmt("%u / %u", f.pinturas, g.pinturas));
   ck(f.gpsBacklog == 0 && g.gpsBacklog == 0 && f.sync == 2 && g.sync == 2, "o PPS ficou intacto (o perdi daqui e so da pintura)", fmt("backlog %u/%u sync %d/%d", f.gpsBacklog, g.gpsBacklog, f.sync, g.sync));
   // Documenta o buraco (nao e do diff v201, mas o quadro de 2 s o expoe 3x mais):
   // uma fracao das pinturas frias pedidas como quentes atravessa a janela.
@@ -1086,7 +1091,7 @@ static void cen_pintura_fria_530()
   printf("  info: pinturas %u/%u (~%u frias) | perdi na trilha %u/%u (%.1f %% das frias) | backlog NMEA %u/%u sync %d/%d\n",
          f.pinturas, g.pinturas, frias, pf, pg, frias ? 100.0 * (pf + pg) / frias : 0, f.gpsBacklog, g.gpsBacklog, f.sync, g.sync);
   ck(f.gpsBacklog == 0 && g.gpsBacklog == 0 && f.sync == 2 && g.sync == 2, "o PPS ficou intacto", fmt("backlog %u/%u sync %d/%d", f.gpsBacklog, g.gpsBacklog, f.sync, g.sync));
-  ck(pf + pg > 0, "DOCUMENTADO: sem a trava de fase, a pintura fria pedida como quente perde TX", fmt("perdi %u + %u em ~%u frias", pf, pg, frias));
+  ck(pf + pg == 0, "REGRESSAO v201: a tela pede sempre um quadro frio - a pintura fria nunca come o TX", fmt("perdi %u + %u em ~%u frias", pf, pg, frias));
   ck(icone.pct() >= 97.0, "o icone fica", fmt("%.1f%%", icone.pct()));
   resumoAr(2, nomes);
   for (int i = 0; i < 2; i++) NOS[i]->fecha();
@@ -1121,7 +1126,7 @@ static void cen_ruido_neutro()
          f.ruidoN, f.ruidoMax, f.ruidoMed, ar::cfg.ruidoDbm, n1, a1, m1, n2, a2, m2);
   ck(c.tx > 100, "a tela_c transmite na sala neutra (slot 2) sem estar em grupo", fmt("tx %u", c.tx));
   ck(f.carros == 2 && f.vizN == 0, "o grupo nao a ve: nem na frota nem na lista (sala neutra)", fmt("carros %d vizN %d", f.carros, f.vizN));
-  ck(a1 > 0, "DOCUMENTADO: a amostra de ruido do grupo cai no TX do aparelho neutro", fmt("%d de %d amostras acima de %.0f dBm, max %.0f", a1, n1, ar::cfg.ruidoDbm + 10, m1));
+  ck(a1 == 0, "REGRESSAO v201: o slot do aparelho neutro e ouvido e nao e amostrado (linha N limpa)", fmt("%d de %d amostras acima de %.0f dBm, max %.0f", a1, n1, ar::cfg.ruidoDbm + 10, m1));
   ck(e2 && a2 == 0, "depois de ela entrar no grupo, o slot 2 deixa de ser amostrado", fmt("entrou=%d, %d altas em %d", (int)e2, a2, n2));
   resumoAr(3, nomes);
 }
@@ -1201,14 +1206,14 @@ static void cen_cfg_slot_velho()
   Taxa icone;
   roda(400, [&](double t) { if (t > 90) icone.conta(obs(1).liderDesenhado); });
   NoObs f = obs(0), g = obs(1);
-  ck(boot1.cfgSlot == 0 && boot1.cfgEsquema == 3, "slot 5 do v200 vai para 0, esquema 3", fmt("slot %u esquema %u", boot1.cfgSlot, boot1.cfgEsquema));
+  ck(boot1.cfgSlot == FROTA_MAX_CARROS - 1 && boot1.cfgEsquema == 3, "slot 5 do v200 vai para o ULTIMO (3), nao para o 0 do lider; esquema 3", fmt("slot %u esquema %u", boot1.cfgSlot, boot1.cfgEsquema));
   ck(strncmp(boot1.aviso, "SLOT 5 NAO EXISTE MAIS", 22) == 0, "a faixa vermelha diz qual slot sumiu", fmt("'%s' (%d chars)", boot1.aviso, (int)strlen(boot1.aviso)));
-  // Os dois no slot 0 transmitem no MESMO instante (grade PPS): cada um esta surdo
-  // quando o outro fala. O "OUTRO aparelho esta no MEU slot" (conflitos) so dispara
-  // se um pacote chega - o que aqui quase nunca acontece. O sintoma e SILENCIO.
-  ck(antesReliga.carros == 1 && icone.ok == 0, "em conflito de slot ninguem ve ninguem: lider com 1 carro, seguidor nunca desenha o lider",
+  // ANTES da revisao o slot ia para 0 - o do lider: os dois transmitiam no MESMO
+  // instante (grade PPS), cada um surdo quando o outro falava, e o aviso de conflito
+  // nunca disparava. O sintoma era SILENCIO. Indo para o 3, os dois se veem.
+  ck(antesReliga.carros == 2 && icone.pct() >= 97.0, "REGRESSAO v201: sem colisao com o lider - os dois se veem",
      fmt("carros no lider %d, icone %d de %d s, conflitos contados %u / %u", antesReliga.carros, icone.ok, icone.n, antesReliga.conflitos, g.conflitos));
-  ck(boot2.cfgSlot == 0 && boot2.aviso[0] == 0, "DOCUMENTADO: depois de religar a faixa SOME (a NVS ja diz slot 0) e a colisao continua muda",
+  ck(boot2.cfgSlot == FROTA_MAX_CARROS - 1 && f.carros == 2, "depois de religar continua no slot 3 e o grupo continua inteiro",
      fmt("slot %u aviso '%s' carros no lider %d", boot2.cfgSlot, boot2.aviso, f.carros));
   resumoAr(2, nomes);
   for (int i = 0; i < 2; i++) NOS[i]->fecha();
@@ -1228,17 +1233,10 @@ int main(int argc, char** argv)
     // estresse (minutos cada): "estresse" roda so estes, "tudo" roda todos
     { "comboio4_perda", cen_comboio4_perda, true }, { "lider_troca4", cen_lider_troca4, true },
     { "vao300_4carros", cen_vao300_4carros, true }, { "sem_pps4", cen_sem_pps4, true }, { "longa4", cen_longa4, true },
-  struct { const char* nome; void (*f)(); } cens[] = {
-    { "grupo_lista", cen_grupo_lista }, { "perde_e_volta", cen_perde_e_volta },
-    { "lider_reinicia", cen_lider_reinicia }, { "radio_tarde", cen_radio_tarde },
-    { "grupos_trocados", cen_grupos_trocados }, { "tres_carros", cen_tres_carros },
-    { "gps_perde", cen_gps_perde }, { "alerta", cen_alerta }, { "trilha_longa", cen_trilha_longa },
-    { "perda_pesada", cen_perda_pesada }, { "quatro_carros", cen_quatro_carros }, { "rapido", cen_rapido },
-    { "entra_tarde", cen_entra_tarde }, { "dio1_morto", cen_dio1_morto },
-    // revisao v201
-    { "pintura_05s", cen_pintura_05s }, { "pps_laco_300", cen_pps_laco_300 }, { "pintura_fria", cen_pintura_fria },
-    { "pintura_fria_530", cen_pintura_fria_530 }, { "ruido_neutro", cen_ruido_neutro },
-    { "v200_fantasma", cen_v200_fantasma }, { "cfg_slot_velho", cen_cfg_slot_velho },
+    // revisao adversaria da v201: cada um prova (ou guarda) um achado - entram no "todos"
+    { "pintura_05s", cen_pintura_05s, false }, { "pps_laco_300", cen_pps_laco_300, false }, { "pintura_fria", cen_pintura_fria, false },
+    { "pintura_fria_530", cen_pintura_fria_530, false }, { "ruido_neutro", cen_ruido_neutro, false },
+    { "v200_fantasma", cen_v200_fantasma, false }, { "cfg_slot_velho", cen_cfg_slot_velho, false },
   };
   // "todos": CADA CENARIO NUM PROCESSO NOVO. As telas simuladas sao o firmware
   // inteiro, com NVS, sessao gravada e variaveis static - rodar um cenario depois

@@ -104,6 +104,8 @@ struct Rede {
   float    ruidoUlt, ruidoSoma, ruidoMin, ruidoMax;
   uint32_t ruidoN, ruidoFrame;
   uint8_t  ruidoSlotProx;
+  bool     slotOuvido[TDMA_SLOTS];     // ouvi ALGUM pacote neste slot (qualquer sala/versao)...
+  uint32_t slotOuvidoMs[TDMA_SLOTS];   // ...e quando: redeSlotLivre nao amostra o ruido ali
   // potencia
   int8_t   pwrConfig;          // a que o USUARIO escolheu (NVS)
   bool     seguro;             // alarme de reinicios seguidos (so aviso, NAO mexe na potencia)
@@ -331,7 +333,10 @@ inline void redeRecebe(uint64_t rxUs)
   // do marcador (core/frota.h) partia atrasada esse tanto - o "pulo para tras" a
   // cada pacote. O carimbo e do mesmo relogio do millis() e nunca e do futuro.
   uint32_t rxMs = (uint32_t)(rxUs / 1000ULL);
-  if (tempoDesde(agora, rxMs) > 1000UL) rxMs = agora;   // carimbo absurdo (relogio voltou): usa o agora
+  // Carimbo absurdo: velho demais OU no FUTURO (IRQ carimbada antes de o relogio
+  // voltar ser detectado - tempoDesde daria 0 e o marcador ficaria "vivo" e parado
+  // pelo tamanho do salto). Nos dois casos vale o agora.
+  if ((int32_t)(agora - rxMs) < 0 || tempoDesde(agora, rxMs) > 1000UL) rxMs = agora;
   int n; float rssi, snr, ferr;
   int st = radioHwLeRx(buf, REDE_PKT_MAX, n, rssi, snr, ferr);
   if (st == -1) {
@@ -345,6 +350,11 @@ inline void redeRecebe(uint64_t rxUs)
     radioHwRx();
     return;
   }
+  // ESTE SLOT TEM ALGUEM NO AR, seja quem for (sala neutra, outro grupo, outra
+  // versao): o ruido de fundo nao pode ser amostrado nele (redeSlotLivre). A tela
+  // ligada fora de grupo nao entra em lista nenhuma e poluia 44 % das linhas N
+  // (revisao v201, cenario ruido_neutro).
+  if (n >= 4 && buf[3] < TDMA_SLOTS) { r.slotOuvido[buf[3]] = true; r.slotOuvidoMs[buf[3]] = rxMs; }
   // VERSAO DO PROTOCOLO antes de qualquer outra coisa. Um aparelho com firmware
   // antigo (ou mais novo) no ar e contado, guardado e avisado na tela.
   if (!protoVersaoOk(buf, n)) {
@@ -466,13 +476,14 @@ inline void redeRecebe(uint64_t rxUs)
 // SLOT LIVRE, NAO SLOT FIXO (v201): com 4 slots para 4 carros nao ha slot que
 // nunca tenha carro (no v200 eram os slots 8..11). Livre = nao e o meu, nenhum
 // carro do meu grupo esta nele (ativo ate FROTA_SOME_MS) e nenhum grupo vizinho
-// foi ouvido nele. Com o grupo cheio nao ha amostra - e o diario fica sem linha
-// N, nunca com uma linha N que mediu o TX de alguem. Um aparelho fora de grupo
-// (sala neutra) nao entra em lista nenhuma e pode cair numa amostra: o N e
-// diagnostico, e um valor isolado alto e reconhecivel.
+// foi ouvido nele, e NENHUM pacote (de qualquer sala, inclusive a neutra de quem
+// esta fora de grupo, e de qualquer versao) chegou nele ha menos de
+// RUIDO_SLOT_OUVIDO_MS. Com o grupo cheio nao ha amostra - e o diario fica sem
+// linha N, nunca com uma linha N que mediu o TX de alguem.
 inline bool redeSlotLivre(uint8_t s)
 {
   if (s == g_frota.c[0].slot) return false;
+  if (g_rede.slotOuvido[s] && tempoDesde(millis(), g_rede.slotOuvidoMs[s]) < RUIDO_SLOT_OUVIDO_MS) return false;
   for (int i = 1; i < FROTA_MAX_CARROS; i++)
     if (g_frota.c[i].ativo && g_frota.c[i].slot == s) return false;
   for (int i = 0; i < VIZ_MAX; i++)

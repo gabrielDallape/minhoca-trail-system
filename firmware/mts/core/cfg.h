@@ -15,9 +15,9 @@
 //   2 = mts v200: + cfgv (versao do esquema). O slot passa a valer 0..7
 //       (era 0..3 na v101); 12 slots de 500 ms.
 //   3 = mts v201: o slot volta a valer 0..3 (4 slots de 500 ms, quadro de 2 s).
-//       Um slot 4..7 gravado pelo v200 e trazido a 0 pelo cfgValida - e isso
-//       COLIDE com quem ja esta no 0 (em geral a ancora). Por isso o ajuste nao
-//       e silencioso: o boot poe uma faixa na tela (app/config.h).
+//       Um slot 4..7 gravado pelo v200 e levado ao 3 pelo cfgValida (o ultimo,
+//       longe do lider/ancora no 0) - e ainda pode colidir com quem esta no 3.
+//       Por isso o ajuste nao e silencioso: o boot poe uma faixa na tela.
 
 #include <stdint.h>
 #include <string.h>
@@ -56,7 +56,10 @@ inline uint8_t cfgValida(Cfg& c)
   if (c.cor >= CFG_N_CORES) { c.cor = 0; aj |= CFG_AJ_COR; }
   if (c.tema > 1) { c.tema = 1; aj |= CFG_AJ_TEMA; }
   if (c.zoom >= MAPA_NZOOM) { c.zoom = 2; aj |= CFG_AJ_ZOOM; }
-  if (c.slot >= FROTA_MAX_CARROS) { c.slot = 0; aj |= CFG_AJ_SLOT; }
+  // Slot inexistente vai para o ULTIMO, nao para o 0: o 0 e quase sempre o lider e a
+  // ancora da rede, e dois no mesmo slot transmitem juntos e ficam SURDOS um para o
+  // outro - o aviso de conflito nunca dispara (revisao v201, cenario cfg_slot_velho).
+  if (c.slot >= FROTA_MAX_CARROS) { c.slot = FROTA_MAX_CARROS - 1; aj |= CFG_AJ_SLOT; }
   if (c.pwr < RF_PWR_MIN || c.pwr > RF_PWR_MAX) { c.pwr = RF_PWR_PADRAO; aj |= CFG_AJ_PWR; }
   return aj;
 }
@@ -90,7 +93,7 @@ inline bool cfgMigra(Cfg& c, uint8_t esquemaLido, uint8_t pwrvLido, uint8_t& esq
   }
   if (e < 3) {
     // De 12 slots para 4: quem estava em 0..3 continua onde estava. Quem estava
-    // em 4..7 nao tem mais slot - o cfgValida, chamado logo depois, o traz a 0 e
+    // em 4..7 nao tem mais slot - o cfgValida, chamado logo depois, o leva ao 3 e
     // marca CFG_AJ_SLOT, que vira aviso na tela.
     e = 3; mudou = true;
   }

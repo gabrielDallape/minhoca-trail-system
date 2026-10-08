@@ -62,7 +62,7 @@ bool telaTrilha(TFT& tft, SPR& cv, bool temSprite, const Sessao& s)
   };
 
   static uint32_t medN = 0, medMapa = 0, medPush = 0, medPior = 0;
-  uint32_t ultimoQuadroUs = 300000, piorRecenteUs = 0;   // o primeiro quadro e sempre frio
+  uint32_t ultimoQuadroUs = MAPA_QUADRO_FRIO_US, piorRecenteUs = 0;   // o primeiro quadro e sempre frio
 
   auto pinta = [&]() {
     const uint32_t agora = millis();
@@ -266,7 +266,15 @@ bool telaTrilha(TFT& tft, SPR& cv, bool temSprite, const Sessao& s)
 
   while (true) {
     servico();
+    // O PEDIDO E SEMPRE O DE UM QUADRO FRIO (MAPA_QUADRO_FRIO_US), no minimo. O
+    // historico (ultimo / pior dos ultimos 16) nao sabe se o PROXIMO quadro vai ao
+    // cartao: depois de uma serie de quentes (70 ms) um frio de 250-300 ms era pedido
+    // como 70, ganhava a vez a 100 ms da janela e comia o TX do quadro - 2,8-4,9 %
+    // das pinturas frias no simulador (revisao v201, cenario pintura_fria_530). O
+    // custo de pedir sempre o frio: a pintura espera no maximo ~300 ms antes da
+    // minha janela, uma vez a cada 2 s.
     uint32_t custo = ultimoQuadroUs > piorRecenteUs ? ultimoQuadroUs : piorRecenteUs;
+    if (custo < MAPA_QUADRO_FRIO_US) custo = MAPA_QUADRO_FRIO_US;
     // mudou() so e consultado quando da para pintar: tem efeito colateral.
     if (servicoCabe(custo) && mudou()) pinta();
 
@@ -304,7 +312,7 @@ bool telaTrilha(TFT& tft, SPR& cv, bool temSprite, const Sessao& s)
     if (dentro(rZoom, ux, uy)) {
       g_cfg.zoom = (uint8_t)((g_cfg.zoom + 1) % MAPA_NZOOM);
       salvaZoom();
-      ultimoQuadroUs = 300000;     // outro nivel = cache frio
+      ultimoQuadroUs = MAPA_QUADRO_FRIO_US;     // outro nivel = cache frio
       continue;
     }
     if (dentro(rAlerta, ux, uy)) {

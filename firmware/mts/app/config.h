@@ -16,12 +16,12 @@ inline bool configCarrega(char* relato, size_t n)
   bool migrou = cfgMigra(g_cfg, esquema, pwrv, novo);
   const uint8_t slotLido = g_cfg.slot;
   uint8_t aj = cfgValida(g_cfg);
-  // SLOT QUE DEIXOU DE EXISTIR (v200 tinha 8, v201 tem 4): o aparelho cai no 0 e
-  // colide com quem ja esta la. Faixa na tela ate o dono escolher na configuracao
-  // - o valor 0 e gravado, entao o aviso aparece neste boot e no relato do diario.
+  // SLOT QUE DEIXOU DE EXISTIR (v200 tinha 8, v201 tem 4): o aparelho vai para o 3
+  // (core/cfg.h) e pode colidir com quem ja esta la. Faixa na tela ate o dono escolher na configuracao
+  // - o valor novo e gravado, entao o aviso aparece neste boot e no relato do diario.
   if (aj & CFG_AJ_SLOT) {
     char av[64];
-    snprintf(av, sizeof(av), "SLOT %u NAO EXISTE MAIS - FOI PARA 0. CONFIRA NA CONFIGURACAO", (unsigned)slotLido);
+    snprintf(av, sizeof(av), "SLOT %u NAO EXISTE MAIS - FOI PARA %u. CONFIRA NA CONFIGURACAO", (unsigned)slotLido, (unsigned)g_cfg.slot);
     avisoDefine(av);
     Serial.printf("cfg: *** %s ***\n", av);
   }

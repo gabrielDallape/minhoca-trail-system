@@ -2,6 +2,33 @@
 
 Histórico das fases do projeto. As datas são aproximadas (marcos, não releases formais).
 
+## 2026-10-08 — firmware/mts v202: o que a simulacao de estresse e a revisao acharam
+
+Dois agentes em copias isoladas do repositorio: um estressou a v201 no simulador
+(4 carros com a perda do campo, troca de lider, vao de 300 m, 2 h sem PPS, 3 h de
+trilha - **todos os criterios de aceite passaram, nenhum bug de firmware**); o outro
+fez revisao adversaria provando cada suspeita com um cenario. Corrigido:
+
+- **PPS derrubado por pintura fria** (provado, `pps_laco_300`): um laco parado de
+  300 ms descartava o backlog NMEA, o par PPS se perdia e o `ppsRun` zerava - 57/44 %
+  do tempo em PPS, 7 TX perdidos em 10 min. `GPS_LACO_PARADO_MS` 600 e
+  `GPS_PAR_PPS_MAX_US` 700 ms (a conta do limite esta no `params.h`): 100 % em PPS.
+- **Pintura fria pedida como quente** (provado, `pintura_fria_530`: 2,8-4,9 % das
+  frias custavam o TX): a tela pede sempre no minimo `MAPA_QUADRO_FRIO_US` (300 ms).
+  0 TX perdidos; a repintura fica em ~1,5/s (era 1/s no v200).
+- **Linha N poluida** por tela fora de grupo (44 % das amostras): qualquer pacote
+  ouvido, de qualquer sala ou versao, tira o slot da amostragem por 10 s.
+- **Slot inexistente vai para o 3**, nao para o 0 (o do lider): no 0 os dois
+  transmitiam juntos, surdos um ao outro, e o aviso de conflito nunca disparava.
+- Carimbo de RX no FUTURO tambem cai para o `agora`.
+- Simulador: relogio de 64 bits (sem o `-DESP_PLATFORM` o `tdma_core` usava `micros()`
+  e todo cenario > 71 min dava alarme falso), 12 cenarios novos (`estresse`, revisao),
+  modelo de pintura e de NVS. `.\tools\sim\build.ps1 tudo`: **26 cenarios verdes**.
+- Teste de 1 h na bancada com a v201 (FaustoA + gino, 3x mais TX): 0 reinicio, 0
+  panico, 0 relogio voltando, 0/1 TX perdido em ~1460, 97,5-99,9 % de entrega.
+- Nao corrigido, documentado: uma tela v200 no ar colide ~25 % com o lider v201 do
+  mesmo slot (`v200_fantasma`) - gravar todas juntas.
+
 ## 2026-10-08 — firmware/mts v201: quadro de 2 s para ate 4 carros
 
 O usuario: "na tela do seguidor o lider fica muito lento". Medido no carro de 09-30: a

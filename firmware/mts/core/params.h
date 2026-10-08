@@ -18,7 +18,7 @@
 // Versao do FIRMWARE: o manifesto do OTA (tools/publica_ota.ps1) so baixa quando
 // anuncia numero MAIOR que este. Comecou em 200 para ficar acima de qualquer
 // mts_campo (v101) e mts_p4 (v22) que ainda esteja gravado na frota.
-#define MTS_VERSAO       201
+#define MTS_VERSAO       202
 
 // Versao do PROTOCOLO no ar (byte 0 de todo pacote). Diferente = ignorado E
 // avisado na tela. Foi a falta disto que pos telas em v7 e v8 no mesmo campo
@@ -92,6 +92,9 @@
 // vigia teve de perguntar ao chip), a rede passa a CONSULTAR os eventos do chip
 // pelo SPI a cada volta (app/rede.h, modo consulta).
 #define RADIO_SEM_DIO1_TX  3
+// Ruido de fundo: um slot em que QUALQUER pacote foi ouvido ha menos que isto nao
+// e amostrado (app/rede.h, redeSlotLivre). 5 quadros de 2 s.
+#define RUIDO_SLOT_OUVIDO_MS  10000UL
 
 // ------------------------------------------------------------- trajeto / rota
 // PASSO DE 10 m (era 5). A conta que manda: o pacote leva TRILHA_PONTOS_PKT
@@ -171,7 +174,7 @@
 // ------------------------------------------------------------- GPS
 #define GPS_BAUD           9600
 #define GPS_FIX_VALIDO_MS  3000UL     // fix envelhece: 3 frases de 1 Hz perdidas
-// CANDIDATO (revisao v201, simulador pps_laco_300): com 300 ms, um quadro de mapa
+// REVISAO v201 (simulador, cenario pps_laco_300): com 300 ms, um quadro de mapa
 // frio de 300 ms em cima da frase NMEA jogava fora o backlog, o par PPS daquele
 // segundo se perdia e o tdmaOnPps ZERAVA o ppsRun - 10 s limpos ate o PPS voltar a
 // ancorar. Repetido a cada poucos segundos (repintura a 0,5 s), o PPS nunca voltava:
@@ -192,6 +195,9 @@
 // a janela de TX aberta). A 30 km/h, 500 ms = 4 m por passo do marcador.
 #define TELA_REPINTA_ANDANDO_MS  500UL
 #define TELA_REPINTA_MS          1000UL
+// O pior quadro de mapa medido na 7B (cache frio, setor lido do cartao): 220-300 ms.
+// E o MINIMO que a tela da trilha pede ao orcamento antes de pintar.
+#define MAPA_QUADRO_FRIO_US      300000UL
 #define FORA_DA_TRILHA_M   150.0f
 
 // ============================================================ static asserts

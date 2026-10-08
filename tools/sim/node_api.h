@@ -166,7 +166,13 @@ static void simApi_passo()
     // mesma fase do quadro de 2 s (4 pinturas de 500 ms por quadro) e nunca, ou
     // sempre, em cima da janela - no carro ele vem quando um setor novo entra na tela
     const uint32_t real = (s_pintFrioCada && (esp_random() % s_pintFrioCada) == 0) ? s_pintFrioUs : s_pintQuenteUs;
-    const uint32_t pede = s_pintModoFw ? (s_pintUltimoUs > s_pintPiorUs ? s_pintUltimoUs : s_pintPiorUs) : real;
+    // modoFirmware = o pedido EXATO da tela_trilha.h: max(ultimo, pior recente) e, desde
+    // a revisao v201, NUNCA menos que um quadro frio (MAPA_QUADRO_FRIO_US)
+    uint32_t pede = real;
+    if (s_pintModoFw) {
+      pede = s_pintUltimoUs > s_pintPiorUs ? s_pintUltimoUs : s_pintPiorUs;
+      if (pede < MAPA_QUADRO_FRIO_US) pede = MAPA_QUADRO_FRIO_US;
+    }
     if (servicoCabe(pede)) {
       s_ultPintaMs = millis(); s_pintN++;
       {  // para a revisao: em que fase do quadro cada pintura comecou (console.txt)
