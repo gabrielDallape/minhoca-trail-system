@@ -1,0 +1,286 @@
+// ============================================================================
+//  NODE_API - o laco de UMA tela simulada. Incluido DENTRO do namespace do no,
+//  DEPOIS do firmware: chama o firmware de verdade (servico, sessao, boot).
+// ============================================================================
+
+static std::deque<ar::Rx> s_filaRx;
+static uint64_t s_ultColetaG = 0;
+static bool     s_gpsFix = false;
+static bool     s_ppsOn = true;           // o fio do PPS: sem ele a rede vive de beacon
+static uint64_t s_proxSegG = 0;           // a proxima borda de segundo UTC (global)
+struct SimNmea { uint64_t quandoG; std::string txt; };
+static std::deque<SimNmea> s_nmea;
+static bool     s_naTrilha = false;
+static uint32_t s_ultPintaMs = 0;
+static char     s_salaCod[8] = "";
+static const uint64_t SIM_UTC0_US = 12ull * 3600ull * 1000000ull;   // a simulacao comeca as 12:00:00 UTC
+// A tela da trilha pinta o mapa ~1 vez por segundo, quando o orcamento deixa
+// (servicoCabe). 120 ms e o custo medido com cache quente; o pior frio passa de
+// 250, mas um passo do simulador nao pode passar do menor pacote (171 ms).
+static const uint32_t SIM_MAPA_US = 120000;
+static const uint32_t SIM_LACO_US = 1500;
+// MODELO DE PINTURA configuravel por cenario (revisao v201). O padrao e o de
+// sempre: 1 s, 120 ms, pedido = custo real. 'modoFirmware' pede ao orcamento
+// como a tela_trilha.h pede: max(ultimoQuadroUs, piorRecenteUs), piorRecente
+// zerado a cada 16 quadros, primeiro quadro frio - um quadro FRIO depois de 16
+// quentes e pedido como quente, e o orcamento nao tem como saber.
+static uint32_t s_pintPeriodoMs = 1000, s_pintQuenteUs = SIM_MAPA_US, s_pintFrioUs = SIM_MAPA_US, s_pintFrioCada = 0;
+static bool     s_pintModoFw = false;
+static uint32_t s_pintN = 0, s_pintNegadas = 0, s_pintUltimoUs = 300000, s_pintPiorUs = 0, s_pintMedN = 0;
+
+static void simTransmiteNoAr(const uint8_t* b, int n, uint64_t durUs)
+{
+  ar::transmite(s_no, simGlobal(s_us), durUs, b, n, g_rhw.pwr);
+}
+
+static std::string simNmeaFecha(const std::string& corpo)
+{
+  uint8_t s = 0;
+  for (char c : corpo) s ^= (uint8_t)c;
+  char t[8]; snprintf(t, sizeof(t), "*%02X\r\n", s);
+  return "$" + corpo + t;
+}
+static std::string simGrausNmea(double v, bool lat)
+{
+  double a = std::fabs(v); int g = (int)a; double m = (a - g) * 60.0;
+  char b[32]; snprintf(b, sizeof(b), lat ? "%02d%08.5f" : "%03d%08.5f", g, m);
+  return b;
+}
+// O NEO-7M: a GGA e a RMC do segundo S chegam ~120 ms DEPOIS da borda do PPS de S.
+static void simGeraNmea(uint64_t bordaG)
+{
+  const uint64_t utcS = (SIM_UTC0_US + bordaG) / 1000000ull;
+  char h[16]; snprintf(h, sizeof(h), "%02d%02d%02d.00", (int)((utcS / 3600) % 24), (int)((utcS / 60) % 60), (int)(utcS % 60));
+  ar::Pose p = ar::posicao(s_no, bordaG);
+  std::string gga = std::string("GPGGA,") + h + ",";
+  std::string rmc = std::string("GPRMC,") + h + ",";
+  if (s_gpsFix) {
+    std::string pos = simGrausNmea(p.lat, true) + (p.lat < 0 ? ",S," : ",N,") + simGrausNmea(p.lon, false) + (p.lon < 0 ? ",W" : ",E");
+    gga += pos + ",1,08,1.0,700.0,M,-5.0,M,,";
+    char vr[48]; snprintf(vr, sizeof(vr), ",%.2f,%.1f,011026,,,A", p.velKmh / 1.852, p.rumoGraus);
+    rmc += "A," + pos + vr;
+  } else {
+    gga += ",,,,0,00,99.99,,,,,,";
+    rmc += "V,,,,,,,011026,,,N";
+  }
+  s_nmea.push_back({ bordaG + 120000ull, simNmeaFecha(gga) + simNmeaFecha(rmc) });
+}
+
+// Tudo que aconteceu no mundo ate o relogio deste no: TX que terminou, pacote
+// que chegou, borda de PPS, frase de NMEA.
+static void simEventos()
+{
+  const uint64_t g = simGlobal(s_us);
+  if (s_chip.emTx && s_us >= s_chip.txFimLocal) {
+    s_chip.emTx = false;
+    s_chip.flags |= RADIOLIB_SX126X_IRQ_TX_DONE;
+    if (!s_chip.dio1Morto) { g_loraIrqUs = s_chip.txFimLocal; g_loraIrq = true; }
+  }
+  if (g > s_ultColetaG) {
+    std::vector<ar::Rx> v;
+    ar::coleta(s_no, s_chip.energia && s_chip.configurado, s_ultColetaG, g, v);
+    s_ultColetaG = g;
+    for (auto& r : v) s_filaRx.push_back(r);
+  }
+  // com o DIO1 morto o chip guarda o pacote e acende a flag, mas a ISR nao roda
+  if (!g_loraIrq && !s_chip.emTx && !s_filaRx.empty() && !(s_chip.flags & RADIOLIB_SX126X_IRQ_RX_DONE)) {
+    ar::Rx r = s_filaRx.front(); s_filaRx.pop_front();
+    s_chip.pktN = (int)r.b.size();
+    memcpy(s_chip.pkt, r.b.data(), r.b.size());
+    s_chip.rssi = r.rssi; s_chip.snr = r.snr;
+    s_chip.flags |= RADIOLIB_SX126X_IRQ_RX_DONE;
+    if (!s_chip.dio1Morto) { g_loraIrqUs = simLocal(r.fimG); g_loraIrq = true; }
+  }
+  while (s_proxSegG <= g) {
+    const uint64_t b = s_proxSegG;
+    s_proxSegG += 1000000ull;
+    if (s_gpsFix && s_ppsOn && s_isrPps) { s_isrUs = simLocal(b); s_isrPps(); s_isrUs = 0; }
+    simGeraNmea(b);
+  }
+  while (!s_nmea.empty() && s_nmea.front().quandoG <= g) {
+    for (char c : s_nmea.front().txt) Serial1.q.push_back(c);
+    s_nmea.pop_front();
+  }
+}
+
+static void simAvanca(uint64_t us)
+{
+  const uint64_t fim = s_us + us;
+  while (s_us < fim) {
+    uint64_t passo = fim - s_us; if (passo > 1000) passo = 1000;
+    s_us += passo;
+    simEventos();
+  }
+}
+
+static void simApi_boot(int no, uint64_t bootG, const char* nome, uint8_t slot, uint8_t cor, double ppm, const char* dir)
+{
+  s_no = no; s_bootG = bootG; s_ppm = ppm; s_us = 0;
+  s_rand = 1234u + (uint32_t)no * 7919u;
+  s_sdRaiz = dir;
+  std::filesystem::create_directories(dir);
+  if (!s_console) s_console = fopen((std::string(dir) + "/console.txt").c_str(), "w");
+  if (s_nvs.empty()) {                       // a "fabrica": nome, slot e cor gravados uma vez
+    Cfg c; cfgPadrao(c);
+    strncpy(c.nome, nome, sizeof(c.nome) - 1); c.slot = slot; c.cor = cor;
+    nvsGravaCfg(c, CFG_ESQUEMA);
+  }
+  s_ultColetaG = bootG;
+  s_proxSegG = (bootG / 1000000ull + 1) * 1000000ull;
+  Serial.printf("\n=== SIM no %d (%s) liga em t=%.3f s ===\n", no, nome, bootG / 1e6);
+  appBootNucleo();
+  sdMonta();
+  appBootDiario();
+  sessaoRecuperaNoBoot();
+}
+
+// Desligar e ligar: a RAM some (o que o boot nao zera, zera-se aqui), a NVS e a
+// caixa-preta (RTC) ficam. Variaveis static DENTRO de funcoes do firmware nao
+// tem como ser zeradas daqui - limitacao conhecida do simulador.
+static void simApi_religa(uint64_t g)
+{
+  registroFecha();
+  sdArquivoFecha();
+  g_loraIrq = false; g_loraIrqUs = 0;
+  s_chip.emTx = false; s_chip.flags = 0;
+  s_filaRx.clear(); s_nmea.clear(); Serial1.q.clear();
+  memset(&g_gps, 0, sizeof(g_gps)); g_ppsUs = 0; g_ppsCnt = 0;
+  g_relogio = Relogio{ 0, 0, 0 };
+  g_caixaPronta = false;
+  avisoDefine("");
+  s_isrPps = nullptr; s_naTrilha = false;
+  s_motivo = ESP_RST_POWERON;
+  char nome[ROSTER_NOME_N + 1]; strncpy(nome, g_cfg.nome, sizeof(nome) - 1); nome[sizeof(nome) - 1] = 0;
+  simApi_boot(s_no, g, nome, g_cfg.slot, g_cfg.cor, s_ppm, s_sdRaiz.c_str());
+}
+
+static uint64_t simApi_agoraG() { return simGlobal(s_us); }
+
+static void simApi_passo()
+{
+  simEventos();
+  servico();
+  simAvanca(SIM_LACO_US);
+  if (s_naTrilha && millis() - s_ultPintaMs >= s_pintPeriodoMs) {
+    // o quadro frio e SORTEADO (1 em frioCada): um frio periodico cairia sempre na
+    // mesma fase do quadro de 2 s (4 pinturas de 500 ms por quadro) e nunca, ou
+    // sempre, em cima da janela - no carro ele vem quando um setor novo entra na tela
+    const uint32_t real = (s_pintFrioCada && (esp_random() % s_pintFrioCada) == 0) ? s_pintFrioUs : s_pintQuenteUs;
+    // modoFirmware = o pedido EXATO da tela_trilha.h: max(ultimo, pior recente) e, desde
+    // a revisao v201, NUNCA menos que um quadro frio (MAPA_QUADRO_FRIO_US)
+    uint32_t pede = real;
+    if (s_pintModoFw) {
+      pede = s_pintUltimoUs > s_pintPiorUs ? s_pintUltimoUs : s_pintPiorUs;
+      if (pede < MAPA_QUADRO_FRIO_US) pede = MAPA_QUADRO_FRIO_US;
+    }
+    if (servicoCabe(pede)) {
+      s_ultPintaMs = millis(); s_pintN++;
+      {  // para a revisao: em que fase do quadro cada pintura comecou (console.txt)
+        uint32_t uif = 0, fi = 0; tdmaUsInFrame(g_rede.tdma, uif, fi);
+        Serial.printf("PINTA,%lu,%lu,%lu,%lu\n", (unsigned long)millis(), (unsigned long)real, (unsigned long)pede, (unsigned long)uif);
+      }
+      caixaEtapa(CP_MAPA_PINTA);
+      simAvanca(real);
+      caixaEtapa(CP_LACO);
+      s_pintUltimoUs = real;
+      if (real > s_pintPiorUs) s_pintPiorUs = real;
+      if (++s_pintMedN >= 16) { s_pintMedN = 0; s_pintPiorUs = 0; }   // tela_trilha.h: medN >= 16
+    } else {
+      s_pintNegadas++;
+    }
+  }
+}
+
+static void simApi_pintura(uint32_t periodoMs, uint32_t quenteUs, uint32_t frioUs, uint32_t frioCada, bool modoFirmware)
+{
+  s_pintPeriodoMs = periodoMs; s_pintQuenteUs = quenteUs; s_pintFrioUs = frioUs; s_pintFrioCada = frioCada;
+  s_pintModoFw = modoFirmware;
+  s_pintN = 0; s_pintNegadas = 0; s_pintUltimoUs = 300000; s_pintPiorUs = 0; s_pintMedN = 0;
+}
+
+// A NVS como um v200 a deixou (esquema 2, slot 0..7). Chamar ANTES de ligar o no:
+// com a NVS nao vazia o boot nao grava a "fabrica" e passa pela migracao de verdade.
+static void simApi_semeiaNvs(uint8_t cfgv, uint8_t slot, const char* nome, uint8_t cor)
+{
+  Preferences p; p.begin(NVS_NS_GRUPO, false);
+  p.putString("name", nome); p.putUChar("color", cor); p.putUChar("theme", 1); p.putUChar("zoom", 2);
+  p.putUChar("slot", slot); p.putChar("pwr", RF_PWR_PADRAO); p.putUChar("cfgv", cfgv); p.putUChar("pwrv", 101);
+  p.end();
+}
+
+// O 5 V do E22. Ao cair, o chip esquece a configuracao (volta de fabrica) - como o
+// SX1262 de verdade. Quem tem de perceber e reconfigurar e o FIRMWARE.
+static void simApi_energiaRadio(bool liga) { s_chip.energia = liga; if (!liga) { s_chip.configurado = false; s_chip.emTx = false; } }
+static void simApi_gpsFix(bool f) { s_gpsFix = f; }
+static void simApi_gpsPps(bool on) { s_ppsOn = on; }
+static void simApi_dio1Morto(bool m) { s_chip.dio1Morto = m; }
+static void simApi_criar(const char* cod) { strncpy(s_salaCod, cod, sizeof(s_salaCod) - 1); sessaoCriaSala(cod); }
+static void simApi_abrir()
+{
+  char nome[GRUPO_NOME_MAX]; snprintf(nome, sizeof(nome), "Grupo do %s", g_cfg.nome);
+  sessaoAbreComoLider(nome, s_salaCod);
+  sessaoComecaTrilha(); s_naTrilha = true;
+}
+static bool simApi_entrarLista()
+{
+  int idx[4]; int n = vizinhosOrdena(g_viz, idx, 3);
+  if (n <= 0) return false;
+  const GrupoNoAr& gr = g_viz.g[idx[0]];
+  char cod[8], nome[GRUPO_NOME_MAX];
+  snprintf(cod, sizeof(cod), "#%04X", (unsigned)gr.sala);
+  if (gr.temNome) snprintf(nome, sizeof(nome), "Grupo de %s", gr.nome); else snprintf(nome, sizeof(nome), "Grupo %04X", (unsigned)gr.sala);
+  sessaoEntra(cod, nome);
+  sessaoComecaTrilha(); s_naTrilha = true;
+  return true;
+}
+static void simApi_entrarCodigo(const char* cod) { sessaoEntra(cod, ""); sessaoComecaTrilha(); s_naTrilha = true; }
+static void simApi_sair() { sessaoEncerra(); s_naTrilha = false; }
+static bool simApi_retomar() { if (!g_ses.ativa) return false; sessaoComecaTrilha(); s_naTrilha = true; return true; }
+
+static void simApi_obs(NoObs& o)
+{
+  memset(&o, 0, sizeof(o));
+  const uint32_t agora = millis();
+  o.carros = frotaQuantos(g_frota);
+  int li = frotaLider(g_frota);
+  o.liderNaFrota = li > 0;
+  if (li > 0) { double la, lo; bool vz = false; o.liderDesenhado = frotaParaDesenhar(g_frota.c[li], agora, la, lo, vz); o.liderVazado = vz; }
+  o.rotaN = g_rotaC.n;
+  for (int i = 1; i < g_rotaC.n; i++)
+    if (rotaVaoAntes(g_rotaC, i) && !(g_rotaC.temPiso && g_rotaC.p[i].vseq <= g_rotaC.pisoV)) o.rotaVaos++;
+  o.ack = rotaAck16(g_rotaC); o.topoRota = rotaTopo16(g_rotaC);
+  o.trajHead = g_traj.seqUlt; o.trajN = g_traj.n;
+  o.rx = g_rede.rxOk; o.tx = g_rede.tdma.txCount; o.txPreso = g_rede.txPreso; o.txPerdidos = g_rede.tdma.missedTx;
+  o.sync = (int)g_rede.tdma.sync; o.ancora = g_rede.tdma.isAnchor; o.holdover = g_rede.tdma.holdover;
+  o.fix = g_eu.fix;
+  int idx[4]; o.vizN = vizinhosOrdena(g_viz, idx, 4);
+  if (o.vizN > 0) {
+    const GrupoNoAr& gr = g_viz.g[idx[0]];
+    strncpy(o.vizNome, gr.temNome ? gr.nome : "", sizeof(o.vizNome) - 1);
+    o.vizLider = gr.temLider; o.vizSala = gr.sala;
+  }
+  o.radioOk = g_rede.ok; o.naTrilha = s_naTrilha; o.lider = g_frota.c[0].lider;
+  o.sala = g_rede.sala;
+  o.euAlerta = g_frota.c[0].alerta;
+  for (int i = 1; i < FROTA_MAX_CARROS; i++) if (g_frota.c[i].ativo && g_frota.c[i].alerta) o.alertasVistos++;
+  if (li > 0) {
+    o.liderSilencioMs = frotaSilencioMs(g_frota.c[li], agora);
+    double la, lo; bool vz;
+    if (frotaParaDesenhar(g_frota.c[li], agora, la, lo, vz) && g_eu.fix) o.distLiderM = geoHaversine(g_eu.lat, g_eu.lon, la, lo);
+  }
+  o.orcNegados = g_orc.negados; o.orcConcedidos = g_orc.concedidos; o.lacoPiorUs = g_orc.atrasoMaxUs;
+  o.pinturas = s_pintN; o.pinturasNegadas = s_pintNegadas;
+  o.ruidoN = g_rede.ruidoN; o.ruidoMax = g_rede.ruidoMax; o.ruidoMed = g_rede.ruidoN ? g_rede.ruidoSoma / g_rede.ruidoN : 0.0f;
+  o.conflitos = g_frota.conflitos; o.versaoErrada = g_frota.versaoErrada;
+  o.cfgSlot = g_cfg.slot; o.cfgEsquema = g_cfgEsquema;
+  strncpy(o.aviso, g_avisoTexto, sizeof(o.aviso) - 1); o.aviso[sizeof(o.aviso) - 1] = 0;
+  o.ppsRun = g_rede.tdma.ppsRun; o.gpsBacklog = g_gps.backlogDescartado; o.gpsParVelho = g_gps.parVelho;
+  o.ancoras = g_rede.tdma.anchorCount; o.ancoraSrc = g_rede.tdma.anchorSrc;
+}
+// O botao de ALERTA da tela da trilha (tela_trilha.h faz exatamente isto).
+static void simApi_alerta(bool liga)
+{
+  g_frota.c[0].alerta = liga;
+  registroLinha("!,%lu,alerta meu,%d", (unsigned long)millis(), liga ? 1 : 0);
+}
+static void simApi_fecha() { registroFecha(); sdArquivoFecha(); if (s_console) { fclose(s_console); s_console = nullptr; } }

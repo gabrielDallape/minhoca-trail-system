@@ -216,15 +216,15 @@ void drawHome(){
   int gx,gy,gw,gh; gearRect(gx,gy,gw,gh); int gcx=SCR_W-34,gcy=gy+gh/2; gearIcon(gcx,gcy,15,C_MUT);
   txt(fonts::FreeSansBold12pt7b,gcx-32,gcy,C_WHITE,g_name,textdatum_t::middle_right);
   int bx,bw,bh,by1,by2; homeRects(bx,bw,bh,by1,by2);
-  tft.fillRoundRect(bx,by1,bw,bh,16,C_ROUTE); txt(fonts::FreeSansBold18pt7b,bx+bw/2,by1+bh/2,C_BG,"CRIAR SALA",textdatum_t::middle_center);
+  tft.fillRoundRect(bx,by1,bw,bh,16,C_ROUTE); txt(fonts::FreeSansBold18pt7b,bx+bw/2,by1+bh/2,C_BG,"CRIAR GRUPO",textdatum_t::middle_center);
   tft.drawRoundRect(bx,by2,bw,bh,16,C_BLUE); tft.drawRoundRect(bx+1,by2+1,bw-2,bh-2,16,C_BLUE);
-  txt(fonts::FreeSansBold18pt7b,bx+bw/2,by2+bh/2,C_BLUE,"ENTRAR NA SALA",textdatum_t::middle_center);
+  txt(fonts::FreeSansBold18pt7b,bx+bw/2,by2+bh/2,C_BLUE,"ENTRAR NO GRUPO",textdatum_t::middle_center);
   char b[32]; snprintf(b,sizeof(b),"LoRa %lu  -  GPS %s",(unsigned long)myUid, myFix?"OK":(mySats>0?"buscando":"--"));
   txt(fonts::FreeSans9pt7b,SCR_W/2,(int)(SCR_H*0.93),C_MUT,b,textdatum_t::middle_center);
 }
 
 void drawKeypad(){ tft.fillScreen(C_BG); chromeFg();
-  txt(fonts::FreeSans12pt7b,SCR_W/2,(int)(SCR_H*0.06),C_MUT, pendingRole==1?"CRIAR SALA - digite um codigo de 5 digitos":"ENTRAR - digite o codigo da sala",textdatum_t::middle_center);
+  txt(fonts::FreeSans12pt7b,SCR_W/2,(int)(SCR_H*0.06),C_MUT, pendingRole==1?"CRIAR GRUPO - digite um codigo de 5 digitos":"ENTRAR - digite o codigo do grupo",textdatum_t::middle_center);
   int bw=(int)(SCR_W*0.085),gap=(int)(SCR_W*0.02),tot=bw*5+gap*4,bx=(SCR_W-tot)/2,by=(int)(SCR_H*0.13),bh=(int)(bw*1.15);
   for(int i=0;i<5;i++){int x=bx+i*(bw+gap); tft.fillRoundRect(x,by,bw,bh,12,C_CARD); tft.drawRoundRect(x,by,bw,bh,12,i<codeLen?C_ROUTE:C_LINE);
     if(i<codeLen){char c[2]={codeBuf[i],0}; txtBig(fonts::FreeSansBold24pt7b,1,x+bw/2,by+bh/2,C_WHITE,c,textdatum_t::middle_center);} }
@@ -254,7 +254,7 @@ void settingsTouch(int tx,int ty){
     else { if(L>0){ strncpy(g_name,nameBuf,15); g_name[15]=0; if(isLeader()){strncpy(rname[0],g_name,15);rname[0][15]=0;} saveCfg(); } editName=false; } return; } } }
 
 void drawSearching(){ tft.fillScreen(C_BG); chromeFg(); char rm[10]; snprintf(rm,sizeof(rm),"%lu",(unsigned long)g_room);
-  txt(fonts::FreeSans12pt7b,SCR_W/2,(int)(SCR_H*0.24),C_MUT,"PROCURANDO SALA",textdatum_t::middle_center);
+  txt(fonts::FreeSans12pt7b,SCR_W/2,(int)(SCR_H*0.24),C_MUT,"PROCURANDO GRUPO",textdatum_t::middle_center);
   txtBig(fonts::FreeSansBold24pt7b,2,SCR_W/2,(int)(SCR_H*0.44),C_WHITE,rm,textdatum_t::middle_center);
   int nd=(millis()/450)%4; char aw[24]="aguardando o lider"; int L=strlen(aw); for(int i=0;i<nd;i++)aw[L+i]='.'; aw[L+nd]=0;
   txt(fonts::FreeSans12pt7b,SCR_W/2,(int)(SCR_H*0.62),C_MUT,aw,textdatum_t::middle_center);
@@ -273,8 +273,19 @@ void drawMap(){
     int psx=-1,psy=-1; double plat=0,plon=0; bool hp=false;
     int meSlot=isLeader()?0:(joined?curSlot:255);
     // ALERTA: o trecho do caminho ENTRE mim e o OUTRO carro fica VERMELHO (qualquer um que apertar).
-    int peer=-1; for(int k=0;k<MAXN;k++) if(k!=meSlot&&world[k].active&&millis()-world[k].lastMs<NODE_TTL){ peer=k; break; }
-    bool alertOn = myAlert || (peer>=0 && world[peer].alert);
+    // Antes isto olhava SO o primeiro no ativo, entao num grupo cheio o lider so
+    // via o slot 1 e os seguidores so viam o lider: quem apertasse o sino num slot
+    // alto nao acendia em NINGUEM. Agora procura qualquer carro em alerta e, se nao
+    // houver, cai no primeiro peer (que e quem interessa quando o alerta e o meu).
+    int peer=-1, first=-1;
+    for(int k=0;k<MAXN;k++){
+      if(k==meSlot||!world[k].active||millis()-world[k].lastMs>=NODE_TTL) continue;
+      if(first<0) first=k;
+      if(world[k].alert && peer<0) peer=k;   // prioriza quem esta pedindo socorro
+    }
+    bool peerAlert = (peer>=0);
+    if(peer<0) peer=first;
+    bool alertOn = myAlert || peerAlert;
     int aLo=-1,aHi=-2; if(alertOn&&peer>=0&&myNear>=0){ int pIdx=nearestRouteIdx(world[peer].lat,world[peer].lon); if(pIdx>=0){ aLo=min(myNear,pIdx); aHi=max(myNear,pIdx); } }
     for(int k=0;k<routeN;k++){ int idx=(routeHead-routeN+k+ROUTE_MAX)%ROUTE_MAX; int sx,sy; worldToScreen(route[idx].lat,route[idx].lon,clat,clon,chead,mapMPP,CXp,CYp,sx,sy);
       bool vis=(sx>=-20&&sx<SCR_W+20&&sy>=-20&&sy<SCR_H+20);
@@ -286,11 +297,20 @@ void drawMap(){
         else drawDashed(psx,psy,sx,sy,C_GHOST); }   // vao (perda de sinal) -> ponte tracejada, nunca some
       psx=vis?sx:-1; psy=sy; plat=route[idx].lat; plon=route[idx].lon; hp=true; }
     // (o TRAJETO do lider e desenhado acima via route[]/roadSeg - o seguidor segue esse caminho)
+    // rotulos: guarda onde cada nome foi escrito para nao empilhar texto. Numa fila
+    // de trilha lenta os carros ficam a 30m (15px em 2m/px) e os nomes, de 24px de
+    // altura, viravam uma mancha sobre os proprios marcadores.
+    int lblX[MAXN],lblY[MAXN],nLbl=0;
     for(int k=0;k<MAXN;k++){ if(!world[k].active||k==meSlot) continue; if(millis()-world[k].lastMs>NODE_TTL) continue;
       int sx,sy; worldToScreen(world[k].lat,world[k].lon,clat,clon,chead,mapMPP,CXp,CYp,sx,sy); if(sx<-24||sx>SCR_W+24||sy<-24||sy>SCR_H+24) continue;
       bool al=world[k].alert; uint16_t mc=al?C_RED:(k==0?C_AMBER:colorOf(world[k].color));
       if(k==0) triMk(sx,sy,mc,15); else dotMk(sx,sy,mc,9);
-      txt(fonts::FreeSans12pt7b,sx+12,sy-8,mc,haveRoster?rname[k]:(k==0?"Lider":"Carro")); }
+      int lx=sx+12, ly=sy-8;
+      for(int pass=0;pass<MAXN;pass++){ bool bateu=false;
+        for(int i=0;i<nLbl;i++) if(abs(lblX[i]-lx)<80 && abs(lblY[i]-ly)<20){ ly=lblY[i]+20; bateu=true; break; }
+        if(!bateu) break; }
+      lblX[nLbl]=lx; lblY[nLbl]=ly; if(nLbl<MAXN-1) nLbl++;
+      txt(fonts::FreeSans12pt7b,lx,ly,mc,haveRoster?rname[k]:(k==0?"Lider":"Carro")); }
     triMk(CXp,CYp,C_BLUE,20);
     // BORDA piscando (caixa vazia): VERMELHO=alerta > LARANJA=perda de sinal > AMARELO=fora do trajeto
     bool lost = joined && worldRxMs!=0 && millis()-worldRxMs>4000;   // so acusa perda depois de ja ter recebido sinal
@@ -308,12 +328,12 @@ void drawMap(){
 
 void drawUI(){ char b[24];
   int m=(int)(SCR_W*0.024);
-  // canto sup esq: SALA + SAIR
+  // canto sup esq: GRUPO + SAIR
   card(m,(int)(SCR_H*0.04),200,66);
-  txt(fonts::FreeSans9pt7b,m+14,(int)(SCR_H*0.04)+12,C_AMBER,"SALA");
+  txt(fonts::FreeSans9pt7b,m+14,(int)(SCR_H*0.04)+12,C_AMBER,"GRUPO");
   snprintf(b,sizeof(b),"%lu",(unsigned long)g_room); txt(fonts::FreeSansBold24pt7b,m+14,(int)(SCR_H*0.04)+30,C_WHITE,b);
   exX=m;exY=(int)(SCR_H*0.04)+76;exW=200;exH=42; tft.fillRoundRect(exX,exY,exW,exH,10,C_CARD); tft.drawRoundRect(exX,exY,exW,exH,10,C_RED);
-  txt(fonts::FreeSansBold12pt7b,exX+exW/2,exY+exH/2,C_RED,"SAIR DA SALA",textdatum_t::middle_center);
+  txt(fonts::FreeSansBold12pt7b,exX+exW/2,exY+exH/2,C_RED,"SAIR DO GRUPO",textdatum_t::middle_center);
   // canto sup dir: roster
   int rw=(int)(SCR_W*0.26),rx=SCR_W-rw-m,ry=(int)(SCR_H*0.04); int active=0; for(int k=0;k<MAXN;k++) if(world[k].active&&millis()-world[k].lastMs<NODE_TTL)active++;
   int rh=44+active*30; card(rx,ry,rw,rh);
@@ -351,7 +371,7 @@ void drawUI(){ char b[24];
 }
 
 #if P2P
-// pareamento 1:1: conecta direto no papel escolhido (LIDER=slot0 / SEGUIDOR=slot1). Par fixo, sem sala.
+// pareamento 1:1: conecta direto no papel escolhido (LIDER=slot0 / SEGUIDOR=slot1). Par fixo, sem grupo.
 void p2pPair(bool asLeader){ g_room=1; g_role=asLeader?1:0; joined=true; searching=false; uiPage=0;
   if(asLeader){ curSlot=0; ruid[0]=myUid; strncpy(rname[0],g_name,15); rname[0][15]=0; rcolor[0]=g_color; strncpy(rname[1],"Seguidor",15); rname[1][15]=0; }
   else        { curSlot=1; strncpy(rname[0],"Lider",15); rname[0][15]=0; }
@@ -363,7 +383,7 @@ void handleTouch(){ int32_t tx,ty;
         if(tx>=gx&&tx<=gx+gw&&ty>=gy&&ty<=gy+gh){ editName=true; strncpy(nameBuf,g_name,15); nameBuf[15]=0; if(!strcmp(nameBuf,"Carro"))nameBuf[0]=0; }
         else { int bx,bw,bh,by1,by2; homeRects(bx,bw,bh,by1,by2); if(tx>=bx&&tx<=bx+bw){ bool b1=(ty>=by1&&ty<=by1+bh),b2=(ty>=by2&&ty<=by2+bh);
 #if P2P
-          if(b1) p2pPair(true);        // CRIAR SALA = vira LIDER
+          if(b1) p2pPair(true);        // CRIAR GRUPO = vira LIDER
           else if(b2) p2pPair(false);  // ENTRAR = vira SEGUIDOR
 #else
           if(b1){pendingRole=1;uiPage=1;codeLen=0;codeBuf[0]=0;} else if(b2){pendingRole=0;uiPage=1;codeLen=0;codeBuf[0]=0;}
@@ -372,6 +392,12 @@ void handleTouch(){ int32_t tx,ty;
       else keypadTouch(tx,ty); }
     else if(searching){ int w=(int)(SCR_W*0.18),h=(int)(SCR_H*0.10),x=(SCR_W-w)/2,y=(int)(SCR_H*0.80); if(tx>=x&&tx<=x+w&&ty>=y&&ty<=y+h){ g_room=0;searching=false;uiPage=0;joined=false;saveCfg(); } }
     else { if(tx>=exX&&tx<=exX+exW&&ty>=exY&&ty<=exY+exH){
+        // LIMPA o estado do grupo. Antes o route[] e o world[] sobreviviam a saida,
+        // entao ao entrar em outro codigo o trajeto antigo continuava desenhado e o
+        // novo era emendado nele - com a ponte tracejada ligando os dois lugares.
+        routeN=0; routeHead=0; haveRouteSeq=false; haveAdd=false; worldRxMs=0;
+        peerAckKnown=false; peerAck=0;
+        for(int k=0;k<MAXN;k++) world[k].active=false;
 #if P2P
         g_room=0; uiPage=0; joined=false; searching=false; myAlert=false;   // 1:1: SAIR volta pra TELA INICIAL
 #else
@@ -415,7 +441,7 @@ void setup(){
   g_room=0; uiPage=0; joined=false; searching=false; myAlert=false;   // 1:1: comeca na TELA INICIAL; conecta ao apertar um botao
 #endif
   lcd.fillScreen(C_BG);
-  Serial.print("== GRUPO WS7B == sala="); Serial.print(g_room); Serial.print(" uid="); Serial.println(myUid);
+  Serial.print("== GRUPO WS7B == grupo="); Serial.print(g_room); Serial.print(" uid="); Serial.println(myUid);
   xTaskCreatePinnedToCore(drawTask,"draw",16384,NULL,1,NULL,0);   // desenho no core 0
 }
 void loop(){
@@ -430,6 +456,11 @@ void loop(){
   { static unsigned long lt=0; unsigned long dt=now-lt; lt=now; if(dt>loopMax)loopMax=dt; }  // pior tempo de loop
   int ms=isLeader()?0:curSlot;
   if(isLeader()||joined){ world[ms].active=true; world[ms].fix=myFix; world[ms].alert=myAlert; world[ms].lat=myLat; world[ms].lon=myLon; world[ms].lastMs=now; world[ms].color=g_color; }
+  // EXPIRA quem parou de reportar. Sem isto o active fica ligado para sempre: o
+  // LIDER segue anunciando active=1 no WORLD e o parseRx do seguidor refresca o
+  // lastMs LOCAL a cada WORLD, entao o NODE_TTL nunca dispara nos seguidores e um
+  // carro que sumiu continua no mapa deles, parado na ultima posicao, para sempre.
+  for(int k=0;k<MAXN;k++) if(k!=ms && world[k].active && now-world[k].lastMs>NODE_TTL) world[k].active=false;
 #if P2P
   // so conversa quando CONECTADO (joined). Na tela inicial o radio fica QUIETO -> reset = comeca limpo.
   if(joined){
@@ -449,11 +480,20 @@ void loop(){
   if(g_room!=0){
     if(isLeader()){ leaderRecordOwnPath(); static uint8_t cyc=0; if(now-lastCycle>=CYCLE_MS){ if(myFix){ sendWorld(); if((cyc++%3)==0) sendRoster(); } lastCycle=now; } }
     else if(!joined){ static unsigned long lj=0; if(now-lj>1500){ sendJoin(); lj=now; } }
-    else if(joined){ static unsigned long lu=0; if(now-lu>1200){ sendUplink(); lu=now; } }
+    else if(joined){ static unsigned long lu=0;
+      // USA o slot: o parseRx ja calcula slotDue = worldRxMs + curSlot*SLOT_MS.
+      // Antes isto era ignorado e o uplink saia num timer livre de 1200ms - e como
+      // o ROSTER e broadcast, os seguidores comecavam a contar no mesmo instante,
+      // entravam em fase e colidiam sistematicamente (medido: ate 100% de colisao
+      // com 3 seguidores, e o canal 95% livre). Com o slot, cada um fala 450ms
+      // depois do anterior: zero colisao e metade da ocupacao de ar.
+      if(pendingUplink && (long)(now-slotDue)>=0){ sendUplink(); pendingUplink=false; lu=now; }
+      else if(now-lu>3000){ sendUplink(); lu=now; }   // fallback: WORLD nao chegou
+    }
   }
 #endif
   // desenho agora roda na drawTask (core 0); o loop fica leve p/ o toque responder
   if(now-lastDbg>2000){ int c=0; for(int k=0;k<MAXN;k++) if(world[k].active&&now-world[k].lastMs<NODE_TTL)c++;
-    Serial.printf("WS | sala=%lu %s slot=%d | world=%s nos=%d fix=%d sats=%d gpsChars=%lu | txUp=%lu loopMax=%lums\n", (unsigned long)g_room,
+    Serial.printf("WS | grupo=%lu %s slot=%d | world=%s nos=%d fix=%d sats=%d gpsChars=%lu | txUp=%lu loopMax=%lums\n", (unsigned long)g_room,
       isLeader()?"LIDER":(searching?"searching":(joined?"seguidor":"---")), (int)curSlot, worldRxMs?"ok":"--", c, myFix?1:0, (int)mySats, (unsigned long)gps.charsProcessed(), (unsigned long)txUp, (unsigned long)loopMax); loopMax=0; lastDbg=now; }
 }

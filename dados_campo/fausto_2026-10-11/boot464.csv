@@ -1,0 +1,28 @@
+# MTS fw v200 proto v2 - uma linha por evento, primeira coluna = tipo; ms desde o boot; utc = segundo do dia (0 = sem hora do GPS)
+# E,ms,utc,lat,lon,slot,sync(0 nada 1 beacon 2 pps),ancora,tx,perdi,preso,rx,ruim,conflito,rssiUlt,pwr,fix,sats,holdover,lacoPiorUs,lacoLimiteUs,seqPerdidos,ruidoUlt,ruidoMed,txAirUltUs,txAirMaxUs,rotaN,rotaPrefixo,catchups,relogioVoltou,pwrConfig,seguro,
+# R,ms,utc,slotOrigem,seq,bytes,rssi,snr,freqErrHz,crcOk,perdidosDesdeUltimo,tipo(pos/roster/crc/sala/tamanho/versao)[,flags,pontosTrilha,pontosNovosNaRota]
+# T,ms,utc,seq,tipo(P/R),bytes,airMedidoUs,usNoQuadroAoIniciar,catchup,pontos
+# N,ms,utc,rssiInstantaneo(ruido de fundo, sem pacote),slotVazioOndeMediu
+# G,ms,evento,sats,vista,ppsRun,ppsCnt,sync    !,ms,evento,...    C,ms,caixa-preta do boot anterior    V,ms,utc,versaoOuvida,slotDeclarado,bytes,rssi
+!,3381,boot,FaustoA,slot 0,pwr 10,motivo 4,rom 0x0C,pwrCfg 10,seguro 1,fw 200,proto 2,epoca 1,cfgv 2
+C,3381,motivo 4,rom 0x0C,seguidos 28,etapa laco,antes gps,ha 0 ms,ultimoMs 21142,tx 3,rx 0,presos 0,flushes 2,utc 0,pwr 10,txTipo P,txHa 62 ms
+!,3381,REINICIOS SEGUIDOS,29 REINICIOS SEGUIDOS - CONFERIR O 5V DO RADIO
+!,3382,tela,boot->inicial
+E,3416,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,340839,10000,0,0,0,0,0,0,-1,0,0,10,1,0,0,0,0,0,1,0,1
+E,4417,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,39989,10000,0,0,0,0,0,0,-1,0,0,10,1,0,0,0,0,0,2,0,1
+E,5419,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,56122,10000,0,0,0,0,0,0,-1,0,0,10,1,0,0,0,0,0,3,0,1
+E,6420,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,8704,10000,0,0,0,0,0,0,-1,0,0,10,1,0,0,0,0,0,3,0,1
+N,7109,0,-84,8
+E,7421,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,9000,10000,0,-84,-84,0,0,0,-1,0,0,10,1,0,0,0,0,0,3,0,1
+E,8422,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,8775,10000,0,-84,-84,0,0,0,-1,0,0,10,1,0,0,0,0,0,3,0,1
+E,9425,0,-23.550500,-46.633300,0,1,EU,1,1,0,0,0,0,0,10,0,0,0,23001,10000,0,-84,-84,0,0,0,-1,0,0,10,1,0,0,0,0,0,6,0,1
+T,9705,0,0,P,24,624048,13117,0,0
+E,10428,0,-23.550500,-46.633300,0,1,EU,1,1,0,0,0,0,0,10,0,0,0,58883,10000,0,-84,-84,624048,624048,0,-1,0,0,10,1,1,24056,0,0,0,9,0,1
+E,11428,0,-23.550500,-46.633300,0,1,EU,1,1,0,0,0,0,0,10,0,0,0,8528,10000,0,-84,-84,624048,624048,0,-1,0,0,10,1,1,24056,0,0,0,9,0,1
+E,12430,0,-23.550500,-46.633300,0,1,EU,1,1,0,0,0,0,0,10,0,0,0,9000,10000,0,-84,-84,624048,624048,0,-1,0,0,10,1,1,24056,0,0,0,9,0,1
+E,13431,0,-23.550500,-46.633300,0,1,EU,1,1,0,0,0,0,0,10,0,0,0,9001,10000,0,-84,-84,624048,624048,0,-1,0,0,10,1,1,24056,0,0,0,9,0,1
+N,13609,0,-84,9
+E,14434,0,-23.550500,-46.633300,0,1,EU,1,1,0,0,0,0,0,10,0,0,0,9001,10000,0,-84,-84,624048,624048,0,-1,0,0,10,1,1,24056,0,0,0,9,0,1
+!,2743,relogio voltou,12550696 us
+E,2743,0,-23.550500,-46.633300,0,1,EU,2,1,0,0,0,0,0,10,0,0,0,4282416700,10000,0,-84,-84,624048,624048,0,-1,0,1,10,1,1,24056,0,0,0,14,0,1
+T,3366,0,1,R,23,622946,16080,0,0

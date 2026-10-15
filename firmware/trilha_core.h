@@ -155,7 +155,11 @@ inline void parseRx(uint8_t cmd,uint8_t*p,uint8_t plen){
       char nm[16]; if(9+L<=plen){ memcpy(nm,p+9,L); nm[L]=0; } else nm[0]=0;
       int slot=-1; for(int k=1;k<MAXN;k++) if(ruid[k]==uid){ slot=k; break; }
       if(slot<0) for(int k=1;k<MAXN;k++) if(ruid[k]==0){ slot=k; break; }
-      if(slot>=1){ ruid[slot]=uid; if(col<8)rcolor[slot]=col; if(nm[0]){ strncpy(rname[slot],nm,15); rname[slot][15]=0; } haveRoster=true; wantRoster=true; } }
+      // cor: g_color nasce 0 no NVS de todo mundo, entao aceitar o 0 do JOIN pintava
+      // TODOS os carros com PALETTE[0] e o mapa ficava ilegivel. Sem provisionamento,
+      // o slot vira a cor - que e unica por definicao.
+      if(slot>=1){ ruid[slot]=uid; rcolor[slot]=(col>0&&col<8)?col:(uint8_t)slot;
+        if(nm[0]){ strncpy(rname[slot],nm,15); rname[slot][15]=0; } haveRoster=true; wantRoster=true; } }
     return;
   }
   if(cmd==CMD_ROSTER && plen>=3 && roomOf(p)==g_room){

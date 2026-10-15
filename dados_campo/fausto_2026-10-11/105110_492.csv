@@ -1,0 +1,30 @@
+# MTS fw v202 proto v3 - uma linha por evento, primeira coluna = tipo; ms desde o boot; utc = segundo do dia (0 = sem hora do GPS)
+# E,ms,utc,lat,lon,slot,sync(0 nada 1 beacon 2 pps),ancora,tx,perdi,preso,rx,ruim,conflito,rssiUlt,pwr,fix,sats,holdover,lacoPiorUs,lacoLimiteUs,seqPerdidos,ruidoUlt,ruidoMed,txAirUltUs,txAirMaxUs,rotaN,rotaPrefixo,catchups,relogioVoltou,pwrConfig,seguro,
+# R,ms,utc,slotOrigem,seq,bytes,rssi,snr,freqErrHz,crcOk,perdidosDesdeUltimo,tipo(pos/roster/crc/sala/tamanho/versao)[,flags,pontosTrilha,pontosNovosNaRota]
+# T,ms,utc,seq,tipo(P/R),bytes,airMedidoUs,usNoQuadroAoIniciar,catchup,pontos
+# N,ms,utc,rssiInstantaneo(ruido de fundo, sem pacote),slotVazioOndeMediu
+# G,ms,evento,sats,vista,ppsRun,ppsCnt,sync    !,ms,evento,...    C,ms,caixa-preta do boot anterior    V,ms,utc,versaoOuvida,slotDeclarado,bytes,rssi
+!,3384,boot,FaustoA,slot 0,pwr 10,motivo 5,rom 0x0C,pwrCfg 10,seguro 1,fw 202,proto 3,epoca 29,cfgv 3
+C,3384,motivo 5,rom 0x0C,seguidos 3,etapa laco,antes gps,ha 0 ms,ultimoMs 10126,tx 7,rx 6,presos 0,flushes 0,utc 39065,pwr 10,txTipo P,txHa 176 ms
+!,3384,AVISO,4 REINICIOS SEGUIDOS - CONFERIR O 5V DO RADIO
+!,3385,tela,boot->inicial
+G,3419,fix ON,12,8,3,4,1
+E,3419,39071,-23.591053,-45.445114,0,1,rede,1,1,0,1,0,0,-69,10,1,12,0,364969,10000,0,-84,-84,213826,213826,0,-1,0,0,10,1,0,0,0,0,0,4,0,2
+N,3630,39071,-85,3
+T,4321,39071,1,R,23,213983,17382,0,0
+E,4426,39072,-23.591132,-45.445114,0,1,rede,2,1,0,1,0,0,-69,10,1,12,0,45145,10000,0,-85,-84,213983,213983,0,-1,0,0,10,1,0,0,0,0,0,7,0,2
+R,4801,39072,-1,-1,24,-61,3.5,490,0,0,crc -7
+N,5126,39072,-85,2
+E,5432,39073,-23.591200,-45.445149,0,1,rede,2,1,0,1,1,0,-69,10,1,11,0,58884,10000,0,-85,-85,213983,213983,0,-1,0,0,10,1,0,0,0,0,0,9,0,2
+T,6400,39074,2,P,40,296026,16468,0,3
+E,6433,39074,-23.591248,-45.445214,0,1,rede,3,1,0,1,1,0,-69,10,1,12,0,15611,10000,0,-85,-85,296026,296026,0,-1,0,0,10,1,0,0,0,0,0,11,0,2
+R,6802,39074,1,184,23,-58,10.8,370,1,1,roster
+!,6827,tela,inicial->trilha
+E,7437,39075,-23.591268,-45.445300,0,1,rede,3,1,0,2,1,0,-58,10,1,12,0,97706,10000,1,-85,-85,296026,296026,0,-1,0,0,10,1,0,0,0,0,0,14,0,2
+N,7626,39075,-84,3
+T,8319,39075,3,R,23,213962,15385,0,0
+E,8516,39076,-23.591260,-45.445391,0,1,rede,4,1,0,2,1,0,-58,10,1,12,0,96750,10000,1,-84,-84,213962,296026,0,-1,0,0,10,1,0,0,0,0,61,18,0,2
+R,8806,39076,1,185,24,-59,10.5,393,1,0,pos,73,0,0
+N,9126,39076,-85,2
+E,9516,39077,-23.591228,-45.445476,0,1,rede,4,1,0,3,1,0,-59,10,1,12,0,96856,10000,1,-85,-85,213962,296026,0,-1,0,0,10,1,0,0,0,0,61,22,0,2
+T,10379,39078,4,P,36,275490,10655,0,2

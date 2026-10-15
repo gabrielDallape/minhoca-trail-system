@@ -8,7 +8,23 @@ build_odo/
 *.map
 *.d.o
 
+# Python (tools/tiles)
+__pycache__/
+*.pyc
+
+# Imagens de mapa geradas (grandes; regerar com tools/tiles/tiles.py)
+*.img
+
 # Sistema
 Thumbs.db
 .DS_Store
 desktop.ini
+
+# Vercel (deploy da bancada web)
+.vercel/
+web/**/node_modules/
+
+# Simulador (tools/sim): binarios e diarios gerados
+tools/sim/out/
+
+tools/fw_docker/out/

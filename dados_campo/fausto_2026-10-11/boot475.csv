@@ -1,0 +1,18 @@
+# MTS fw v200 proto v2 - uma linha por evento, primeira coluna = tipo; ms desde o boot; utc = segundo do dia (0 = sem hora do GPS)
+# E,ms,utc,lat,lon,slot,sync(0 nada 1 beacon 2 pps),ancora,tx,perdi,preso,rx,ruim,conflito,rssiUlt,pwr,fix,sats,holdover,lacoPiorUs,lacoLimiteUs,seqPerdidos,ruidoUlt,ruidoMed,txAirUltUs,txAirMaxUs,rotaN,rotaPrefixo,catchups,relogioVoltou,pwrConfig,seguro,
+# R,ms,utc,slotOrigem,seq,bytes,rssi,snr,freqErrHz,crcOk,perdidosDesdeUltimo,tipo(pos/roster/crc/sala/tamanho/versao)[,flags,pontosTrilha,pontosNovosNaRota]
+# T,ms,utc,seq,tipo(P/R),bytes,airMedidoUs,usNoQuadroAoIniciar,catchup,pontos
+# N,ms,utc,rssiInstantaneo(ruido de fundo, sem pacote),slotVazioOndeMediu
+# G,ms,evento,sats,vista,ppsRun,ppsCnt,sync    !,ms,evento,...    C,ms,caixa-preta do boot anterior    V,ms,utc,versaoOuvida,slotDeclarado,bytes,rssi
+!,3369,boot,FaustoA,slot 0,pwr 10,motivo 5,rom 0x0C,pwrCfg 10,seguro 0,fw 200,proto 2,epoca 12,cfgv 2
+C,3369,motivo 5,rom 0x0C,seguidos 0,etapa laco,antes gps,ha 0 ms,ultimoMs 417405,tx 70,rx 0,presos 0,flushes 41,utc 0,pwr 10,txTipo P,txHa 24 ms
+!,3370,tela,boot->inicial
+E,3402,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,338942,10000,0,0,0,0,0,0,-1,0,0,10,0,0,0,0,0,0,1,0,1
+E,4407,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,44891,10000,0,0,0,0,0,0,-1,0,0,10,0,0,0,0,0,0,2,0,1
+E,5414,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,56094,10000,0,0,0,0,0,0,-1,0,0,10,0,0,0,0,0,0,3,0,1
+E,6415,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,9048,10000,0,0,0,0,0,0,-1,0,0,10,0,0,0,0,0,0,3,0,1
+N,7104,0,-88,8
+E,7417,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,9032,10000,0,-88,-88,0,0,0,-1,0,0,10,0,0,0,0,0,0,3,0,1
+E,8418,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,9023,10000,0,-88,-88,0,0,0,-1,0,0,10,0,0,0,0,0,0,3,0,1
+E,9420,0,-23.550500,-46.633300,0,1,EU,1,1,0,0,0,0,0,10,0,0,0,21000,10000,0,-88,-88,0,0,0,-1,0,0,10,0,0,0,0,0,0,5,0,1
+T,9690,0,0,P,24,620010,11112,0,0
