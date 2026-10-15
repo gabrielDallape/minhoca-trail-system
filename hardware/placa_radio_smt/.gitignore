@@ -1,0 +1,8 @@
+saida/placa.dsn
+saida/placa.ses
+saida/log_*.txt
+saida/pos_kicad.csv
+saida/*.kicad_prl
+saida/vista.svg
+saida/gerber/
+__pycache__/

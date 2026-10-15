@@ -157,8 +157,8 @@ RS485 (H9)   1 Core_5V   2 GND   3 A      4 B
 | NRST | 51 | `51` | **P1 pino 2** | `IO51` |
 | TXEN | 52 | `52` | **P1 pino 1** | `IO52` |
 | **RÁDIO — alimentação** | | | | |
-| VCC (os dois juntos) | — | `5V` | **CAN ou RS485 pino 1** | `5V` |
-| GND (os quatro juntos) | — | `GND` | **o mesmo header, pino 2** | `GND` |
+| VCC (os dois juntos) | — | `5V` | **step-down PROPRIO do radio — NUNCA o CAN/RS485** (ver `hardware/protoboard/README.md`) | — |
+| GND (os quatro juntos) | — | `GND` | **o GND desse step-down, no ponto estrela** | — |
 | **GPS** | | | | |
 | PPS | 2 | `2` | **P3 pino 10** | `IO2` |
 | RXD do GPS ← | 3 | `3` | **P3 pino 9** | `IO3` |
