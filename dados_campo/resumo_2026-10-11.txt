@@ -1,0 +1,180 @@
+
+================ dados_campo/_f  (5 diarios, 0 vazios)
+
+--- boot488.csv [mts fw 202] FaustoA slot 0 pwr 10 | motivo 1 POWERON rom 0x01 seguro 0 | 0.1 min ligado, inicio 10:38Z
+    TX completos (T) 305 | TX presos 0 | voltou de fabrica 0 | busy preso 0 | startTransmit falhou 0 | radio subiu tarde 0 | sem DIO1 0
+    RELOGIO VOLTOU 1x: 3s:608.17s(=144.998x2^26)
+    air-time medido us: min 124015 mediana 418840 max 419043
+    RX: 174 bons, 44 CRC/tamanho ruim, 43 de OUTRA sala | RSSI p10/p50/p90 -83/-69/-56 SNR p10/p50 -0.2/8.5 | mais fraco decodificado -95 dBm | piso pelos pacotes (rssi-snr, 0<snr<8) mediana -81
+    RUIDO N: 305 amostras | -128(0xFF, chip sem RX) 0 | 0 (SPI falhou) 0 | >-60 (TX de alguem) 3 | resto n=302 p5/p25/p50/p75/p95 = -88/-86/-85/-85/-83 dBm
+    E final: tx 305 perdi 2 preso 0 rx 172 ruim 44 relogioVoltou 1 seguro 0 pwr 10/10 sdErros None carrosAtivos None
+
+--- 104812_489.csv [mts fw 202] FaustoA slot 0 pwr 10 | motivo 5 INT_WDT (VIOLENTO) rom 0x0C seguro 0 | 0.8 min ligado, inicio 10:48Z
+    CAIXA-PRETA do boot anterior: motivo 5,rom 0x0C,seguidos 0,etapa laco,antes gps,ha 0 ms,ultimoMs 5240,tx 306,rx 173,presos 0,flushes 62,utc 38887,pwr 10,txTipo P,txHa 84 ms
+    TX completos (T) 30 | TX presos 0 | voltou de fabrica 0 | busy preso 0 | startTransmit falhou 0 | radio subiu tarde 0 | sem DIO1 0
+    RELOGIO VOLTOU 2x: 0s:4.19s(=0.998x2^26), 2s:8.38s(=1.998x2^26)
+    air-time medido us: min 118905 mediana 418931 max 419130
+    RX: 9 bons, 4 CRC/tamanho ruim, 0 de OUTRA sala | RSSI p10/p50/p90 -92/-87/-85 SNR p10/p50 -8.3/-2.8 | mais fraco decodificado -93 dBm
+    RUIDO N: 30 amostras | -128(0xFF, chip sem RX) 0 | 0 (SPI falhou) 0 | >-60 (TX de alguem) 0 | resto n=30 p5/p25/p50/p75/p95 = -86/-85/-85/-84/-83 dBm
+    E final: tx 31 perdi 3 preso 0 rx 9 ruim 5 relogioVoltou 2 seguro 0 pwr 10/10 sdErros None carrosAtivos None
+
+--- 104926_490.csv [mts fw 202] FaustoA slot 0 pwr 10 | motivo 5 INT_WDT (VIOLENTO) rom 0x0C seguro 0 | 1.3 min ligado, inicio 10:49Z
+    CAIXA-PRETA do boot anterior: motivo 5,rom 0x0C,seguidos 1,etapa laco,antes gps,ha 0 ms,ultimoMs 59628,tx 36,rx 12,presos 0,flushes 5,utc 38961,pwr 10,txTipo P,txHa 24 ms
+    TX completos (T) 41 | TX presos 0 | voltou de fabrica 0 | busy preso 0 | startTransmit falhou 0 | radio subiu tarde 0 | sem DIO1 0
+    RELOGIO VOLTOU 1x: 2s:4.19s(=0.998x2^26)
+    air-time medido us: min 161979 mediana 337031 max 419145
+    RX: 15 bons, 15 CRC/tamanho ruim, 0 de OUTRA sala | RSSI p10/p50/p90 -94/-88/-85 SNR p10/p50 -9.8/-2.8 | mais fraco decodificado -95 dBm | piso pelos pacotes (rssi-snr, 0<snr<8) mediana -84
+    RUIDO N: 41 amostras | -128(0xFF, chip sem RX) 0 | 0 (SPI falhou) 0 | >-60 (TX de alguem) 0 | resto n=41 p5/p25/p50/p75/p95 = -86/-86/-85/-85/-84 dBm
+    E final: tx 40 perdi 2 preso 0 rx 15 ruim 17 relogioVoltou 1 seguro 0 pwr 10/10 sdErros None carrosAtivos None
+
+--- 105110_492.csv [mts fw 202] FaustoA slot 0 pwr 10 | motivo 5 INT_WDT (VIOLENTO) rom 0x0C seguro 1 | 0.2 min ligado, inicio 10:51Z
+    CAIXA-PRETA do boot anterior: motivo 5,rom 0x0C,seguidos 3,etapa laco,antes gps,ha 0 ms,ultimoMs 10126,tx 7,rx 6,presos 0,flushes 0,utc 39065,pwr 10,txTipo P,txHa 176 ms
+    AVISO NA TELA: 4 REINICIOS SEGUIDOS - CONFERIR O 5V DO RADIO
+    TX completos (T) 4 | TX presos 0 | voltou de fabrica 0 | busy preso 0 | startTransmit falhou 0 | radio subiu tarde 0 | sem DIO1 0
+    air-time medido us: min 213962 mediana 244736 max 296026
+    RX: 2 bons, 1 CRC/tamanho ruim, 0 de OUTRA sala | RSSI p10/p50/p90 -59/-58/-58 SNR p10/p50 10.5/10.7 | mais fraco decodificado -59 dBm
+    RUIDO N: 4 amostras | -128(0xFF, chip sem RX) 0 | 0 (SPI falhou) 0 | >-60 (TX de alguem) 0 | resto n=4 p5/p25/p50/p75/p95 = -85/-85/-85/-85/-84 dBm
+    E final: tx 4 perdi 1 preso 0 rx 3 ruim 1 relogioVoltou 0 seguro 1 pwr 10/10 sdErros None carrosAtivos None
+
+--- 105128_493.csv [mts fw 202] FaustoA slot 0 pwr 10 | motivo 5 INT_WDT (VIOLENTO) rom 0x0C seguro 1 | 44.9 min ligado, inicio 10:51Z
+    CAIXA-PRETA do boot anterior: motivo 5,rom 0x0C,seguidos 4,etapa laco,antes gps,ha 0 ms,ultimoMs 16124,tx 8,rx 6,presos 0,flushes 1,utc 39083,pwr 10,txTipo P,txHa 48 ms
+    AVISO NA TELA: 5 REINICIOS SEGUIDOS - CONFERIR O 5V DO RADIO
+    TX completos (T) 1345 | TX presos 0 | voltou de fabrica 0 | busy preso 0 | startTransmit falhou 0 | radio subiu tarde 0 | sem DIO1 0
+    air-time medido us: min 213862 mediana 275482 max 419146
+    RX: 667 bons, 210 CRC/tamanho ruim, 1 de OUTRA sala | RSSI p10/p50/p90 -90/-74/-56 SNR p10/p50 -3.2/7.5 | mais fraco decodificado -99 dBm | piso pelos pacotes (rssi-snr, 0<snr<8) mediana -84
+    RUIDO N: 1345 amostras | -128(0xFF, chip sem RX) 0 | 0 (SPI falhou) 0 | >-60 (TX de alguem) 0 | resto n=1345 p5/p25/p50/p75/p95 = -89/-88/-87/-86/-84 dBm
+    E final: tx 1346 perdi 7 preso 0 rx 171 ruim 81 relogioVoltou 0 seguro 1 pwr 10/10 sdErros None carrosAtivos None
+
+  TOTAL dados_campo/_f: boots por motivo {1 POWERON: 1, 5 INT_WDT: 4} | violentos 4 | caixas-pretas 4 | presos 0 | voltou de fabrica 0 | relogio voltou 4 | avisos 2
+  ruido fw 202 boots com TX ok: n=1722 p5/p50/p95 -88/-87/-83 dBm
+
+================ dados_campo/_g  (10 diarios, 0 vazios)
+
+--- boot42.csv [mts fw 202] Gabriel gino slot 1 pwr 10 | motivo 1 POWERON rom 0x01 seguro 0 | 1.3 min ligado, inicio 10:37Z
+    TX completos (T) 100 | TX presos 0 | voltou de fabrica 0 | busy preso 0 | startTransmit falhou 0 | radio subiu tarde 0 | sem DIO1 0
+    RELOGIO VOLTOU 3x: 3s:96.46s(=22.998x2^26), 2s:20.96s(=4.998x2^26), 6s:16.77s(=3.998x2^26)
+    air-time medido us: min 101614 mediana 213800 max 213908
+    RX: 30 bons, 12 CRC/tamanho ruim, 44 de OUTRA sala | RSSI p10/p50/p90 -81/-64/-55 SNR p10/p50 4.8/9.7 | mais fraco decodificado -86 dBm | piso pelos pacotes (rssi-snr, 0<snr<8) mediana -84
+    RUIDO N: 103 amostras | -128(0xFF, chip sem RX) 1 | 0 (SPI falhou) 0 | >-60 (TX de alguem) 0 | resto n=102 p5/p25/p50/p75/p95 = -89/-87/-87/-86/-85 dBm
+    E final: tx 99 perdi 2 preso 0 rx 27 ruim 11 relogioVoltou 3 seguro 0 pwr 10/10 sdErros None carrosAtivos None
+
+--- 104110_43.csv [mts fw 202] Gabriel gino slot 1 pwr 10 | motivo 4 PANIC (VIOLENTO) rom 0x0C seguro 0 | 0.0 min ligado, inicio 10:41Z
+    CAIXA-PRETA do boot anterior: motivo 4,rom 0x0C,seguidos 0,etapa laco,antes gps,ha 0 ms,ultimoMs 78012,tx 101,rx 27,presos 0,flushes 22,utc 38466,pwr 10,txTipo P,txHa 204 ms
+    TX completos (T) 6 | TX presos 0 | voltou de fabrica 1 | busy preso 0 | startTransmit falhou 1 | radio subiu tarde 0 | sem DIO1 0
+    RELOGIO VOLTOU 1x: 0s:16.77s(=3.998x2^26)
+    air-time medido us: min 63162 mediana 210921 max 211646
+    RX: 1 bons, 5 CRC/tamanho ruim, 0 de OUTRA sala | RSSI p10/p50/p90 -86/-86/-86 SNR p10/p50 2.2/2.2 | mais fraco decodificado -86 dBm | piso pelos pacotes (rssi-snr, 0<snr<8) mediana -88
+    RUIDO N: 6 amostras | -128(0xFF, chip sem RX) 0 | 0 (SPI falhou) 0 | >-60 (TX de alguem) 0 | resto n=6 p5/p25/p50/p75/p95 = -91/-90/-88/-88/-86 dBm
+    E final: tx 7 perdi 0 preso 0 rx 1 ruim 7 relogioVoltou 1 seguro 0 pwr 10/10 sdErros None carrosAtivos None
+    outros eventos: {'startTransmit falhou': 1, 'chip voltou de fabrica': 1}
+
+--- 104146_45.csv [mts fw 202] Gabriel gino slot 1 pwr 10 | motivo 4 PANIC (VIOLENTO) rom 0x0C seguro 1 | 0.2 min ligado, inicio 10:41Z
+    CAIXA-PRETA do boot anterior: motivo 4,rom 0x0C,seguidos 2,etapa laco,antes gps,ha 0 ms,ultimoMs 7705,tx 2,rx 0,presos 0,flushes 0,utc 38501,pwr 10,txTipo R,txHa 122 ms
+    AVISO NA TELA: 3 REINICIOS SEGUIDOS - CONFERIR O 5V DO RADIO
+    TX completos (T) 3 | TX presos 0 | voltou de fabrica 0 | busy preso 0 | startTransmit falhou 0 | radio subiu tarde 0 | sem DIO1 0
+    air-time medido us: min 211161 mediana 211350 max 211455
+    RX: 1 bons, 3 CRC/tamanho ruim, 0 de OUTRA sala | RSSI p10/p50/p90 -70/-70/-70 SNR p10/p50 6.8/6.8 | mais fraco decodificado -70 dBm | piso pelos pacotes (rssi-snr, 0<snr<8) mediana -77
+    RUIDO N: 4 amostras | -128(0xFF, chip sem RX) 0 | 0 (SPI falhou) 0 | >-60 (TX de alguem) 0 | resto n=4 p5/p25/p50/p75/p95 = -89/-89/-89/-89/-88 dBm
+    E final: tx 4 perdi 1 preso 0 rx 2 ruim 3 relogioVoltou 0 seguro 1 pwr 10/10 sdErros None carrosAtivos None
+
+--- 104219_47.csv [mts fw 202] Gabriel gino slot 1 pwr 10 | motivo 7 WDT (VIOLENTO) rom 0x10 seguro 1 | 0.8 min ligado, inicio 10:42Z
+    CAIXA-PRETA do boot anterior: motivo 7,rom 0x10,seguidos 4,etapa laco,antes gps,ha 0 ms,ultimoMs 6803,tx 4,rx 1,presos 0,flushes 0,utc 38522,pwr 10,txTipo R,txHa 25 ms
+    AVISO NA TELA: 5 REINICIOS SEGUIDOS - CONFERIR O 5V DO RADIO
+    TX completos (T) 23 | TX presos 0 | voltou de fabrica 0 | busy preso 0 | startTransmit falhou 0 | radio subiu tarde 0 | sem DIO1 0
+    air-time medido us: min 212636 mediana 213883 max 214039
+    RX: 24 bons, 0 CRC/tamanho ruim, 0 de OUTRA sala | RSSI p10/p50/p90 -63/-52/-46 SNR p10/p50 10.1/10.8 | mais fraco decodificado -69 dBm
+    RUIDO N: 23 amostras | -128(0xFF, chip sem RX) 0 | 0 (SPI falhou) 0 | >-60 (TX de alguem) 0 | resto n=23 p5/p25/p50/p75/p95 = -93/-89/-88/-87/-86 dBm
+    E final: tx 23 perdi 0 preso 0 rx 24 ruim 0 relogioVoltou 0 seguro 1 pwr 10/10 sdErros None carrosAtivos None
+
+--- boot48.csv [mts fw 202] Gabriel gino slot 1 pwr 10 | motivo 1 POWERON rom 0x01 seguro 0 | 0.5 min ligado, inicio 10:43Z
+    TX completos (T) 39 | TX presos 0 | voltou de fabrica 0 | busy preso 0 | startTransmit falhou 0 | radio subiu tarde 0 | sem DIO1 0
+    RELOGIO VOLTOU 1x: 11s:50.32s(=11.998x2^26)
+    air-time medido us: min 41080 mediana 213784 max 213798
+    RX: 24 bons, 15 CRC/tamanho ruim, 0 de OUTRA sala | RSSI p10/p50/p90 -75/-64/-59 SNR p10/p50 7.1/9.2 | mais fraco decodificado -76 dBm | piso pelos pacotes (rssi-snr, 0<snr<8) mediana -82
+    RUIDO N: 39 amostras | -128(0xFF, chip sem RX) 0 | 0 (SPI falhou) 0 | >-60 (TX de alguem) 0 | resto n=39 p5/p25/p50/p75/p95 = -95/-92/-88/-87/-86 dBm
+    E final: tx 40 perdi 0 preso 0 rx 25 ruim 15 relogioVoltou 1 seguro 0 pwr 10/10 sdErros None carrosAtivos None
+
+--- boot49.csv [mts fw 202] Gabriel gino slot 1 pwr 10 | motivo 1 POWERON rom 0x01 seguro 0 | 2.1 min ligado, inicio 10:44Z
+    TX completos (T) 1107 | TX presos 0 | voltou de fabrica 0 | busy preso 0 | startTransmit falhou 0 | radio subiu tarde 0 | sem DIO1 0
+    RELOGIO VOLTOU 1x: 6s:2231.36s(=531.998x2^26)
+    air-time medido us: min 212597 mediana 213852 max 419101
+    RX: 650 bons, 260 CRC/tamanho ruim, 0 de OUTRA sala | RSSI p10/p50/p90 -92/-76/-54 SNR p10/p50 -3.0/7.2 | mais fraco decodificado -103 dBm | piso pelos pacotes (rssi-snr, 0<snr<8) mediana -85
+    RUIDO N: 1178 amostras | -128(0xFF, chip sem RX) 0 | 0 (SPI falhou) 0 | >-60 (TX de alguem) 0 | resto n=1178 p5/p25/p50/p75/p95 = -95/-91/-89/-87/-85 dBm
+    E final: tx 1107 perdi 2 preso 0 rx 3 ruim 11 relogioVoltou 1 seguro 0 pwr 10/10 sdErros None carrosAtivos None
+
+--- 112410_50.csv [mts fw 202] Gabriel gino slot 1 pwr 10 | motivo 4 PANIC (VIOLENTO) rom 0x0C seguro 0 | 0.0 min ligado, inicio 11:24Z
+    CAIXA-PRETA do boot anterior: motivo 4,rom 0x0C,seguidos 0,etapa laco,antes gps,ha 0 ms,ultimoMs 130281,tx 1110,rx 3,presos 0,flushes 236,utc 41046,pwr 10,txTipo P,txHa 268 ms
+    TX completos (T) 15 | TX presos 0 | voltou de fabrica 1 | busy preso 0 | startTransmit falhou 1 | radio subiu tarde 0 | sem DIO1 0
+    RELOGIO VOLTOU 3x: 1s:4.19s(=0.998x2^26), 8s:16.73s(=3.989x2^26), 1s:12.53s(=2.988x2^26)
+    air-time medido us: min 11236 mediana 416781 max 418483
+    RUIDO N: 14 amostras | -128(0xFF, chip sem RX) 0 | 0 (SPI falhou) 0 | >-60 (TX de alguem) 0 | resto n=14 p5/p25/p50/p75/p95 = -90/-89/-88/-88/-87 dBm
+    E final: tx 16 perdi 0 preso 0 rx 0 ruim 0 relogioVoltou 3 seguro 0 pwr 10/10 sdErros None carrosAtivos None
+    outros eventos: {'startTransmit falhou': 1, 'chip voltou de fabrica': 1}
+
+--- 112454_51.csv [mts fw 202] Gabriel gino slot 1 pwr 10 | motivo 4 PANIC (VIOLENTO) rom 0x0C seguro 0 | 0.2 min ligado, inicio 11:24Z
+    CAIXA-PRETA do boot anterior: motivo 4,rom 0x0C,seguidos 1,etapa laco,antes gps,ha 0 ms,ultimoMs 9087,tx 19,rx 0,presos 0,flushes 4,utc 41090,pwr 10,txTipo P,txHa 17 ms
+    TX completos (T) 3 | TX presos 0 | voltou de fabrica 0 | busy preso 0 | startTransmit falhou 0 | radio subiu tarde 0 | sem DIO1 0
+    air-time medido us: min 213224 mediana 295753 max 357284
+    RUIDO N: 2 amostras | -128(0xFF, chip sem RX) 0 | 0 (SPI falhou) 0 | >-60 (TX de alguem) 0 | resto n=2 p5/p25/p50/p75/p95 = -88/-88/-88/-88/-88 dBm
+    E final: tx 2 perdi 0 preso 0 rx 0 ruim 0 relogioVoltou 0 seguro 0 pwr 10/10 sdErros None carrosAtivos None
+
+--- boot53.csv [mts fw 202] Gabriel gino slot 1 pwr 10 | motivo 1 POWERON rom 0x01 seguro 0 | 0.0 min ligado, inicio sem UTC
+    TX completos (T) 13 | TX presos 0 | voltou de fabrica 1 | busy preso 0 | startTransmit falhou 2 | radio subiu tarde 0 | sem DIO1 0
+    RELOGIO VOLTOU 4x: 1s:4.19s(=0.998x2^26), 3s:16.77s(=3.998x2^26), 0s:8.38s(=1.998x2^26), 0s:4.12s(=0.983x2^26)
+    air-time medido us: min 38394 mediana 213161 max 213854
+    RX: 10 bons, 4 CRC/tamanho ruim, 0 de OUTRA sala | RSSI p10/p50/p90 -95/-88/-84 SNR p10/p50 -8.0/-1.0 | mais fraco decodificado -96 dBm | piso pelos pacotes (rssi-snr, 0<snr<8) mediana -88
+    RUIDO N: 15 amostras | -128(0xFF, chip sem RX) 1 | 0 (SPI falhou) 0 | >-60 (TX de alguem) 0 | resto n=14 p5/p25/p50/p75/p95 = -89/-89/-88/-87/-86 dBm
+    E final: tx 1 perdi 1 preso 0 rx 10 ruim 4 relogioVoltou 4 seguro 0 pwr 14/14 sdErros None carrosAtivos None
+    outros eventos: {'startTransmit falhou': 2, 'chip voltou de fabrica': 1, 'potencia por comando': 1}
+
+--- boot55.csv [mts fw 202] Gabriel gino slot 1 pwr 14 | motivo 7 WDT (VIOLENTO) rom 0x10 seguro 1 | 0.2 min ligado, inicio 11:27Z
+    CAIXA-PRETA do boot anterior: motivo 7,rom 0x10,seguidos 2,etapa laco,antes gps,ha 0 ms,ultimoMs 299,tx 1,rx 2,presos 0,flushes 0,utc 0,pwr 14,txTipo P,txHa 0 ms
+    AVISO NA TELA: 3 REINICIOS SEGUIDOS - CONFERIR O 5V DO RADIO
+    TX completos (T) 235 | TX presos 0 | voltou de fabrica 0 | busy preso 0 | startTransmit falhou 0 | radio subiu tarde 0 | sem DIO1 0
+    RELOGIO VOLTOU 10x: 7s:67.10s(=15.998x2^26), 14s:33.55s(=7.998x2^26), 15s:16.77s(=3.998x2^26), 2s:121.63s(=28.998x2^26), 0s:20.96s(=4.998x2^26), 2s:12.57s(=2.998x2^26), 14s:33.55s(=7.998x2^26), 1s:83.88s(=19.998x2^26), 1s:33.54s(=7.996x2^26), 14s:50.32s(=11.998x2^26)
+    air-time medido us: min 72542 mediana 274803 max 418904
+    RX: 190 bons, 50 CRC/tamanho ruim, 0 de OUTRA sala | RSSI p10/p50/p90 -76/-66/-59 SNR p10/p50 6.8/9.5 | mais fraco decodificado -88 dBm | piso pelos pacotes (rssi-snr, 0<snr<8) mediana -82
+    RUIDO N: 240 amostras | -128(0xFF, chip sem RX) 0 | 0 (SPI falhou) 0 | >-60 (TX de alguem) 0 | resto n=240 p5/p25/p50/p75/p95 = -90/-89/-88/-88/-86 dBm
+    E final: tx 233 perdi 2 preso 0 rx 190 ruim 51 relogioVoltou 10 seguro 1 pwr 10/10 sdErros None carrosAtivos None
+    outros eventos: {'potencia por comando': 5}
+
+  TOTAL dados_campo/_g: boots por motivo {1 POWERON: 4, 4 PANIC: 4, 7 WDT: 2} | violentos 6 | caixas-pretas 6 | presos 0 | voltou de fabrica 3 | relogio voltou 23 | avisos 3
+  ruido fw 202 boots com TX ok: n=1622 p5/p50/p95 -94/-89/-85 dBm
+
+================ RSSI/SNR por distancia (pacotes bons, mesma sala; posicao do remetente pelo diario dele)
+         FaustoA -> Gabriel gino   104110_43.csv     100-250   m: n=   1 RSSI med  -86.0 (min -86) SNR med   2.2 (min 2.2)
+         FaustoA -> Gabriel gino   104146_45.csv       0-100   m: n=   1 RSSI med  -70.0 (min -70) SNR med   6.8 (min 6.8)
+         FaustoA -> Gabriel gino   104219_47.csv       0-100   m: n=  16 RSSI med  -51.0 (min -68) SNR med  11.0 (min 9.2)
+         FaustoA -> Gabriel gino   boot42.csv          0-100   m: n=  10 RSSI med  -61.0 (min -69) SNR med  10.0 (min 6.5)
+         FaustoA -> Gabriel gino   boot42.csv        100-250   m: n=  12 RSSI med  -77.5 (min -86) SNR med   6.2 (min -0.5)
+         FaustoA -> Gabriel gino   boot49.csv          0-100   m: n= 243 RSSI med  -63.0 (min -94) SNR med   9.8 (min -3.8)
+         FaustoA -> Gabriel gino   boot49.csv        100-250   m: n= 279 RSSI med  -79.0 (min -101) SNR med   5.0 (min -10.5)
+         FaustoA -> Gabriel gino   boot49.csv        250-400   m: n=  46 RSSI med  -90.0 (min -103) SNR med  -1.6 (min -12.0)
+         FaustoA -> Gabriel gino   boot49.csv        400-650   m: n=  16 RSSI med  -87.5 (min -100) SNR med   1.9 (min -10.5)
+         FaustoA -> Gabriel gino   boot49.csv        650-1000  m: n=   7 RSSI med  -98.0 (min -101) SNR med  -8.8 (min -12.0)
+         FaustoA -> Gabriel gino   boot49.csv       1000-99999 m: n=   3 RSSI med  -99.0 (min -103) SNR med  -8.0 (min -8.8)
+         FaustoA -> Gabriel gino   boot55.csv          0-100   m: n= 113 RSSI med  -64.0 (min -79) SNR med  10.2 (min 5.5)
+    Gabriel gino -> FaustoA        104812_489.csv    100-250   m: n=   9 RSSI med  -87.0 (min -93) SNR med  -2.8 (min -9.5)
+    Gabriel gino -> FaustoA        104926_490.csv      0-100   m: n=   6 RSSI med  -88.0 (min -95) SNR med  -2.8 (min -9.5)
+    Gabriel gino -> FaustoA        104926_490.csv    100-250   m: n=   9 RSSI med  -88.0 (min -94) SNR med  -3.5 (min -12.8)
+    Gabriel gino -> FaustoA        105110_492.csv      0-100   m: n=   2 RSSI med  -58.5 (min -59) SNR med  10.7 (min 10.5)
+    Gabriel gino -> FaustoA        105128_493.csv      0-100   m: n= 304 RSSI med  -64.0 (min -84) SNR med   9.8 (min 2.2)
+    Gabriel gino -> FaustoA        105128_493.csv    100-250   m: n= 228 RSSI med  -80.0 (min -98) SNR med   4.8 (min -12.0)
+    Gabriel gino -> FaustoA        105128_493.csv    250-400   m: n=  46 RSSI med  -90.0 (min -99) SNR med  -3.4 (min -12.8)
+    Gabriel gino -> FaustoA        105128_493.csv    400-650   m: n=  22 RSSI med  -91.5 (min -98) SNR med  -4.7 (min -11.2)
+    Gabriel gino -> FaustoA        boot488.csv         0-100   m: n=  55 RSSI med  -68.0 (min -83) SNR med   8.5 (min -2.0)
+    Gabriel gino -> FaustoA        boot488.csv       100-250   m: n=  22 RSSI med  -85.5 (min -95) SNR med  -0.8 (min -10.8)
+
+================ ENTREGA por distancia (T do remetente casado com R bom do receptor pelo seq, +-3 s)
+         FaustoA -> Gabriel gino      0-100   m: 383/429 =  89.3 %  (inclui periodos em grupos diferentes: pacote de outra sala nao conta)
+         FaustoA -> Gabriel gino    100-250   m: 285/408 =  69.9 %  (inclui periodos em grupos diferentes: pacote de outra sala nao conta)
+         FaustoA -> Gabriel gino    250-400   m: 46/125 =  36.8 %  (inclui periodos em grupos diferentes: pacote de outra sala nao conta)
+         FaustoA -> Gabriel gino    400-650   m: 16/143 =  11.2 %  (inclui periodos em grupos diferentes: pacote de outra sala nao conta)
+         FaustoA -> Gabriel gino    650-1000  m: 7/98 =   7.1 %  (inclui periodos em grupos diferentes: pacote de outra sala nao conta)
+         FaustoA -> Gabriel gino   1000-99999 m: 3/93 =   3.2 %  (inclui periodos em grupos diferentes: pacote de outra sala nao conta)
+    Gabriel gino -> FaustoA           0-100   m: 363/402 =  90.3 %  (inclui periodos em grupos diferentes: pacote de outra sala nao conta)
+    Gabriel gino -> FaustoA         100-250   m: 267/378 =  70.6 %  (inclui periodos em grupos diferentes: pacote de outra sala nao conta)
+    Gabriel gino -> FaustoA         250-400   m: 46/121 =  38.0 %  (inclui periodos em grupos diferentes: pacote de outra sala nao conta)
+    Gabriel gino -> FaustoA         400-650   m: 22/134 =  16.4 %  (inclui periodos em grupos diferentes: pacote de outra sala nao conta)
+    Gabriel gino -> FaustoA         650-1000  m: 0/90 =   0.0 %  (inclui periodos em grupos diferentes: pacote de outra sala nao conta)
+    Gabriel gino -> FaustoA        1000-99999 m: 0/88 =   0.0 %  (inclui periodos em grupos diferentes: pacote de outra sala nao conta)

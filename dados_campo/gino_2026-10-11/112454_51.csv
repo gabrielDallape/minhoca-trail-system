@@ -1,0 +1,25 @@
+# MTS fw v202 proto v3 - uma linha por evento, primeira coluna = tipo; ms desde o boot; utc = segundo do dia (0 = sem hora do GPS)
+# E,ms,utc,lat,lon,slot,sync(0 nada 1 beacon 2 pps),ancora,tx,perdi,preso,rx,ruim,conflito,rssiUlt,pwr,fix,sats,holdover,lacoPiorUs,lacoLimiteUs,seqPerdidos,ruidoUlt,ruidoMed,txAirUltUs,txAirMaxUs,rotaN,rotaPrefixo,catchups,relogioVoltou,pwrConfig,seguro,
+# R,ms,utc,slotOrigem,seq,bytes,rssi,snr,freqErrHz,crcOk,perdidosDesdeUltimo,tipo(pos/roster/crc/sala/tamanho/versao)[,flags,pontosTrilha,pontosNovosNaRota]
+# T,ms,utc,seq,tipo(P/R),bytes,airMedidoUs,usNoQuadroAoIniciar,catchup,pontos
+# N,ms,utc,rssiInstantaneo(ruido de fundo, sem pacote),slotVazioOndeMediu
+# G,ms,evento,sats,vista,ppsRun,ppsCnt,sync    !,ms,evento,...    C,ms,caixa-preta do boot anterior    V,ms,utc,versaoOuvida,slotDeclarado,bytes,rssi
+!,3335,boot,Gabriel gino,slot 1,pwr 10,motivo 4,rom 0x0C,pwrCfg 10,seguro 0,fw 202,proto 3,epoca 238,cfgv 3
+C,3335,motivo 4,rom 0x0C,seguidos 1,etapa laco,antes gps,ha 0 ms,ultimoMs 9087,tx 19,rx 0,presos 0,flushes 4,utc 41090,pwr 10,txTipo P,txHa 17 ms
+!,3336,tela,boot->inicial
+G,3369,fix ON,8,14,2,3,0
+E,3369,41094,-23.735022,-45.426277,1,0,rede,0,0,0,0,0,0,0,10,1,8,0,318213,10000,0,0,0,0,0,0,-1,0,0,10,0,0,0,0,0,0,1,0,1
+E,4375,41095,-23.735176,-45.426248,1,0,rede,0,0,0,0,0,0,0,10,1,7,0,40819,10000,0,0,0,0,0,0,-1,0,0,10,0,0,0,0,0,0,2,0,1
+!,4739,tela,inicial->trilha
+!,5065,assumi a ancora
+N,5106,41096,-88,0
+E,5379,41096,-23.735328,-45.426220,1,1,EU,0,0,0,0,0,0,0,10,1,7,0,107219,10000,0,-88,-88,0,0,0,-1,0,0,10,0,0,0,0,0,14,3,0,1
+T,5882,41097,0,P,44,295753,513312,0,4
+E,6384,41097,-23.735477,-45.426195,1,1,EU,1,0,0,0,0,0,0,10,1,7,0,101803,10000,0,-88,-88,295753,295753,0,-1,0,0,10,0,0,0,0,0,70,6,0,1
+E,7391,41098,-23.735625,-45.426169,1,1,EU,1,0,0,0,0,0,0,10,1,7,0,99674,10000,0,-88,-88,295753,295753,0,-1,0,0,10,0,0,0,0,0,85,7,0,1
+T,7799,41098,1,R,23,213224,518249,0,0
+N,8107,41098,-88,2
+E,8396,41098,-23.735625,-45.426169,1,1,EU,2,0,0,0,0,0,0,10,1,7,0,16505,10000,0,-88,-88,213224,295753,0,-1,0,0,10,0,0,0,0,0,130,10,0,1
+G,8651,pps reset,6,13,1,9,1
+E,9397,41100,-23.735914,-45.426118,1,1,EU,2,0,0,0,0,0,0,10,1,6,0,101694,10000,0,-88,-88,213224,295753,0,-1,0,0,10,0,0,0,0,0,146,11,0,1
+T,9939,41101,2,P,56,357284,516336,0,7

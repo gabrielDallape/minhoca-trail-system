@@ -1,0 +1,19 @@
+# MTS fw v200 proto v2 - uma linha por evento, primeira coluna = tipo; ms desde o boot; utc = segundo do dia (0 = sem hora do GPS)
+# E,ms,utc,lat,lon,slot,sync(0 nada 1 beacon 2 pps),ancora,tx,perdi,preso,rx,ruim,conflito,rssiUlt,pwr,fix,sats,holdover,lacoPiorUs,lacoLimiteUs,seqPerdidos,ruidoUlt,ruidoMed,txAirUltUs,txAirMaxUs,rotaN,rotaPrefixo,catchups,relogioVoltou,pwrConfig,seguro,
+# R,ms,utc,slotOrigem,seq,bytes,rssi,snr,freqErrHz,crcOk,perdidosDesdeUltimo,tipo(pos/roster/crc/sala/tamanho/versao)[,flags,pontosTrilha,pontosNovosNaRota]
+# T,ms,utc,seq,tipo(P/R),bytes,airMedidoUs,usNoQuadroAoIniciar,catchup,pontos
+# N,ms,utc,rssiInstantaneo(ruido de fundo, sem pacote),slotVazioOndeMediu
+# G,ms,evento,sats,vista,ppsRun,ppsCnt,sync    !,ms,evento,...    C,ms,caixa-preta do boot anterior    V,ms,utc,versaoOuvida,slotDeclarado,bytes,rssi
+!,3374,boot,FaustoA,slot 0,pwr 10,motivo 5,rom 0x0C,pwrCfg 10,seguro 1,fw 200,proto 2,epoca 214,cfgv 2
+C,3374,motivo 5,rom 0x0C,seguidos 40,etapa laco,antes gps,ha 0 ms,ultimoMs 921,tx 1,rx 0,presos 0,flushes 0,utc 0,pwr 10,txTipo P,txHa 125 ms
+!,3374,REINICIOS SEGUIDOS,41 REINICIOS SEGUIDOS - CONFERIR O 5V DO RADIO
+!,3375,tela,boot->inicial
+E,3409,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,338155,10000,0,0,0,0,0,0,-1,0,0,10,1,0,0,0,0,0,1,0,1
+E,4411,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,40706,10000,0,0,0,0,0,0,-1,0,0,10,1,0,0,0,0,0,2,0,1
+E,5413,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,56123,10000,0,0,0,0,0,0,-1,0,0,10,1,0,0,0,0,0,3,0,1
+E,6414,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,8719,10000,0,0,0,0,0,0,-1,0,0,10,1,0,0,0,0,0,3,0,1
+N,7110,0,-87,8
+E,7415,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,9001,10000,0,-87,-87,0,0,0,-1,0,0,10,1,0,0,0,0,0,3,0,1
+E,8415,0,-23.550500,-46.633300,0,1,EU,0,1,0,0,0,0,0,10,0,0,0,8522,10000,0,-87,-87,0,0,0,-1,0,0,10,1,0,0,0,0,0,3,0,1
+E,9419,0,-23.550500,-46.633300,0,1,EU,1,1,0,0,0,0,0,10,0,0,0,23001,10000,0,-87,-87,0,0,0,-1,0,0,10,1,0,0,0,0,0,7,0,1
+T,9706,0,0,P,24,624985,14118,0,0
