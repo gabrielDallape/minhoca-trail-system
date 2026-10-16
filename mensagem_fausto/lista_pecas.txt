@@ -1,0 +1,10 @@
+PEÇAS QUE FALTAM - 1 MTS
+
+- 1 capacitor cerâmico 10 µF (vem escrito "106"), 16 V ou mais
+- 2 resistores 10 kΩ (marrom, preto, laranja)
+- 1 antena 915 MHz tipo dipolo ou colinear, 2 a 5 dBi, conector SMA macho
+- 1 cabo de extensão SMA macho/fêmea, RG58, de 1 a 3 m (se a antena não vier com cabo)
+- 1 pigtail RG316 de uns 15 cm com conector SMA fêmea de painel
+  (o certo tem um FURO no meio; o que tem pino é RP-SMA e não serve)
+
+Para dois carros, compre o dobro.

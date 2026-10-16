@@ -1,0 +1,64 @@
+Pai,
+
+Descobri o que deu errado no domingo. Peguei os cartões de memória das duas telas e fui olhar tudo o que ficou gravado. Vou te explicar o que achei e o que a gente precisa mudar. Mandei junto um desenho (montagem.png) mostrando onde vai cada coisa.
+
+O QUE ACONTECEU
+
+Foram dois problemas ao mesmo tempo, e os dois têm a mesma causa: a antena do rádio está colada na tela, a uns 3 cm.
+
+1) As telas reiniciavam. Nos cartões, as duas telas reiniciaram 10 vezes no total, e TODAS as 10 foram no exato momento em que o rádio estava transmitindo. A tensão não caiu nenhuma vez. Então aquele aviso de "conferir o 5V" estava enganando: não era a alimentação.
+
+O que acontece é que, quando o rádio transmite, a antena joga energia de rádio para todo lado, e a tela está grudada nela. Os fios e a placa da tela pegam essa energia como se fossem antenas também, e isso bagunça o processador. Ele lê coisa errada e trava. É como alguém gritando no seu ouvido enquanto você faz uma conta.
+
+2) O sinal não chegava longe. A tela, funcionando, faz um "chiado" de rádio, que é normal e fraquinho. Mas a antena, colada nela, escuta esse chiado mais alto do que o outro carro. Medi esse chiado nos cartões: estava umas 1000 vezes acima do normal. Por isso, a partir de uns 300 a 400 metros, a gente perdia o líder. Até a 100 metros já perdia 1 em cada 10 mensagens.
+
+O QUE VAMOS MUDAR
+
+1) A ANTENA SAI DE PERTO DA TELA (é a mudança principal)
+
+A antena vai para o alto do santo-antônio, a pelo menos 1 metro da tela, ligada por um cabo coaxial com conector de rosca (SMA). Isso resolve os dois problemas de uma vez: a 1 metro, o "grito" que chega na tela fica umas 30 vezes mais fraco, e a antena para de ouvir o chiado da tela. E lá em cima ela ainda enxerga mais longe, por cima do mato e do próprio UTV.
+
+Do jeito que está hoje, a antena está soldada direto nos pinos do rádio. Vai ficar assim:
+- no pino 21 do rádio (ANT) solda o fio do meio de um cabinho coaxial fino (RG316), e a malha dele vai no pino 22 (GND);
+- esse cabinho vai até um conector SMA fêmea preso na caixa;
+- nesse conector rosqueia o cabo da antena, que sobe até o santo-antônio.
+
+Cuidado na hora de comprar o conector: tem muito "SMA" que na verdade é "RP-SMA". O certo tem um FURO no meio, não um pino. Se for o errado, rosqueia mas não funciona.
+
+Sobre a antena: como o UTV não tem teto de metal, o melhor é uma antena de 915 MHz do tipo "dipolo" ou "colinear", de 2 a 5 dBi, presa no tubo com abraçadeira. As de base magnética precisam de uma chapa de metal embaixo para funcionar direito. A antena do GPS também deve ficar longe da antena do rádio, uns 30 a 50 cm.
+
+2) DOIS RESISTORES DE 10 kΩ (marrom, preto, laranja)
+
+- Um do pino 7 do rádio (TXEN) para o GND. Este é OBRIGATÓRIO.
+- Um do pino 6 do rádio (RXEN) para o GND. Este é recomendado.
+
+Por quê: quando a tela liga, durante uns instantes esses pinos ficam "soltos", sem ninguém mandando neles. O pino 7 é o que liga o amplificador do rádio. Solto, ele pode ligar sozinho, e o rádio esquenta à toa e pode até transmitir sem querer. O resistor segura o pino no "desligado" até a tela assumir o controle. O do pino 6 faz o mesmo com o receptor. É uma peça de centavos que evita dor de cabeça.
+
+3) CAPACITORES COLADOS NO RÁDIO
+
+- O de 470 µF a gente já tem. Ele só precisa ficar bem perto dos pinos 9 e 10 do rádio (VCC), no máximo uns 1,5 cm. Se estiver lá longe, perto do step-down, não adianta nada. A perna do lado da faixa (−) vai no GND.
+- Falta um cerâmico de 10 µF (vem escrito "106"), colado nos pinos 9/10 e no GND (pino 11), a no máximo meio centímetro.
+
+Por quê: na hora em que o rádio transmite, ele puxa corrente de repente. O capacitor grande é um "estoque" de energia do lado do rádio, para a tensão não balançar. O cerâmico pequeno é mais rápido e pega os picos curtinhos que o grande não consegue pegar. É o que o próprio fabricante do rádio pede.
+
+O RESTO FICA IGUAL
+
+Os fios entre a tela e o rádio continuam exatamente nos mesmos pinos de hoje. A alimentação também: do 12 V do UTV saem o carregador USB para a tela e o step-down para o rádio. Os cartões mostraram que a alimentação não foi o problema. Só confere duas coisas:
+- a tensão do step-down do rádio, medida com o multímetro e o rádio ligado: tem que estar entre 5,0 e 5,3 V. Nunca acima de 5,5, que aí queima o rádio;
+- os dois negativos (o da tela e o do rádio) devem sair do mesmo ponto do 12 V.
+
+CUIDADOS PARA NÃO QUEIMAR NADA
+
+1. Antes de ligar o rádio, mede a saída do step-down sozinha, sem nada ligado. Esses módulos às vezes vêm de fábrica com 12 V na saída.
+2. O capacitor de 470 tem lado: faixa (−) no GND. Ao contrário, ele estoura.
+3. Sempre com a antena rosqueada antes de ligar o rádio. Rádio transmitindo sem antena pode estragar.
+4. O pino 8 do rádio não pode encostar no 9. São vizinhos, e esse curto queima o módulo. Depois de soldar, passa o multímetro em continuidade entre cada pino e os vizinhos.
+5. Os conectores da tela (P1 e P3) têm a numeração impressa invertida. Confere sempre pelo número do GPIO escrito do lado.
+
+DEPOIS DE MONTAR
+
+Antes de levar para a trilha, eu ligo as telas no computador e testo. Primeiro com a antena perto da tela, como estava, para ver o problema acontecer. Depois com a antena longe, para ver se sumiu. Se der certo, a gente faz o teste na estrada, parando de tempos em tempos para ver até onde o sinal chega.
+
+Qualquer dúvida, me chama.
+
+Gabriel
